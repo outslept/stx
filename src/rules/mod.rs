@@ -7,9 +7,14 @@ pub mod color_function_alias_notation;
 pub mod color_function_notation;
 pub mod color_hex_length;
 pub mod color_no_invalid_hex;
+pub mod comment_empty_line_before;
 pub mod comment_no_empty;
+pub mod comment_whitespace_inside;
+pub mod container_name_pattern;
+pub mod custom_media_pattern;
 pub mod custom_property_empty_line_before;
 pub mod custom_property_no_missing_var_function;
+pub mod custom_property_pattern;
 pub mod declaration_block_no_duplicate_custom_properties;
 pub mod declaration_block_no_duplicate_properties;
 pub mod declaration_block_no_redundant_longhand_properties;
@@ -30,6 +35,8 @@ pub mod import_notation;
 pub mod keyframe_block_no_duplicate_selectors;
 pub mod keyframe_declaration_no_important;
 pub mod keyframe_selector_notation;
+pub mod keyframes_name_pattern;
+pub mod layer_name_pattern;
 pub mod length_zero_no_unit;
 pub mod lightness_notation;
 pub mod media_feature_name_no_unknown;
@@ -47,10 +54,18 @@ pub mod no_irregular_whitespace;
 pub mod number_max_precision;
 pub mod property_no_unknown;
 pub mod property_no_vendor_prefix;
+pub mod rule_empty_line_before;
 pub mod selector_anb_no_unmatchable;
+pub mod selector_attribute_quotes;
+pub mod selector_class_pattern;
+pub mod selector_id_pattern;
 pub mod selector_max_id;
+pub mod selector_no_vendor_prefix;
+pub mod selector_not_notation;
 pub mod selector_pseudo_class_no_unknown;
+pub mod selector_pseudo_element_colon_notation;
 pub mod selector_pseudo_element_no_unknown;
+pub mod selector_type_case;
 pub mod selector_type_no_unknown;
 pub mod shorthand_property_no_redundant_values;
 pub mod string_no_newline;
@@ -59,7 +74,9 @@ pub mod value_keyword_case;
 pub mod value_no_vendor_prefix;
 pub mod value_utils;
 
-use crate::{config::Config, context::LintContext, diagnostic::Severity};
+use crate::{
+    config::Config, context::LintContext, diagnostic::Severity, rules::value_utils::PatternMatcher,
+};
 use oxc_css_parser::{
     ast::{
         AtRule, ComplexSelector, ComponentValue, CompoundSelector, Declaration, KeyframeBlock,
@@ -160,7 +177,35 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                 Some(Box::new(color_hex_length::ColorHexLength { mode }))
             }
             "color-no-invalid-hex" => Some(Box::new(color_no_invalid_hex::ColorNoInvalidHex)),
+            "comment-empty-line-before" => {
+                let mode = if setting.primary.as_str() == Some("never") {
+                    at_rule_empty_line_before::EmptyLineMode::Never
+                } else {
+                    at_rule_empty_line_before::EmptyLineMode::Always
+                };
+                Some(Box::new(
+                    comment_empty_line_before::CommentEmptyLineBefore { mode },
+                ))
+            }
             "comment-no-empty" => Some(Box::new(comment_no_empty::CommentNoEmpty)),
+            "comment-whitespace-inside" => {
+                let mode = if setting.primary.as_str() == Some("never") {
+                    comment_whitespace_inside::CommentWhitespaceMode::Never
+                } else {
+                    comment_whitespace_inside::CommentWhitespaceMode::Always
+                };
+                Some(Box::new(
+                    comment_whitespace_inside::CommentWhitespaceInside { mode },
+                ))
+            }
+            "container-name-pattern" => Some(Box::new(
+                container_name_pattern::ContainerNamePattern {
+                    matcher: PatternMatcher::new(setting.primary.as_str()),
+                },
+            )),
+            "custom-media-pattern" => Some(Box::new(custom_media_pattern::CustomMediaPattern {
+                matcher: PatternMatcher::new(setting.primary.as_str()),
+            })),
             "custom-property-empty-line-before" => {
                 let mode = if setting.primary.as_str() == Some("never") {
                     at_rule_empty_line_before::EmptyLineMode::Never
@@ -173,6 +218,11 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
             }
             "custom-property-no-missing-var-function" => Some(Box::new(
                 custom_property_no_missing_var_function::CustomPropertyNoMissingVarFunction,
+            )),
+            "custom-property-pattern" => Some(Box::new(
+                custom_property_pattern::CustomPropertyPattern {
+                    matcher: PatternMatcher::new(setting.primary.as_str()),
+                },
             )),
             "declaration-block-no-duplicate-custom-properties" => Some(Box::new(
                 declaration_block_no_duplicate_custom_properties::DeclarationBlockNoDuplicateCustomProperties,
@@ -282,6 +332,14 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                     keyframe_selector_notation::KeyframeSelectorNotation { mode },
                 ))
             }
+            "keyframes-name-pattern" => Some(Box::new(
+                keyframes_name_pattern::KeyframesNamePattern {
+                    matcher: PatternMatcher::new(setting.primary.as_str()),
+                },
+            )),
+            "layer-name-pattern" => Some(Box::new(layer_name_pattern::LayerNamePattern {
+                matcher: PatternMatcher::new(setting.primary.as_str()),
+            })),
             "length-zero-no-unit" => Some(Box::new(length_zero_no_unit::LengthZeroNoUnit)),
             "lightness-notation" => {
                 let mode = if setting.primary.as_str() == Some("number") {
@@ -340,19 +398,83 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
             "property-no-vendor-prefix" => {
                 Some(Box::new(property_no_vendor_prefix::PropertyNoVendorPrefix))
             }
+            "rule-empty-line-before" => {
+                let mode = match setting.primary.as_str() {
+                    Some("always") => rule_empty_line_before::RuleEmptyLineMode::Always,
+                    Some("never") => rule_empty_line_before::RuleEmptyLineMode::Never,
+                    Some("never-multi-line") => {
+                        rule_empty_line_before::RuleEmptyLineMode::NeverMultiLine
+                    }
+                    _ => rule_empty_line_before::RuleEmptyLineMode::AlwaysMultiLine,
+                };
+                Some(Box::new(rule_empty_line_before::RuleEmptyLineBefore {
+                    mode,
+                }))
+            }
             "selector-anb-no-unmatchable" => Some(Box::new(
                 selector_anb_no_unmatchable::SelectorAnbNoUnmatchable,
             )),
+            "selector-attribute-quotes" => {
+                let mode = if setting.primary.as_str() == Some("never") {
+                    function_url_quotes::UrlQuoteMode::Never
+                } else {
+                    function_url_quotes::UrlQuoteMode::Always
+                };
+                Some(Box::new(
+                    selector_attribute_quotes::SelectorAttributeQuotes { mode },
+                ))
+            }
+            "selector-class-pattern" => Some(Box::new(
+                selector_class_pattern::SelectorClassPattern {
+                    matcher: PatternMatcher::new(setting.primary.as_str()),
+                },
+            )),
+            "selector-id-pattern" => Some(Box::new(selector_id_pattern::SelectorIdPattern {
+                matcher: PatternMatcher::new(setting.primary.as_str()),
+            })),
             "selector-max-id" => {
                 let max = setting.primary.as_u64().unwrap_or(0) as usize;
                 Some(Box::new(selector_max_id::SelectorMaxId { max }))
             }
+            "selector-no-vendor-prefix" => {
+                Some(Box::new(selector_no_vendor_prefix::SelectorNoVendorPrefix))
+            }
+            "selector-not-notation" => {
+                let mode = if setting.primary.as_str() == Some("simple") {
+                    selector_not_notation::SelectorNotMode::Simple
+                } else {
+                    selector_not_notation::SelectorNotMode::Complex
+                };
+                Some(Box::new(selector_not_notation::SelectorNotNotation {
+                    mode,
+                }))
+            }
             "selector-pseudo-class-no-unknown" => Some(Box::new(
                 selector_pseudo_class_no_unknown::SelectorPseudoClassNoUnknown,
             )),
+            "selector-pseudo-element-colon-notation" => {
+                let mode = if setting.primary.as_str() == Some("single") {
+                    selector_pseudo_element_colon_notation::ColonNotationMode::Single
+                } else {
+                    selector_pseudo_element_colon_notation::ColonNotationMode::Double
+                };
+                Some(Box::new(
+                    selector_pseudo_element_colon_notation::SelectorPseudoElementColonNotation {
+                        mode,
+                    },
+                ))
+            }
             "selector-pseudo-element-no-unknown" => Some(Box::new(
                 selector_pseudo_element_no_unknown::SelectorPseudoElementNoUnknown,
             )),
+            "selector-type-case" => {
+                let mode = if setting.primary.as_str() == Some("upper") {
+                    function_name_case::CaseMode::Upper
+                } else {
+                    function_name_case::CaseMode::Lower
+                };
+                Some(Box::new(selector_type_case::SelectorTypeCase { mode }))
+            }
             "selector-type-no-unknown" => {
                 Some(Box::new(selector_type_no_unknown::SelectorTypeNoUnknown))
             }

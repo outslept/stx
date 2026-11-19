@@ -97,6 +97,7 @@ impl Config {
 
     pub fn standard_preset() -> Self {
         let mut cfg = Self::recommended_preset();
+        let kebab = "^([a-z][a-z0-9]*)(-[a-z0-9]+)*$";
         let standard_rules: &[(&str, Value)] = &[
             ("alpha-value-notation", Value::String("percentage".into())),
             ("at-rule-empty-line-before", Value::String("always".into())),
@@ -107,10 +108,15 @@ impl Config {
             ),
             ("color-function-notation", Value::String("modern".into())),
             ("color-hex-length", Value::String("short".into())),
+            ("comment-empty-line-before", Value::String("always".into())),
+            ("comment-whitespace-inside", Value::String("always".into())),
+            ("container-name-pattern", Value::String(kebab.into())),
+            ("custom-media-pattern", Value::String(kebab.into())),
             (
                 "custom-property-empty-line-before",
                 Value::String("always".into()),
             ),
+            ("custom-property-pattern", Value::String(kebab.into())),
             (
                 "declaration-block-no-redundant-longhand-properties",
                 Value::Bool(true),
@@ -135,6 +141,8 @@ impl Config {
                 "keyframe-selector-notation",
                 Value::String("percentage-unless-within-keyword-only-block".into()),
             ),
+            ("keyframes-name-pattern", Value::String(kebab.into())),
+            ("layer-name-pattern", Value::String(kebab.into())),
             ("length-zero-no-unit", Value::Bool(true)),
             ("lightness-notation", Value::String("percentage".into())),
             ("media-feature-name-no-vendor-prefix", Value::Bool(true)),
@@ -144,6 +152,20 @@ impl Config {
             ),
             ("number-max-precision", Value::Number(4.into())),
             ("property-no-vendor-prefix", Value::Bool(true)),
+            (
+                "rule-empty-line-before",
+                Value::String("always-multi-line".into()),
+            ),
+            ("selector-attribute-quotes", Value::String("always".into())),
+            ("selector-class-pattern", Value::String(kebab.into())),
+            ("selector-id-pattern", Value::String(kebab.into())),
+            ("selector-no-vendor-prefix", Value::Bool(true)),
+            ("selector-not-notation", Value::String("complex".into())),
+            (
+                "selector-pseudo-element-colon-notation",
+                Value::String("double".into()),
+            ),
+            ("selector-type-case", Value::String("lower".into())),
             ("shorthand-property-no-redundant-values", Value::Bool(true)),
             ("value-keyword-case", Value::String("lower".into())),
             ("value-no-vendor-prefix", Value::Bool(true)),

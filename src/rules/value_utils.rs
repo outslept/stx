@@ -587,3 +587,310 @@ pub fn at_rule_prelude_span(
         end: p_end as u32,
     })
 }
+
+use regex::Regex;
+
+pub const DEFAULT_KEBAB_PATTERN: &str = "^([a-z][a-z0-9]*)(-[a-z0-9]+)*$";
+
+pub struct PatternMatcher {
+    pub raw_pattern: String,
+    regex: Option<Regex>,
+    is_default_kebab: bool,
+}
+
+impl Default for PatternMatcher {
+    fn default() -> Self {
+        Self::new(None)
+    }
+}
+
+impl PatternMatcher {
+    pub fn new(custom: Option<&str>) -> Self {
+        match custom {
+            None | Some(DEFAULT_KEBAB_PATTERN) => Self {
+                raw_pattern: DEFAULT_KEBAB_PATTERN.to_string(),
+                regex: None,
+                is_default_kebab: true,
+            },
+            Some(pat) => {
+                let normalized = normalize_js_regex(pat);
+                let regex = Regex::new(&normalized).ok();
+                Self {
+                    raw_pattern: pat.to_string(),
+                    regex,
+                    is_default_kebab: false,
+                }
+            }
+        }
+    }
+
+    pub fn is_match(&self, s: &str) -> bool {
+        if self.is_default_kebab {
+            is_kebab_case(s)
+        } else if let Some(re) = &self.regex {
+            re.is_match(s)
+        } else {
+            true
+        }
+    }
+}
+
+fn normalize_js_regex(pat: &str) -> String {
+    if pat.starts_with('/') {
+        if let Some(last_slash) = pat.rfind('/') {
+            if last_slash > 0 {
+                let body = &pat[1..last_slash];
+                let flags = &pat[last_slash + 1..];
+                if flags.contains('i') {
+                    return format!("(?i){}", body);
+                }
+                return body.to_string();
+            }
+        }
+    }
+    pat.to_string()
+}
+
+pub fn is_kebab_case(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    if bytes.is_empty() || !bytes[0].is_ascii_lowercase() || bytes[bytes.len() - 1] == b'-' {
+        return false;
+    }
+    let mut prev_hyphen = false;
+    for &b in bytes {
+        if b == b'-' {
+            if prev_hyphen {
+                return false;
+            }
+            prev_hyphen = true;
+        } else if b.is_ascii_lowercase() || b.is_ascii_digit() {
+            prev_hyphen = false;
+        } else {
+            return false;
+        }
+    }
+    true
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SelectorItemKind {
+    Type,
+    Class,
+    Id,
+    PseudoClass {
+        colon_span: Span,
+    },
+    PseudoElement {
+        colon_span: Span,
+        single_colon: bool,
+    },
+    Attribute {
+        inner_span: Span,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct ScannedSelectorItem<'a> {
+    pub kind: SelectorItemKind,
+    pub name: &'a str,
+    pub span: Span,
+}
+
+pub fn scan_selector_items<'a>(source: &'a str, list_span: Span) -> Vec<ScannedSelectorItem<'a>> {
+    let start = list_span.start as usize;
+    let end = (list_span.end as usize).min(source.len());
+    if start >= end {
+        return Vec::new();
+    }
+
+    let bytes = source.as_bytes();
+    let mut i = start;
+    let mut items = Vec::new();
+
+    const LEGACY_PSEUDO_ELEMENTS: &[&str] = &["before", "after", "first-letter", "first-line"];
+
+    while i < end {
+        let b = bytes[i];
+
+        if b.is_ascii_whitespace()
+            || matches!(
+                b,
+                b'>' | b'+' | b'~' | b',' | b'(' | b')' | b'*' | b'&' | b'|'
+            )
+        {
+            i += 1;
+            continue;
+        }
+
+        if b == b'/' && i + 1 < end && bytes[i + 1] == b'*' {
+            i += 2;
+            while i + 1 < end && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                i += 1;
+            }
+            i = (i + 2).min(end);
+            continue;
+        }
+
+        if b == b'"' || b == b'\'' {
+            let q = b;
+            i += 1;
+            while i < end {
+                if bytes[i] == b'\\' {
+                    i = (i + 2).min(end);
+                    continue;
+                }
+                if bytes[i] == q {
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            continue;
+        }
+
+        if b == b'[' {
+            let attr_start = i;
+            i += 1;
+            let inner_start = i;
+            let mut in_quote: Option<u8> = None;
+            while i < end {
+                if let Some(q) = in_quote {
+                    if bytes[i] == b'\\' {
+                        i = (i + 2).min(end);
+                        continue;
+                    }
+                    if bytes[i] == q {
+                        in_quote = None;
+                    }
+                    i += 1;
+                    continue;
+                }
+                if bytes[i] == b'"' || bytes[i] == b'\'' {
+                    in_quote = Some(bytes[i]);
+                    i += 1;
+                    continue;
+                }
+                if bytes[i] == b']' {
+                    break;
+                }
+                i += 1;
+            }
+            let inner_end = i;
+            if i < end && bytes[i] == b']' {
+                i += 1;
+            }
+            items.push(ScannedSelectorItem {
+                kind: SelectorItemKind::Attribute {
+                    inner_span: Span {
+                        start: inner_start as u32,
+                        end: inner_end as u32,
+                    },
+                },
+                name: &source[inner_start..inner_end],
+                span: Span {
+                    start: attr_start as u32,
+                    end: i as u32,
+                },
+            });
+            continue;
+        }
+
+        if b == b'.' || b == b'#' {
+            let prefix = b;
+            let tok_start = i;
+            i += 1;
+            let name_start = i;
+            while i < end && is_ident_char_byte(bytes[i]) {
+                i += 1;
+            }
+            if i > name_start {
+                items.push(ScannedSelectorItem {
+                    kind: if prefix == b'.' {
+                        SelectorItemKind::Class
+                    } else {
+                        SelectorItemKind::Id
+                    },
+                    name: &source[name_start..i],
+                    span: Span {
+                        start: tok_start as u32,
+                        end: i as u32,
+                    },
+                });
+            }
+            continue;
+        }
+
+        if b == b':' {
+            let colon_start = i;
+            i += 1;
+            let is_double = i < end && bytes[i] == b':';
+            if is_double {
+                i += 1;
+            }
+            let colon_end = i;
+            let name_start = i;
+            while i < end && is_ident_char_byte(bytes[i]) {
+                i += 1;
+            }
+            if i > name_start {
+                let name = &source[name_start..i];
+                let colon_span = Span {
+                    start: colon_start as u32,
+                    end: colon_end as u32,
+                };
+                let full_span = Span {
+                    start: colon_start as u32,
+                    end: i as u32,
+                };
+                if is_double
+                    || LEGACY_PSEUDO_ELEMENTS
+                        .iter()
+                        .any(|pe| pe.eq_ignore_ascii_case(name))
+                {
+                    items.push(ScannedSelectorItem {
+                        kind: SelectorItemKind::PseudoElement {
+                            colon_span,
+                            single_colon: !is_double,
+                        },
+                        name,
+                        span: full_span,
+                    });
+                } else {
+                    items.push(ScannedSelectorItem {
+                        kind: SelectorItemKind::PseudoClass { colon_span },
+                        name,
+                        span: full_span,
+                    });
+                }
+            }
+            continue;
+        }
+
+        if is_ident_start_byte(b) || b == b'-' {
+            let tok_start = i;
+            i += 1;
+            while i < end && is_ident_char_byte(bytes[i]) {
+                i += 1;
+            }
+            let name = &source[tok_start..i];
+            items.push(ScannedSelectorItem {
+                kind: SelectorItemKind::Type,
+                name,
+                span: Span {
+                    start: tok_start as u32,
+                    end: i as u32,
+                },
+            });
+            continue;
+        }
+
+        let ch_len = source[i..end]
+            .chars()
+            .next()
+            .map(|c| c.len_utf8())
+            .unwrap_or(1);
+        i += ch_len;
+    }
+
+    items
+}
