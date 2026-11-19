@@ -104,11 +104,20 @@ impl Config {
     pub fn recommended_preset() -> Self {
         let mut cfg = Self::default();
         for name in [
+            "at-rule-no-unknown",
             "block-no-empty",
             "comment-no-empty",
             "no-empty-source",
             "color-no-invalid-hex",
+            "declaration-block-no-duplicate-custom-properties",
+            "declaration-block-no-duplicate-properties",
+            "declaration-block-no-shorthand-property-overrides",
+            "keyframe-block-no-duplicate-selectors",
             "keyframe-declaration-no-important",
+            "no-duplicate-at-import-rules",
+            "no-invalid-position-at-import-rules",
+            "no-invalid-position-at-import-rule",
+            "no-invalid-position-declaration",
         ] {
             cfg.enable(name, Value::Bool(true));
         }
