@@ -1,6 +1,8 @@
+use crate::fix::Fix;
 use oxc_css_parser::Span;
 use serde::Serialize;
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
     Error,
@@ -22,6 +24,7 @@ pub struct Diagnostic {
     pub severity: Severity,
     pub span: Span,
     pub message: String,
+    pub fix: Option<Fix>,
 }
 
 #[derive(Debug, Serialize)]

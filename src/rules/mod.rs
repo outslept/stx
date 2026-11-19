@@ -1,4 +1,5 @@
 pub mod block_no_empty;
+pub mod color_hex_length;
 pub mod color_no_invalid_hex;
 pub mod comment_no_empty;
 pub mod declaration_no_important;
@@ -44,6 +45,9 @@ pub fn default_rules() -> Vec<Box<dyn Rule>> {
         Box::new(declaration_no_important::DeclarationNoImportant),
         Box::new(keyframe_declaration_no_important::KeyframeDeclarationNoImportant),
         Box::new(color_no_invalid_hex::ColorNoInvalidHex),
+        Box::new(color_hex_length::ColorHexLength {
+            mode: color_hex_length::HexLengthMode::Short,
+        }),
         Box::new(selector_max_id::SelectorMaxId { max: 0 }),
     ]
 }

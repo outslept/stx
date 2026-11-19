@@ -1,5 +1,7 @@
 use crate::{
     diagnostic::{Diagnostic, Severity, StylelintWarning},
+    disable::DisableDirectives,
+    fix::Fix,
     line_index::LineIndex,
 };
 use oxc_css_parser::{
@@ -8,6 +10,7 @@ use oxc_css_parser::{
     token::Comment,
 };
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub enum AstParent<'a> {
     QualifiedRule(&'a QualifiedRule<'a>),
@@ -17,11 +20,13 @@ pub enum AstParent<'a> {
     Declaration(&'a Declaration<'a>),
 }
 
+#[allow(dead_code)]
 pub struct LintContext<'a> {
     pub source: &'a str,
     pub stylesheet: &'a Stylesheet<'a>,
     pub comments: &'a [Comment<'a>],
     pub line_index: &'a LineIndex,
+    pub disables: &'a DisableDirectives,
     pub ancestry: Vec<AstParent<'a>>,
     diagnostics: Vec<Diagnostic>,
 }
@@ -32,12 +37,14 @@ impl<'a> LintContext<'a> {
         stylesheet: &'a Stylesheet<'a>,
         comments: &'a [Comment<'a>],
         line_index: &'a LineIndex,
+        disables: &'a DisableDirectives,
     ) -> Self {
         Self {
             source,
             stylesheet,
             comments,
             line_index,
+            disables,
             ancestry: Vec::with_capacity(32),
             diagnostics: Vec::new(),
         }
@@ -63,12 +70,35 @@ impl<'a> LintContext<'a> {
     }
 
     pub fn report(&mut self, rule: &'static str, span: Span, message: String) {
+        self.report_with_fix(rule, span, message, None);
+    }
+
+    pub fn report_with_fix(
+        &mut self,
+        rule: &'static str,
+        span: Span,
+        message: String,
+        fix: Option<Fix>,
+    ) {
+        let (line, _) = self.line_index.line_col(self.source, span.start);
+        if self.disables.is_suppressed(rule, line) {
+            return;
+        }
+
         self.diagnostics.push(Diagnostic {
             rule,
             severity: Severity::Error,
             span,
             message,
+            fix,
         });
+    }
+
+    pub fn take_fixes(&mut self) -> Vec<Fix> {
+        self.diagnostics
+            .iter_mut()
+            .filter_map(|d| d.fix.take())
+            .collect()
     }
 
     pub fn into_warnings(self) -> Vec<StylelintWarning> {
