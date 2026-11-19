@@ -97,7 +97,29 @@ impl Config {
 
     pub fn standard_preset() -> Self {
         let mut cfg = Self::recommended_preset();
-        cfg.enable("color-hex-length", Value::String("short".into()));
+        let standard_rules: &[(&str, Value)] = &[
+            ("alpha-value-notation", Value::String("percentage".into())),
+            (
+                "color-function-alias-notation",
+                Value::String("without-alpha".into()),
+            ),
+            ("color-function-notation", Value::String("modern".into())),
+            ("color-hex-length", Value::String("short".into())),
+            ("hue-degree-notation", Value::String("angle".into())),
+            ("length-zero-no-unit", Value::Bool(true)),
+            ("lightness-notation", Value::String("percentage".into())),
+            ("number-max-precision", Value::Number(4.into())),
+        ];
+        for (name, primary) in standard_rules {
+            cfg.rules.insert(
+                (*name).to_string(),
+                Some(RuleSetting {
+                    primary: primary.clone(),
+                    secondary: None,
+                    severity: Severity::Error,
+                }),
+            );
+        }
         cfg
     }
 
