@@ -175,8 +175,8 @@ impl Rule for FunctionUrlQuotes {
     }
 
     fn check_at_rule<'a>(&self, at_rule: &'a AtRule<'a>, ctx: &mut LintContext<'a>) {
-        if let Some(prelude) = &at_rule.prelude {
-            self.scan_span_for_urls(prelude.span, ctx);
+        if let Some(p_span) = crate::rules::value_utils::at_rule_prelude_span(ctx.source, at_rule) {
+            self.scan_span_for_urls(p_span, ctx);
         }
     }
 }

@@ -341,3 +341,249 @@ fn is_ident_start_byte(b: u8) -> bool {
 fn is_ident_char_byte(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b >= 0x80
 }
+
+use oxc_css_parser::token::Comment;
+
+#[derive(Debug, Clone)]
+pub struct PreceedingGapInfo {
+    pub is_first_in_file: bool,
+    pub is_first_nested: bool,
+    pub after_comment: bool,
+    pub newline_count: usize,
+    pub prev_statement_head: String,
+    pub prev_was_block: bool,
+    pub indent_start: u32,
+    pub gap_start: u32,
+    pub indent_slice: String,
+}
+
+pub fn analyze_preceding_gap(
+    source: &str,
+    comments: &[Comment<'_>],
+    node_start: u32,
+) -> PreceedingGapInfo {
+    let start = (node_start as usize).min(source.len());
+    let bytes = source.as_bytes();
+
+    let mut indent_start = start;
+    while indent_start > 0 && (bytes[indent_start - 1] == b' ' || bytes[indent_start - 1] == b'\t')
+    {
+        indent_start -= 1;
+    }
+    let indent_slice = source[indent_start..start].to_string();
+
+    let mut gap_start = start;
+    let mut newline_count = 0usize;
+    while gap_start > 0 && bytes[gap_start - 1].is_ascii_whitespace() {
+        gap_start -= 1;
+        if bytes[gap_start] == b'\n' {
+            newline_count += 1;
+        }
+    }
+
+    if gap_start == 0 {
+        return PreceedingGapInfo {
+            is_first_in_file: true,
+            is_first_nested: false,
+            after_comment: false,
+            newline_count,
+            prev_statement_head: String::new(),
+            prev_was_block: false,
+            indent_start: indent_start as u32,
+            gap_start: 0,
+            indent_slice,
+        };
+    }
+
+    let after_comment = comments.iter().any(|c| c.span.end as usize == gap_start);
+
+    let last_char = bytes[gap_start - 1];
+    let is_first_nested = last_char == b'{';
+    let prev_was_block = last_char == b'}';
+
+    let mut prev_statement_head = String::new();
+    if last_char == b';' {
+        let mut scan = gap_start - 1;
+        let mut paren_depth = 0usize;
+        while scan > 0 {
+            let b = bytes[scan - 1];
+            if b == b')' {
+                paren_depth += 1;
+            } else if b == b'(' {
+                paren_depth = paren_depth.saturating_sub(1);
+            } else if paren_depth == 0 && (b == b';' || b == b'{' || b == b'}') {
+                break;
+            }
+            scan -= 1;
+        }
+        let stmt_slice = source[scan..gap_start - 1].trim();
+        prev_statement_head = stmt_slice
+            .split(|c: char| c.is_ascii_whitespace() || c == ':' || c == '(')
+            .next()
+            .unwrap_or("")
+            .to_string();
+    }
+
+    PreceedingGapInfo {
+        is_first_in_file: false,
+        is_first_nested,
+        after_comment,
+        newline_count,
+        prev_statement_head,
+        prev_was_block,
+        indent_start: indent_start as u32,
+        gap_start: gap_start as u32,
+        indent_slice,
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ScannedDecl<'a> {
+    pub prop: &'a str,
+    pub important: bool,
+    pub span: Span,
+}
+
+pub fn scan_direct_declarations<'a>(source: &'a str, block_span: Span) -> Vec<ScannedDecl<'a>> {
+    let start = (block_span.start as usize + 1).min(source.len());
+    let end = (block_span.end as usize)
+        .saturating_sub(1)
+        .min(source.len());
+    if start >= end {
+        return Vec::new();
+    }
+
+    let bytes = source.as_bytes();
+    let mut i = start;
+    let mut stmt_start = start;
+    let mut brace_depth = 0usize;
+    let mut paren_depth = 0usize;
+    let mut decls = Vec::new();
+
+    while i < end {
+        let b = bytes[i];
+
+        if b == b'/' && i + 1 < end && bytes[i + 1] == b'*' {
+            i += 2;
+            while i + 1 < end && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                i += 1;
+            }
+            i = (i + 2).min(end);
+            continue;
+        }
+
+        if b == b'"' || b == b'\'' {
+            let q = b;
+            i += 1;
+            while i < end {
+                if bytes[i] == b'\\' {
+                    i = (i + 2).min(end);
+                    continue;
+                }
+                if bytes[i] == q {
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            continue;
+        }
+
+        match b {
+            b'(' => {
+                paren_depth += 1;
+                i += 1;
+            }
+            b')' => {
+                paren_depth = paren_depth.saturating_sub(1);
+                i += 1;
+            }
+            b'{' if paren_depth == 0 => {
+                brace_depth += 1;
+                i += 1;
+            }
+            b'}' if paren_depth == 0 => {
+                brace_depth = brace_depth.saturating_sub(1);
+                i += 1;
+                if brace_depth == 0 {
+                    stmt_start = i;
+                }
+            }
+            b';' if brace_depth == 0 && paren_depth == 0 => {
+                if let Some(d) = parse_scanned_decl(source, stmt_start, i + 1) {
+                    decls.push(d);
+                }
+                i += 1;
+                stmt_start = i;
+            }
+            _ => i += 1,
+        }
+    }
+
+    if brace_depth == 0 && paren_depth == 0 && stmt_start < end {
+        if let Some(d) = parse_scanned_decl(source, stmt_start, end) {
+            decls.push(d);
+        }
+    }
+
+    decls
+}
+
+fn parse_scanned_decl<'a>(source: &'a str, start: usize, end: usize) -> Option<ScannedDecl<'a>> {
+    let raw = &source[start..end];
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.starts_with('@') || trimmed.starts_with("/*") {
+        return None;
+    }
+    let offset = raw.find(trimmed)?;
+    let decl_start = start + offset;
+    let decl_end = decl_start + trimmed.len();
+    let colon_pos = trimmed.find(':')?;
+    let prop = trimmed[..colon_pos].trim();
+    if prop.is_empty()
+        || prop.contains(char::is_whitespace)
+        || prop.contains('{')
+        || prop.contains('}')
+    {
+        return None;
+    }
+    let val_part = trimmed[colon_pos + 1..].trim_end_matches(';').trim();
+    let important = val_part.to_ascii_lowercase().ends_with("!important");
+    Some(ScannedDecl {
+        prop,
+        important,
+        span: Span {
+            start: decl_start as u32,
+            end: decl_end as u32,
+        },
+    })
+}
+
+pub fn at_rule_prelude_span(
+    source: &str,
+    at_rule: &oxc_css_parser::ast::AtRule<'_>,
+) -> Option<Span> {
+    let start = at_rule.name.span.end as usize;
+    let raw_end = match &at_rule.block {
+        Some(b) => b.span.start as usize,
+        None => at_rule.span.end as usize,
+    }
+    .min(source.len());
+    if start >= raw_end {
+        return None;
+    }
+    let slice = &source[start..raw_end];
+    let trimmed = slice
+        .trim_end_matches(|c: char| c.is_ascii_whitespace() || c == ';')
+        .trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let offset = slice.find(trimmed)?;
+    let p_start = start + offset;
+    let p_end = p_start + trimmed.len();
+    Some(Span {
+        start: p_start as u32,
+        end: p_end as u32,
+    })
+}

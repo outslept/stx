@@ -66,7 +66,6 @@ impl Rule for ShorthandPropertyNoRedundantValues {
         let mut parts: Vec<&str> = Vec::new();
         let mut depth = 0usize;
         let mut group_start: Option<u32> = None;
-        let mut group_end: u32 = 0;
 
         for tok in &tokens {
             match tok.kind {
@@ -76,23 +75,19 @@ impl Rule for ShorthandPropertyNoRedundantValues {
                         group_start = Some(tok.span.start);
                     }
                     depth += 1;
-                    group_end = tok.span.end;
                 }
                 ValueTokenKind::CloseParen => {
                     depth = depth.saturating_sub(1);
-                    group_end = tok.span.end;
                     if depth == 0 {
                         if let Some(s) = group_start.take() {
-                            parts.push(&ctx.source[s as usize..group_end as usize]);
+                            parts.push(&ctx.source[s as usize..tok.span.end as usize]);
                         }
                     }
                 }
                 _ if depth == 0 => {
                     parts.push(tok.raw);
                 }
-                _ => {
-                    group_end = tok.span.end;
-                }
+                _ => {}
             }
         }
 

@@ -1,15 +1,21 @@
 pub mod alpha_value_notation;
+pub mod at_rule_empty_line_before;
 pub mod at_rule_no_unknown;
+pub mod at_rule_no_vendor_prefix;
 pub mod block_no_empty;
 pub mod color_function_alias_notation;
 pub mod color_function_notation;
 pub mod color_hex_length;
 pub mod color_no_invalid_hex;
 pub mod comment_no_empty;
+pub mod custom_property_empty_line_before;
 pub mod custom_property_no_missing_var_function;
 pub mod declaration_block_no_duplicate_custom_properties;
 pub mod declaration_block_no_duplicate_properties;
+pub mod declaration_block_no_redundant_longhand_properties;
 pub mod declaration_block_no_shorthand_property_overrides;
+pub mod declaration_block_single_line_max_declarations;
+pub mod declaration_empty_line_before;
 pub mod declaration_no_important;
 pub mod font_family_name_quotes;
 pub mod font_family_no_duplicate_names;
@@ -20,11 +26,15 @@ pub mod function_name_case;
 pub mod function_no_unknown;
 pub mod function_url_quotes;
 pub mod hue_degree_notation;
+pub mod import_notation;
 pub mod keyframe_block_no_duplicate_selectors;
 pub mod keyframe_declaration_no_important;
+pub mod keyframe_selector_notation;
 pub mod length_zero_no_unit;
 pub mod lightness_notation;
 pub mod media_feature_name_no_unknown;
+pub mod media_feature_name_no_vendor_prefix;
+pub mod media_feature_range_notation;
 pub mod named_grid_areas_no_invalid;
 pub mod no_descending_specificity;
 pub mod no_duplicate_at_import_rules;
@@ -36,6 +46,7 @@ pub mod no_invalid_position_declaration;
 pub mod no_irregular_whitespace;
 pub mod number_max_precision;
 pub mod property_no_unknown;
+pub mod property_no_vendor_prefix;
 pub mod selector_anb_no_unmatchable;
 pub mod selector_max_id;
 pub mod selector_pseudo_class_no_unknown;
@@ -105,7 +116,20 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                 };
                 Some(Box::new(alpha_value_notation::AlphaValueNotation { mode }))
             }
+            "at-rule-empty-line-before" => {
+                let mode = if setting.primary.as_str() == Some("never") {
+                    at_rule_empty_line_before::EmptyLineMode::Never
+                } else {
+                    at_rule_empty_line_before::EmptyLineMode::Always
+                };
+                Some(Box::new(at_rule_empty_line_before::AtRuleEmptyLineBefore {
+                    mode,
+                }))
+            }
             "at-rule-no-unknown" => Some(Box::new(at_rule_no_unknown::AtRuleNoUnknown)),
+            "at-rule-no-vendor-prefix" => {
+                Some(Box::new(at_rule_no_vendor_prefix::AtRuleNoVendorPrefix))
+            }
             "block-no-empty" => Some(Box::new(block_no_empty::BlockNoEmpty)),
             "color-function-alias-notation" => {
                 let mode = if setting.primary.as_str() == Some("with-alpha") {
@@ -137,6 +161,16 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
             }
             "color-no-invalid-hex" => Some(Box::new(color_no_invalid_hex::ColorNoInvalidHex)),
             "comment-no-empty" => Some(Box::new(comment_no_empty::CommentNoEmpty)),
+            "custom-property-empty-line-before" => {
+                let mode = if setting.primary.as_str() == Some("never") {
+                    at_rule_empty_line_before::EmptyLineMode::Never
+                } else {
+                    at_rule_empty_line_before::EmptyLineMode::Always
+                };
+                Some(Box::new(
+                    custom_property_empty_line_before::CustomPropertyEmptyLineBefore { mode },
+                ))
+            }
             "custom-property-no-missing-var-function" => Some(Box::new(
                 custom_property_no_missing_var_function::CustomPropertyNoMissingVarFunction,
             )),
@@ -146,9 +180,28 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
             "declaration-block-no-duplicate-properties" => Some(Box::new(
                 declaration_block_no_duplicate_properties::DeclarationBlockNoDuplicateProperties,
             )),
+            "declaration-block-no-redundant-longhand-properties" => Some(Box::new(
+                declaration_block_no_redundant_longhand_properties::DeclarationBlockNoRedundantLonghandProperties,
+            )),
             "declaration-block-no-shorthand-property-overrides" => Some(Box::new(
                 declaration_block_no_shorthand_property_overrides::DeclarationBlockNoShorthandPropertyOverrides,
             )),
+            "declaration-block-single-line-max-declarations" => {
+                let max = setting.primary.as_u64().unwrap_or(1) as usize;
+                Some(Box::new(
+                    declaration_block_single_line_max_declarations::DeclarationBlockSingleLineMaxDeclarations { max },
+                ))
+            }
+            "declaration-empty-line-before" => {
+                let mode = if setting.primary.as_str() == Some("never") {
+                    at_rule_empty_line_before::EmptyLineMode::Never
+                } else {
+                    at_rule_empty_line_before::EmptyLineMode::Always
+                };
+                Some(Box::new(
+                    declaration_empty_line_before::DeclarationEmptyLineBefore { mode },
+                ))
+            }
             "declaration-no-important" => {
                 Some(Box::new(declaration_no_important::DeclarationNoImportant))
             }
@@ -203,12 +256,32 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                 };
                 Some(Box::new(hue_degree_notation::HueDegreeNotation { mode }))
             }
+            "import-notation" => {
+                let mode = if setting.primary.as_str() == Some("string") {
+                    import_notation::ImportNotationMode::String
+                } else {
+                    import_notation::ImportNotationMode::Url
+                };
+                Some(Box::new(import_notation::ImportNotation { mode }))
+            }
             "keyframe-block-no-duplicate-selectors" => Some(Box::new(
                 keyframe_block_no_duplicate_selectors::KeyframeBlockNoDuplicateSelectors,
             )),
             "keyframe-declaration-no-important" => Some(Box::new(
                 keyframe_declaration_no_important::KeyframeDeclarationNoImportant,
             )),
+            "keyframe-selector-notation" => {
+                let mode = match setting.primary.as_str() {
+                    Some("percentage") => {
+                        keyframe_selector_notation::KeyframeSelectorMode::Percentage
+                    }
+                    Some("keyword") => keyframe_selector_notation::KeyframeSelectorMode::Keyword,
+                    _ => keyframe_selector_notation::KeyframeSelectorMode::PercentageUnlessWithinKeywordOnlyBlock,
+                };
+                Some(Box::new(
+                    keyframe_selector_notation::KeyframeSelectorNotation { mode },
+                ))
+            }
             "length-zero-no-unit" => Some(Box::new(length_zero_no_unit::LengthZeroNoUnit)),
             "lightness-notation" => {
                 let mode = if setting.primary.as_str() == Some("number") {
@@ -221,6 +294,19 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
             "media-feature-name-no-unknown" => Some(Box::new(
                 media_feature_name_no_unknown::MediaFeatureNameNoUnknown,
             )),
+            "media-feature-name-no-vendor-prefix" => Some(Box::new(
+                media_feature_name_no_vendor_prefix::MediaFeatureNameNoVendorPrefix,
+            )),
+            "media-feature-range-notation" => {
+                let mode = if setting.primary.as_str() == Some("prefix") {
+                    media_feature_range_notation::MediaRangeMode::Prefix
+                } else {
+                    media_feature_range_notation::MediaRangeMode::Context
+                };
+                Some(Box::new(
+                    media_feature_range_notation::MediaFeatureRangeNotation { mode },
+                ))
+            }
             "named-grid-areas-no-invalid" => Some(Box::new(
                 named_grid_areas_no_invalid::NamedGridAreasNoInvalid,
             )),
@@ -251,6 +337,9 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                 Some(Box::new(number_max_precision::NumberMaxPrecision { max }))
             }
             "property-no-unknown" => Some(Box::new(property_no_unknown::PropertyNoUnknown)),
+            "property-no-vendor-prefix" => {
+                Some(Box::new(property_no_vendor_prefix::PropertyNoVendorPrefix))
+            }
             "selector-anb-no-unmatchable" => Some(Box::new(
                 selector_anb_no_unmatchable::SelectorAnbNoUnmatchable,
             )),

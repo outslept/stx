@@ -99,6 +99,8 @@ impl Config {
         let mut cfg = Self::recommended_preset();
         let standard_rules: &[(&str, Value)] = &[
             ("alpha-value-notation", Value::String("percentage".into())),
+            ("at-rule-empty-line-before", Value::String("always".into())),
+            ("at-rule-no-vendor-prefix", Value::Bool(true)),
             (
                 "color-function-alias-notation",
                 Value::String("without-alpha".into()),
@@ -106,15 +108,42 @@ impl Config {
             ("color-function-notation", Value::String("modern".into())),
             ("color-hex-length", Value::String("short".into())),
             (
+                "custom-property-empty-line-before",
+                Value::String("always".into()),
+            ),
+            (
+                "declaration-block-no-redundant-longhand-properties",
+                Value::Bool(true),
+            ),
+            (
+                "declaration-block-single-line-max-declarations",
+                Value::Number(1.into()),
+            ),
+            (
+                "declaration-empty-line-before",
+                Value::String("always".into()),
+            ),
+            (
                 "font-family-name-quotes",
                 Value::String("always-where-recommended".into()),
             ),
             ("function-name-case", Value::String("lower".into())),
             ("function-url-quotes", Value::String("always".into())),
             ("hue-degree-notation", Value::String("angle".into())),
+            ("import-notation", Value::String("url".into())),
+            (
+                "keyframe-selector-notation",
+                Value::String("percentage-unless-within-keyword-only-block".into()),
+            ),
             ("length-zero-no-unit", Value::Bool(true)),
             ("lightness-notation", Value::String("percentage".into())),
+            ("media-feature-name-no-vendor-prefix", Value::Bool(true)),
+            (
+                "media-feature-range-notation",
+                Value::String("context".into()),
+            ),
             ("number-max-precision", Value::Number(4.into())),
+            ("property-no-vendor-prefix", Value::Bool(true)),
             ("shorthand-property-no-redundant-values", Value::Bool(true)),
             ("value-keyword-case", Value::String("lower".into())),
             ("value-no-vendor-prefix", Value::Bool(true)),
