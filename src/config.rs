@@ -105,10 +105,19 @@ impl Config {
             ),
             ("color-function-notation", Value::String("modern".into())),
             ("color-hex-length", Value::String("short".into())),
+            (
+                "font-family-name-quotes",
+                Value::String("always-where-recommended".into()),
+            ),
+            ("function-name-case", Value::String("lower".into())),
+            ("function-url-quotes", Value::String("always".into())),
             ("hue-degree-notation", Value::String("angle".into())),
             ("length-zero-no-unit", Value::Bool(true)),
             ("lightness-notation", Value::String("percentage".into())),
             ("number-max-precision", Value::Number(4.into())),
+            ("shorthand-property-no-redundant-values", Value::Bool(true)),
+            ("value-keyword-case", Value::String("lower".into())),
+            ("value-no-vendor-prefix", Value::Bool(true)),
         ];
         for (name, primary) in standard_rules {
             cfg.rules.insert(

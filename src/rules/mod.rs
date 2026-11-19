@@ -11,11 +11,14 @@ pub mod declaration_block_no_duplicate_custom_properties;
 pub mod declaration_block_no_duplicate_properties;
 pub mod declaration_block_no_shorthand_property_overrides;
 pub mod declaration_no_important;
+pub mod font_family_name_quotes;
 pub mod font_family_no_duplicate_names;
 pub mod font_family_no_missing_generic_family_keyword;
 pub mod function_calc_no_unspaced_operator;
 pub mod function_linear_gradient_no_nonstandard_direction;
+pub mod function_name_case;
 pub mod function_no_unknown;
+pub mod function_url_quotes;
 pub mod hue_degree_notation;
 pub mod keyframe_block_no_duplicate_selectors;
 pub mod keyframe_declaration_no_important;
@@ -38,8 +41,11 @@ pub mod selector_max_id;
 pub mod selector_pseudo_class_no_unknown;
 pub mod selector_pseudo_element_no_unknown;
 pub mod selector_type_no_unknown;
+pub mod shorthand_property_no_redundant_values;
 pub mod string_no_newline;
 pub mod unit_no_unknown;
+pub mod value_keyword_case;
+pub mod value_no_vendor_prefix;
 pub mod value_utils;
 
 use crate::{config::Config, context::LintContext, diagnostic::Severity};
@@ -146,6 +152,20 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
             "declaration-no-important" => {
                 Some(Box::new(declaration_no_important::DeclarationNoImportant))
             }
+            "font-family-name-quotes" => {
+                let mode = match setting.primary.as_str() {
+                    Some("always-unless-keyword") => {
+                        font_family_name_quotes::FontFamilyQuoteMode::AlwaysUnlessKeyword
+                    }
+                    Some("always-where-required") => {
+                        font_family_name_quotes::FontFamilyQuoteMode::AlwaysWhereRequired
+                    }
+                    _ => font_family_name_quotes::FontFamilyQuoteMode::AlwaysWhereRecommended,
+                };
+                Some(Box::new(font_family_name_quotes::FontFamilyNameQuotes {
+                    mode,
+                }))
+            }
             "font-family-no-duplicate-names" => Some(Box::new(
                 font_family_no_duplicate_names::FontFamilyNoDuplicateNames,
             )),
@@ -158,7 +178,23 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
             "function-linear-gradient-no-nonstandard-direction" => Some(Box::new(
                 function_linear_gradient_no_nonstandard_direction::FunctionLinearGradientNoNonstandardDirection,
             )),
+            "function-name-case" => {
+                let mode = if setting.primary.as_str() == Some("upper") {
+                    function_name_case::CaseMode::Upper
+                } else {
+                    function_name_case::CaseMode::Lower
+                };
+                Some(Box::new(function_name_case::FunctionNameCase { mode }))
+            }
             "function-no-unknown" => Some(Box::new(function_no_unknown::FunctionNoUnknown)),
+            "function-url-quotes" => {
+                let mode = if setting.primary.as_str() == Some("never") {
+                    function_url_quotes::UrlQuoteMode::Never
+                } else {
+                    function_url_quotes::UrlQuoteMode::Always
+                };
+                Some(Box::new(function_url_quotes::FunctionUrlQuotes { mode }))
+            }
             "hue-degree-notation" => {
                 let mode = if setting.primary.as_str() == Some("number") {
                     hue_degree_notation::HueDegreeMode::Number
@@ -231,8 +267,31 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
             "selector-type-no-unknown" => {
                 Some(Box::new(selector_type_no_unknown::SelectorTypeNoUnknown))
             }
+            "shorthand-property-no-redundant-values" => Some(Box::new(
+                shorthand_property_no_redundant_values::ShorthandPropertyNoRedundantValues,
+            )),
             "string-no-newline" => Some(Box::new(string_no_newline::StringNoNewline)),
             "unit-no-unknown" => Some(Box::new(unit_no_unknown::UnitNoUnknown)),
+            "value-keyword-case" => {
+                let mode = if setting.primary.as_str() == Some("upper") {
+                    function_name_case::CaseMode::Upper
+                } else {
+                    function_name_case::CaseMode::Lower
+                };
+                let camel_case_svg_keywords = setting
+                    .secondary
+                    .as_ref()
+                    .and_then(|m| m.get("camelCaseSvgKeywords"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                Some(Box::new(value_keyword_case::ValueKeywordCase {
+                    mode,
+                    camel_case_svg_keywords,
+                }))
+            }
+            "value-no-vendor-prefix" => {
+                Some(Box::new(value_no_vendor_prefix::ValueNoVendorPrefix))
+            }
             _ => None,
         };
 
