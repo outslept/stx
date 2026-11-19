@@ -28,6 +28,7 @@ pub struct LintContext<'a> {
     pub line_index: &'a LineIndex,
     pub disables: &'a DisableDirectives,
     pub ancestry: Vec<AstParent<'a>>,
+    pub current_severity: Severity,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -46,6 +47,7 @@ impl<'a> LintContext<'a> {
             line_index,
             disables,
             ancestry: Vec::with_capacity(32),
+            current_severity: Severity::Error,
             diagnostics: Vec::new(),
         }
     }
@@ -87,7 +89,7 @@ impl<'a> LintContext<'a> {
 
         self.diagnostics.push(Diagnostic {
             rule,
-            severity: Severity::Error,
+            severity: self.current_severity,
             span,
             message,
             fix,
@@ -101,10 +103,11 @@ impl<'a> LintContext<'a> {
             .collect()
     }
 
-    pub fn into_warnings(self) -> Vec<StylelintWarning> {
+    pub fn into_warnings(self, quiet: bool) -> Vec<StylelintWarning> {
         let mut warnings: Vec<StylelintWarning> = self
             .diagnostics
             .into_iter()
+            .filter(|d| !quiet || d.severity == Severity::Error)
             .map(|d| {
                 let (line, column) = self.line_index.line_col(self.source, d.span.start);
                 let (end_line, end_column) = self.line_index.line_col(self.source, d.span.end);

@@ -7,8 +7,13 @@ pub mod keyframe_declaration_no_important;
 pub mod no_empty_source;
 pub mod selector_max_id;
 
-use crate::context::LintContext;
+use crate::{
+    config::{Config, RuleSetting},
+    context::LintContext,
+    diagnostic::Severity,
+};
 use oxc_css_parser::{ast::*, token::Comment};
+use serde_json::Value;
 
 pub trait Rule: Send + Sync {
     fn name(&self) -> &'static str;
@@ -37,17 +42,52 @@ pub trait Rule: Send + Sync {
     fn check_component_value<'a>(&self, _val: &'a ComponentValue<'a>, _ctx: &mut LintContext<'a>) {}
 }
 
-pub fn default_rules() -> Vec<Box<dyn Rule>> {
-    vec![
-        Box::new(block_no_empty::BlockNoEmpty),
-        Box::new(comment_no_empty::CommentNoEmpty),
-        Box::new(no_empty_source::NoEmptySource),
-        Box::new(declaration_no_important::DeclarationNoImportant),
-        Box::new(keyframe_declaration_no_important::KeyframeDeclarationNoImportant),
-        Box::new(color_no_invalid_hex::ColorNoInvalidHex),
-        Box::new(color_hex_length::ColorHexLength {
-            mode: color_hex_length::HexLengthMode::Short,
-        }),
-        Box::new(selector_max_id::SelectorMaxId { max: 0 }),
-    ]
+pub struct ConfiguredRule {
+    pub rule: Box<dyn Rule>,
+    pub severity: Severity,
+}
+
+pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
+    let mut active = Vec::new();
+
+    for (name, opt_setting) in &config.rules {
+        let Some(setting) = opt_setting else {
+            continue;
+        };
+        if let Some(rule) = instantiate_rule(name, setting) {
+            active.push(ConfiguredRule {
+                rule,
+                severity: setting.severity,
+            });
+        }
+    }
+
+    active
+}
+
+fn instantiate_rule(name: &str, setting: &RuleSetting) -> Option<Box<dyn Rule>> {
+    match name {
+        "block-no-empty" => Some(Box::new(block_no_empty::BlockNoEmpty)),
+        "comment-no-empty" => Some(Box::new(comment_no_empty::CommentNoEmpty)),
+        "no-empty-source" => Some(Box::new(no_empty_source::NoEmptySource)),
+        "declaration-no-important" => {
+            Some(Box::new(declaration_no_important::DeclarationNoImportant))
+        }
+        "keyframe-declaration-no-important" => Some(Box::new(
+            keyframe_declaration_no_important::KeyframeDeclarationNoImportant,
+        )),
+        "color-no-invalid-hex" => Some(Box::new(color_no_invalid_hex::ColorNoInvalidHex)),
+        "color-hex-length" => {
+            let mode = match setting.primary.as_str() {
+                Some("long") => color_hex_length::HexLengthMode::Long,
+                _ => color_hex_length::HexLengthMode::Short,
+            };
+            Some(Box::new(color_hex_length::ColorHexLength { mode }))
+        }
+        "selector-max-id" => {
+            let max = setting.primary.as_u64().unwrap_or(0) as usize;
+            Some(Box::new(selector_max_id::SelectorMaxId { max }))
+        }
+        _ => None,
+    }
 }

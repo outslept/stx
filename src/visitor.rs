@@ -1,27 +1,29 @@
 use crate::{
     context::{AstParent, LintContext},
-    rules::Rule,
+    rules::ConfiguredRule,
 };
 use oxc_css_parser::ast::*;
 
 pub struct SinglePassVisitor<'r, 'a> {
     ctx: &'r mut LintContext<'a>,
-    rules: &'r [Box<dyn Rule>],
+    rules: &'r [ConfiguredRule],
 }
 
 impl<'r, 'a> SinglePassVisitor<'r, 'a> {
-    pub fn new(ctx: &'r mut LintContext<'a>, rules: &'r [Box<dyn Rule>]) -> Self {
+    pub fn new(ctx: &'r mut LintContext<'a>, rules: &'r [ConfiguredRule]) -> Self {
         Self { ctx, rules }
     }
 
     pub fn visit_stylesheet(&mut self, stylesheet: &'a Stylesheet<'a>) {
-        for rule in self.rules {
-            rule.check_stylesheet(stylesheet, self.ctx);
+        for r in self.rules {
+            self.ctx.current_severity = r.severity;
+            r.rule.check_stylesheet(stylesheet, self.ctx);
         }
 
         for comment in self.ctx.comments {
-            for rule in self.rules {
-                rule.check_comment(comment, self.ctx);
+            for r in self.rules {
+                self.ctx.current_severity = r.severity;
+                r.rule.check_comment(comment, self.ctx);
             }
         }
 
@@ -32,8 +34,9 @@ impl<'r, 'a> SinglePassVisitor<'r, 'a> {
         for stmt in statements {
             match stmt {
                 Statement::QualifiedRule(qrule) => {
-                    for rule in self.rules {
-                        rule.check_qualified_rule(qrule, self.ctx);
+                    for r in self.rules {
+                        self.ctx.current_severity = r.severity;
+                        r.rule.check_qualified_rule(qrule, self.ctx);
                     }
                     self.ctx.ancestry.push(AstParent::QualifiedRule(qrule));
                     self.visit_selector_list(&qrule.selector);
@@ -41,8 +44,9 @@ impl<'r, 'a> SinglePassVisitor<'r, 'a> {
                     self.ctx.ancestry.pop();
                 }
                 Statement::AtRule(at_rule) => {
-                    for rule in self.rules {
-                        rule.check_at_rule(at_rule, self.ctx);
+                    for r in self.rules {
+                        self.ctx.current_severity = r.severity;
+                        r.rule.check_at_rule(at_rule, self.ctx);
                     }
                     self.ctx.ancestry.push(AstParent::AtRule(at_rule));
                     if let Some(block) = &at_rule.block {
@@ -51,8 +55,9 @@ impl<'r, 'a> SinglePassVisitor<'r, 'a> {
                     self.ctx.ancestry.pop();
                 }
                 Statement::KeyframeBlock(kf_block) => {
-                    for rule in self.rules {
-                        rule.check_keyframe_block(kf_block, self.ctx);
+                    for r in self.rules {
+                        self.ctx.current_severity = r.severity;
+                        r.rule.check_keyframe_block(kf_block, self.ctx);
                     }
                     self.ctx.ancestry.push(AstParent::KeyframeBlock(kf_block));
                     self.visit_simple_block(&kf_block.block);
@@ -99,8 +104,9 @@ impl<'r, 'a> SinglePassVisitor<'r, 'a> {
     }
 
     fn visit_simple_block(&mut self, block: &'a SimpleBlock<'a>) {
-        for rule in self.rules {
-            rule.check_simple_block(block, self.ctx);
+        for r in self.rules {
+            self.ctx.current_severity = r.severity;
+            r.rule.check_simple_block(block, self.ctx);
         }
         self.ctx.ancestry.push(AstParent::SimpleBlock(block));
         self.visit_statements(&block.statements);
@@ -108,8 +114,9 @@ impl<'r, 'a> SinglePassVisitor<'r, 'a> {
     }
 
     fn visit_declaration(&mut self, decl: &'a Declaration<'a>) {
-        for rule in self.rules {
-            rule.check_declaration(decl, self.ctx);
+        for r in self.rules {
+            self.ctx.current_severity = r.severity;
+            r.rule.check_declaration(decl, self.ctx);
         }
         self.ctx.ancestry.push(AstParent::Declaration(decl));
         for val in &decl.value {
@@ -119,8 +126,9 @@ impl<'r, 'a> SinglePassVisitor<'r, 'a> {
     }
 
     fn visit_selector_list(&mut self, list: &'a SelectorList<'a>) {
-        for rule in self.rules {
-            rule.check_selector_list(list, self.ctx);
+        for r in self.rules {
+            self.ctx.current_severity = r.severity;
+            r.rule.check_selector_list(list, self.ctx);
         }
         for complex in &list.selectors {
             self.visit_complex_selector(complex);
@@ -128,8 +136,9 @@ impl<'r, 'a> SinglePassVisitor<'r, 'a> {
     }
 
     fn visit_complex_selector(&mut self, complex: &'a ComplexSelector<'a>) {
-        for rule in self.rules {
-            rule.check_complex_selector(complex, self.ctx);
+        for r in self.rules {
+            self.ctx.current_severity = r.severity;
+            r.rule.check_complex_selector(complex, self.ctx);
         }
         for child in &complex.children {
             if let ComplexSelectorChild::CompoundSelector(compound) = child {
@@ -139,12 +148,14 @@ impl<'r, 'a> SinglePassVisitor<'r, 'a> {
     }
 
     fn visit_compound_selector(&mut self, compound: &'a CompoundSelector<'a>) {
-        for rule in self.rules {
-            rule.check_compound_selector(compound, self.ctx);
+        for r in self.rules {
+            self.ctx.current_severity = r.severity;
+            r.rule.check_compound_selector(compound, self.ctx);
         }
         for simple in &compound.children {
-            for rule in self.rules {
-                rule.check_simple_selector(simple, self.ctx);
+            for r in self.rules {
+                self.ctx.current_severity = r.severity;
+                r.rule.check_simple_selector(simple, self.ctx);
             }
             if let SimpleSelector::PseudoClass(pseudo) = simple {
                 if let Some(arg) = &pseudo.arg {
@@ -177,8 +188,9 @@ impl<'r, 'a> SinglePassVisitor<'r, 'a> {
     }
 
     fn visit_component_value(&mut self, value: &'a ComponentValue<'a>) {
-        for rule in self.rules {
-            rule.check_component_value(value, self.ctx);
+        for r in self.rules {
+            self.ctx.current_severity = r.severity;
+            r.rule.check_component_value(value, self.ctx);
         }
         match value {
             ComponentValue::Function(func) => {
