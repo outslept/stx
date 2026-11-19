@@ -8,19 +8,29 @@ pub mod declaration_block_no_duplicate_custom_properties;
 pub mod declaration_block_no_duplicate_properties;
 pub mod declaration_block_no_shorthand_property_overrides;
 pub mod declaration_no_important;
+pub mod font_family_no_duplicate_names;
+pub mod font_family_no_missing_generic_family_keyword;
 pub mod function_calc_no_unspaced_operator;
 pub mod function_linear_gradient_no_nonstandard_direction;
 pub mod function_no_unknown;
 pub mod keyframe_block_no_duplicate_selectors;
 pub mod keyframe_declaration_no_important;
+pub mod media_feature_name_no_unknown;
+pub mod named_grid_areas_no_invalid;
+pub mod no_descending_specificity;
 pub mod no_duplicate_at_import_rules;
+pub mod no_duplicate_selectors;
 pub mod no_empty_source;
 pub mod no_invalid_double_slash_comments;
 pub mod no_invalid_position_at_import_rule;
 pub mod no_invalid_position_declaration;
 pub mod no_irregular_whitespace;
 pub mod property_no_unknown;
+pub mod selector_anb_no_unmatchable;
 pub mod selector_max_id;
+pub mod selector_pseudo_class_no_unknown;
+pub mod selector_pseudo_element_no_unknown;
+pub mod selector_type_no_unknown;
 pub mod string_no_newline;
 pub mod unit_no_unknown;
 
@@ -102,6 +112,12 @@ fn instantiate_rule(name: &str, setting: &RuleSetting) -> Option<Box<dyn Rule>> 
         "declaration-no-important" => {
             Some(Box::new(declaration_no_important::DeclarationNoImportant))
         }
+        "font-family-no-duplicate-names" => Some(Box::new(
+            font_family_no_duplicate_names::FontFamilyNoDuplicateNames,
+        )),
+        "font-family-no-missing-generic-family-keyword" => Some(Box::new(
+            font_family_no_missing_generic_family_keyword::FontFamilyNoMissingGenericFamilyKeyword,
+        )),
         "function-calc-no-unspaced-operator" => Some(Box::new(
             function_calc_no_unspaced_operator::FunctionCalcNoUnspacedOperator,
         )),
@@ -115,9 +131,19 @@ fn instantiate_rule(name: &str, setting: &RuleSetting) -> Option<Box<dyn Rule>> 
         "keyframe-declaration-no-important" => Some(Box::new(
             keyframe_declaration_no_important::KeyframeDeclarationNoImportant,
         )),
+        "media-feature-name-no-unknown" => Some(Box::new(
+            media_feature_name_no_unknown::MediaFeatureNameNoUnknown,
+        )),
+        "named-grid-areas-no-invalid" => Some(Box::new(
+            named_grid_areas_no_invalid::NamedGridAreasNoInvalid,
+        )),
+        "no-descending-specificity" => {
+            Some(Box::new(no_descending_specificity::NoDescendingSpecificity))
+        }
         "no-duplicate-at-import-rules" => Some(Box::new(
             no_duplicate_at_import_rules::NoDuplicateAtImportRules,
         )),
+        "no-duplicate-selectors" => Some(Box::new(no_duplicate_selectors::NoDuplicateSelectors)),
         "no-invalid-double-slash-comments" => Some(Box::new(
             no_invalid_double_slash_comments::NoInvalidDoubleSlashComments,
         )),
@@ -131,6 +157,18 @@ fn instantiate_rule(name: &str, setting: &RuleSetting) -> Option<Box<dyn Rule>> 
             Some(Box::new(no_irregular_whitespace::NoIrregularWhitespace))
         }
         "property-no-unknown" => Some(Box::new(property_no_unknown::PropertyNoUnknown)),
+        "selector-anb-no-unmatchable" => Some(Box::new(
+            selector_anb_no_unmatchable::SelectorAnbNoUnmatchable,
+        )),
+        "selector-pseudo-class-no-unknown" => Some(Box::new(
+            selector_pseudo_class_no_unknown::SelectorPseudoClassNoUnknown,
+        )),
+        "selector-pseudo-element-no-unknown" => Some(Box::new(
+            selector_pseudo_element_no_unknown::SelectorPseudoElementNoUnknown,
+        )),
+        "selector-type-no-unknown" => {
+            Some(Box::new(selector_type_no_unknown::SelectorTypeNoUnknown))
+        }
         "string-no-newline" => Some(Box::new(string_no_newline::StringNoNewline)),
         "unit-no-unknown" => Some(Box::new(unit_no_unknown::UnitNoUnknown)),
         "color-no-invalid-hex" => Some(Box::new(color_no_invalid_hex::ColorNoInvalidHex)),
