@@ -3,17 +3,26 @@ pub mod block_no_empty;
 pub mod color_hex_length;
 pub mod color_no_invalid_hex;
 pub mod comment_no_empty;
+pub mod custom_property_no_missing_var_function;
 pub mod declaration_block_no_duplicate_custom_properties;
 pub mod declaration_block_no_duplicate_properties;
 pub mod declaration_block_no_shorthand_property_overrides;
 pub mod declaration_no_important;
+pub mod function_calc_no_unspaced_operator;
+pub mod function_linear_gradient_no_nonstandard_direction;
+pub mod function_no_unknown;
 pub mod keyframe_block_no_duplicate_selectors;
 pub mod keyframe_declaration_no_important;
 pub mod no_duplicate_at_import_rules;
 pub mod no_empty_source;
+pub mod no_invalid_double_slash_comments;
 pub mod no_invalid_position_at_import_rule;
 pub mod no_invalid_position_declaration;
+pub mod no_irregular_whitespace;
+pub mod property_no_unknown;
 pub mod selector_max_id;
+pub mod string_no_newline;
+pub mod unit_no_unknown;
 
 use crate::{
     config::{Config, RuleSetting},
@@ -77,6 +86,9 @@ fn instantiate_rule(name: &str, setting: &RuleSetting) -> Option<Box<dyn Rule>> 
         "at-rule-no-unknown" => Some(Box::new(at_rule_no_unknown::AtRuleNoUnknown)),
         "block-no-empty" => Some(Box::new(block_no_empty::BlockNoEmpty)),
         "comment-no-empty" => Some(Box::new(comment_no_empty::CommentNoEmpty)),
+        "custom-property-no-missing-var-function" => Some(Box::new(
+            custom_property_no_missing_var_function::CustomPropertyNoMissingVarFunction,
+        )),
         "no-empty-source" => Some(Box::new(no_empty_source::NoEmptySource)),
         "declaration-block-no-duplicate-custom-properties" => Some(Box::new(
             declaration_block_no_duplicate_custom_properties::DeclarationBlockNoDuplicateCustomProperties,
@@ -90,6 +102,13 @@ fn instantiate_rule(name: &str, setting: &RuleSetting) -> Option<Box<dyn Rule>> 
         "declaration-no-important" => {
             Some(Box::new(declaration_no_important::DeclarationNoImportant))
         }
+        "function-calc-no-unspaced-operator" => Some(Box::new(
+            function_calc_no_unspaced_operator::FunctionCalcNoUnspacedOperator,
+        )),
+        "function-linear-gradient-no-nonstandard-direction" => Some(Box::new(
+            function_linear_gradient_no_nonstandard_direction::FunctionLinearGradientNoNonstandardDirection,
+        )),
+        "function-no-unknown" => Some(Box::new(function_no_unknown::FunctionNoUnknown)),
         "keyframe-block-no-duplicate-selectors" => Some(Box::new(
             keyframe_block_no_duplicate_selectors::KeyframeBlockNoDuplicateSelectors,
         )),
@@ -99,12 +118,21 @@ fn instantiate_rule(name: &str, setting: &RuleSetting) -> Option<Box<dyn Rule>> 
         "no-duplicate-at-import-rules" => Some(Box::new(
             no_duplicate_at_import_rules::NoDuplicateAtImportRules,
         )),
+        "no-invalid-double-slash-comments" => Some(Box::new(
+            no_invalid_double_slash_comments::NoInvalidDoubleSlashComments,
+        )),
         "no-invalid-position-at-import-rule" => Some(Box::new(
             no_invalid_position_at_import_rule::NoInvalidPositionAtImportRule,
         )),
         "no-invalid-position-declaration" => Some(Box::new(
             no_invalid_position_declaration::NoInvalidPositionDeclaration,
         )),
+        "no-irregular-whitespace" => {
+            Some(Box::new(no_irregular_whitespace::NoIrregularWhitespace))
+        }
+        "property-no-unknown" => Some(Box::new(property_no_unknown::PropertyNoUnknown)),
+        "string-no-newline" => Some(Box::new(string_no_newline::StringNoNewline)),
+        "unit-no-unknown" => Some(Box::new(unit_no_unknown::UnitNoUnknown)),
         "color-no-invalid-hex" => Some(Box::new(color_no_invalid_hex::ColorNoInvalidHex)),
         "color-hex-length" => {
             let mode = match setting.primary.as_str() {
