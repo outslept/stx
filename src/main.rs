@@ -5,6 +5,9 @@ mod disable;
 mod fix;
 mod line_index;
 mod rules;
+#[cfg(test)]
+#[path = "../test/mod.rs"]
+mod test;
 mod visitor;
 
 use clap::Parser;
@@ -88,7 +91,7 @@ fn collect_files(inputs: &[PathBuf]) -> Vec<PathBuf> {
     out
 }
 
-fn lint_once(
+pub(crate) fn lint_once(
     source: &str,
     syntax: Syntax,
     active_rules: &[ConfiguredRule],

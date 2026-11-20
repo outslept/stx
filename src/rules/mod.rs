@@ -147,7 +147,9 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
             "at-rule-no-vendor-prefix" => {
                 Some(Box::new(at_rule_no_vendor_prefix::AtRuleNoVendorPrefix))
             }
-            "block-no-empty" => Some(Box::new(block_no_empty::BlockNoEmpty)),
+            "block-no-empty" => Some(Box::new(block_no_empty::BlockNoEmpty::from_secondary(
+                        setting.secondary.as_ref(),
+                    ))),
             "color-function-alias-notation" => {
                 let mode = if setting.primary.as_str() == Some("with-alpha") {
                     color_function_alias_notation::ColorFunctionAliasMode::WithAlpha
