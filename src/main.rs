@@ -8,6 +8,7 @@ mod rules;
 #[cfg(test)]
 #[path = "../test/mod.rs"]
 mod test;
+pub mod utils;
 mod visitor;
 
 use clap::Parser;
