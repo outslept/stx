@@ -3,6 +3,7 @@ pub mod annotation_no_unknown;
 pub mod at_charset_rule_no_invalid;
 pub mod at_rule_allowed_list;
 pub mod at_rule_descriptor_no_unknown;
+pub mod at_rule_descriptor_value_no_unknown;
 pub mod at_rule_disallowed_list;
 pub mod at_rule_empty_line_before;
 pub mod at_rule_no_unknown;
@@ -150,6 +151,8 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
             "at-rule-allowed-list" => Some(Box::new(
                            at_rule_allowed_list::AtRuleAllowedList::from_primary(&setting.primary),
                        )),
+            "at-rule-descriptor-value-no-unknown" => at_rule_descriptor_value_no_unknown::AtRuleDescriptorValueNoUnknown::from_setting(setting)
+                .map(|r| Box::new(r) as Box<dyn Rule>),
             "at-rule-disallowed-list" => at_rule_disallowed_list::AtRuleDisallowedList::from_setting(setting)
                 .map(|r| Box::new(r) as Box<dyn Rule>),
             "at-rule-descriptor-no-unknown" => at_rule_descriptor_no_unknown::AtRuleDescriptorNoUnknown::from_setting(setting)
