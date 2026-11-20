@@ -319,3 +319,35 @@ pub fn scan_at_rule_preludes<'a>(source: &'a str, target_name: &str) -> Vec<(Spa
 
     results
 }
+
+/// Equivalent to Stylelint's `isConfigurationComment`.
+/// Returns `true` if the comment content is a configuration comment such as
+/// `stylelint-disable`, `stylelint-enable`, `stylelint-disable-line`,
+/// `stylelint-disable-next-line`, or `stylelint-configure`.
+pub fn is_configuration_comment(content: &str) -> bool {
+    let trimmed = content.trim();
+    let base = match trimmed.split_once("--") {
+        Some((before, _)) => before.trim(),
+        None => trimmed,
+    };
+
+    for prefix in ["stylelint-", "stx-"] {
+        if let Some(after_prefix) = base.strip_prefix(prefix) {
+            for command in [
+                "disable-next-line",
+                "disable-line",
+                "disable",
+                "enable",
+                "configure",
+            ] {
+                if let Some(rest) = after_prefix.strip_prefix(command) {
+                    if rest.is_empty() || rest.starts_with(char::is_whitespace) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    false
+}
