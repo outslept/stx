@@ -24,7 +24,7 @@ pub const LENGTH_UNITS: &[&str] = &[
     "svb", "svh", "svi", "svmax", "svmin", "svw", "vb", "vh", "vi", "vw", "vmin", "vmax", "vm",
     // Absolute length units
     "px", "mm", "cm", "in", "pt", "pc", "q", "mozmm", // Flexible length units
-    "fr", // Container query units
+    "fr",    // Container query units
     "cqw", "cqh", "cqi", "cqb", "cqmin", "cqmax",
 ];
 
@@ -59,7 +59,7 @@ pub const UNITS: &[&str] = &[
     "svb", "svh", "svi", "svmax", "svmin", "svw", "vb", "vh", "vi", "vw", "vmin", "vmax", "vm",
     // Absolute length units
     "px", "mm", "cm", "in", "pt", "pc", "q", "mozmm", // Flexible length units
-    "fr", // Container query units
+    "fr",    // Container query units
     "cqw", "cqh", "cqi", "cqb", "cqmin", "cqmax", // Resolution units
     "dpi", "dpcm", "dppx", "x", // Relative length units
     "%", // Time length units

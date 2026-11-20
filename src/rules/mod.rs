@@ -1,5 +1,6 @@
 pub mod alpha_value_notation;
 pub mod annotation_no_unknown;
+pub mod at_charset_rule_no_invalid;
 pub mod at_rule_empty_line_before;
 pub mod at_rule_no_unknown;
 pub mod at_rule_no_vendor_prefix;
@@ -143,6 +144,9 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                     mode,
                 }))
             },
+            "at-charset-rule-no-invalid" => Some(Box::new(
+                           at_charset_rule_no_invalid::AtCharsetRuleNoInvalid,
+                       )),
             "annotation-no-unknown" => Some(Box::new(
                            annotation_no_unknown::AnnotationNoUnknown::from_secondary(
                                setting.secondary.as_ref(),
