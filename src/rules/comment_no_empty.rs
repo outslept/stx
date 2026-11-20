@@ -1,8 +1,23 @@
-use crate::{context::LintContext, rules::Rule};
+use crate::context::LintContext;
+use crate::diagnostic::Severity;
+use crate::rules::Rule;
 use oxc_css_parser::token::Comment;
+use serde_json::Value;
 
-#[derive(Default)]
-pub struct CommentNoEmpty;
+pub struct CommentNoEmpty {
+    pub severity: Severity,
+}
+
+pub const REJECTED_MSG: &str = "Empty comment";
+
+impl CommentNoEmpty {
+    pub fn from_config(primary: &Value, severity: Severity) -> Option<Self> {
+        if primary.as_bool() != Some(true) {
+            return None;
+        }
+        Some(Self { severity })
+    }
+}
 
 impl Rule for CommentNoEmpty {
     fn name(&self) -> &'static str {
@@ -10,11 +25,17 @@ impl Rule for CommentNoEmpty {
     }
 
     fn check_comment<'a>(&self, comment: &'a Comment<'a>, ctx: &mut LintContext<'a>) {
-        if !ctx.slice(comment.span).starts_with("/*") {
+        let raw = ctx.slice(comment.span);
+
+        if !(raw.starts_with("/*") && raw.ends_with("*/") && raw.len() >= 4) {
             return;
         }
-        if comment.content.trim().is_empty() {
-            ctx.report(self.name(), comment.span, "Empty comment".to_string());
+
+        let text = raw[2..raw.len() - 2].trim();
+        if !text.is_empty() {
+            return;
         }
+
+        ctx.report(self.name(), comment.span, REJECTED_MSG.to_string());
     }
 }
