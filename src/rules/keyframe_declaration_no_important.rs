@@ -14,7 +14,7 @@ impl Rule for KeyframeDeclarationNoImportant {
                 ctx.report(
                     self.name(),
                     important.span,
-                    "Unexpected !important".to_string(),
+                    "Disallowed !important".to_string(),
                 );
             }
         }

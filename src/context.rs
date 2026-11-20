@@ -110,7 +110,13 @@ impl<'a> LintContext<'a> {
             .filter(|d| !quiet || d.severity == Severity::Error)
             .map(|d| {
                 let (line, column) = self.line_index.line_col(self.source, d.span.start);
-                let (end_line, end_column) = self.line_index.line_col(self.source, d.span.end);
+                let src_len = self.source.len() as u32;
+                let (end_line, end_column) = if d.span.end > src_len {
+                    let (l, c) = self.line_index.line_col(self.source, src_len);
+                    (l, c + (d.span.end - src_len) as usize)
+                } else {
+                    self.line_index.line_col(self.source, d.span.end)
+                };
                 StylelintWarning {
                     line,
                     column,

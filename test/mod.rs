@@ -4,3 +4,5 @@ pub mod harness;
 mod block_no_empty;
 mod comment_no_empty;
 mod declaration_no_important;
+mod keyframe_declaration_no_important;
+mod no_empty_source;
