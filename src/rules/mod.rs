@@ -17,6 +17,7 @@ pub mod color_function_alias_notation;
 pub mod color_function_notation;
 pub mod color_hex_alpha;
 pub mod color_hex_length;
+pub mod color_named;
 pub mod color_no_invalid_hex;
 pub mod comment_empty_line_before;
 pub mod comment_no_empty;
@@ -253,6 +254,12 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                     setting.secondary.as_ref(),
                 ),
             )),
+            "color-named" => color_named::ColorNamed::from_config(
+                            &setting.primary,
+                            setting.secondary.as_ref(),
+                            setting.severity,
+                        )
+                        .map(|r| Box::new(r) as Box<dyn Rule>),
             "custom-media-pattern" => Some(Box::new(custom_media_pattern::CustomMediaPattern {
                 matcher: PatternMatcher::new(setting.primary.as_str()),
             })),
