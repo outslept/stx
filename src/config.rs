@@ -264,17 +264,26 @@ impl Config {
                 if arr.is_empty() {
                     return None;
                 }
-                let first = arr.remove(0);
-                if first.is_null() || first == Value::Bool(false) {
+                if arr[0].is_null() || arr[0] == Value::Bool(false) {
                     return None;
                 }
-                let secondary = if !arr.is_empty() {
-                    match arr.remove(0) {
+                let (primary, secondary) = if arr.len() == 1 {
+                    (arr.remove(0), None)
+                } else if arr.len() == 2 && arr[1].is_object() {
+                    let first = arr.remove(0);
+                    let sec = match arr.remove(0) {
                         Value::Object(map) => Some(map),
                         _ => None,
-                    }
+                    };
+                    (first, sec)
+                } else if arr.last().is_some_and(Value::is_object) {
+                    let sec = match arr.pop() {
+                        Some(Value::Object(map)) => Some(map),
+                        _ => None,
+                    };
+                    (Value::Array(arr), sec)
                 } else {
-                    None
+                    (Value::Array(arr), None)
                 };
 
                 let mut severity = default_severity;
@@ -287,9 +296,8 @@ impl Config {
                         }
                     }
                 }
-
                 Some(RuleSetting {
-                    primary: first,
+                    primary,
                     secondary,
                     severity,
                 })

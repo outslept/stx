@@ -110,3 +110,17 @@ pub fn secondary_str<'a>(secondary: Option<&'a Map<String, Value>>, key: &str) -
         .and_then(|sec| sec.get(key))
         .and_then(|v| v.as_str())
 }
+
+/// Parses a primary option that accepts `string | RegExp | Array<string | RegExp>`
+/// (`rule.primaryOptionArray = true` in Stylelint) into `Vec<OptionMatcher>`.
+pub fn parse_primary_option_matchers(primary: &Value) -> Vec<OptionMatcher> {
+    match primary {
+        Value::String(s) => vec![OptionMatcher::parse(s)],
+        Value::Array(arr) => arr
+            .iter()
+            .filter_map(|v| v.as_str())
+            .map(OptionMatcher::parse)
+            .collect(),
+        _ => Vec::new(),
+    }
+}

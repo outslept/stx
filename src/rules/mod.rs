@@ -1,6 +1,7 @@
 pub mod alpha_value_notation;
 pub mod annotation_no_unknown;
 pub mod at_charset_rule_no_invalid;
+pub mod at_rule_allowed_list;
 pub mod at_rule_empty_line_before;
 pub mod at_rule_no_unknown;
 pub mod at_rule_no_vendor_prefix;
@@ -144,6 +145,9 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                     mode,
                 }))
             },
+            "at-rule-allowed-list" => Some(Box::new(
+                           at_rule_allowed_list::AtRuleAllowedList::from_primary(&setting.primary),
+                       )),
             "at-charset-rule-no-invalid" => Some(Box::new(
                            at_charset_rule_no_invalid::AtCharsetRuleNoInvalid,
                        )),

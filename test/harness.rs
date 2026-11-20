@@ -61,16 +61,23 @@ fn parse_rule_setting(val: &Value) -> Option<RuleSetting> {
             if arr.is_empty() || arr[0].is_null() || arr[0] == Value::Bool(false) {
                 return None;
             }
-            let primary = arr[0].clone();
-            let mut secondary = None;
-            if arr.len() > 1 {
-                if let Some(obj) = arr[1].as_object() {
-                    secondary = Some(obj.clone());
-                }
+            if arr.len() == 1 {
+                return Some(RuleSetting {
+                    primary: arr[0].clone(),
+                    secondary: None,
+                    severity: Severity::Error,
+                });
+            }
+            if let Some(obj) = arr[1].as_object() {
+                return Some(RuleSetting {
+                    primary: arr[0].clone(),
+                    secondary: Some(obj.clone()),
+                    severity: Severity::Error,
+                });
             }
             Some(RuleSetting {
-                primary,
-                secondary,
+                primary: Value::Array(arr.clone()),
+                secondary: None,
                 severity: Severity::Error,
             })
         }

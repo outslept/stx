@@ -3,6 +3,7 @@ pub mod harness;
 
 mod alpha_value_notation;
 mod annotation_no_unknown;
+mod at_rule_allowed_list;
 mod block_no_empty;
 mod comment_no_empty;
 mod declaration_no_important;
