@@ -14,19 +14,14 @@ pub enum OptionMatcher {
 
 impl OptionMatcher {
     pub fn parse(raw: &str) -> Self {
-        if raw.starts_with('/') {
-            if let Some(last_slash) = raw.rfind('/') {
-                if last_slash > 0 {
-                    let body = &raw[1..last_slash];
-                    let flags = &raw[last_slash + 1..];
-                    let pattern = if flags.contains('i') {
-                        format!("(?i){body}")
-                    } else {
-                        body.to_string()
-                    };
-                    if let Ok(re) = Regex::new(&pattern) {
-                        return Self::Regex(re);
-                    }
+        if let Some(rest) = raw.strip_prefix('/') {
+            if let Some(pattern) = rest.strip_suffix('/') {
+                if let Ok(re) = Regex::new(pattern) {
+                    return Self::Regex(re);
+                }
+            } else if let Some(pattern) = rest.strip_suffix("/i") {
+                if let Ok(re) = Regex::new(&format!("(?i){pattern}")) {
+                    return Self::Regex(re);
                 }
             }
         }
@@ -123,4 +118,48 @@ pub fn parse_primary_option_matchers(primary: &Value) -> Vec<OptionMatcher> {
             .collect(),
         _ => Vec::new(),
     }
+}
+
+/// Parses a primary option object mapping keys to either a single string or an
+/// array of strings (mirroring Stylelint's `createMapWithSet` utility).
+///
+/// Keys are normalized to ASCII lowercase, and string values for each key are
+/// deduplicated while preserving their declaration order.
+pub fn parse_string_set_map(
+    primary: &Value,
+    secondary: Option<&Map<String, Value>>,
+) -> Vec<(String, Vec<String>)> {
+    let map = match primary {
+        Value::Object(m) => Some(m),
+        Value::Array(arr) => arr.first().and_then(Value::as_object),
+        _ => secondary,
+    };
+
+    let Some(map) = map else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::with_capacity(map.len());
+    for (key, val) in map {
+        let mut set = Vec::new();
+        match val {
+            Value::String(s) => {
+                set.push(s.clone());
+            }
+            Value::Array(items) => {
+                for item in items {
+                    if let Some(s) = item.as_str()
+                        && !set.iter().any(|existing| existing == s)
+                    {
+                        set.push(s.to_string());
+                    }
+                }
+            }
+            _ => continue,
+        }
+        if !set.is_empty() {
+            out.push((key.to_ascii_lowercase(), set));
+        }
+    }
+    out
 }
