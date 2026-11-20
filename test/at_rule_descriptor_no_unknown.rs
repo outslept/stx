@@ -1,5 +1,3 @@
-use crate::test_rule;
-
 fn rejected(at_rule: &str, descriptor: &str) -> String {
     format!("Unknown descriptor \"{descriptor}\" for at-rule \"{at_rule}\"")
 }

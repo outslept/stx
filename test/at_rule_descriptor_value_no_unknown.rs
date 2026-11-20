@@ -1,5 +1,3 @@
-use crate::test_rule;
-
 fn rejected(descriptor: &str, value: &str) -> String {
     format!("Unknown value \"{value}\" for descriptor \"{descriptor}\"")
 }

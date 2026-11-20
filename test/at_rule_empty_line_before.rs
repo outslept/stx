@@ -1,5 +1,3 @@
-use crate::test_rule;
-
 const EXPECTED: &str = "Expected empty line before at-rule";
 const REJECTED: &str = "Expected no empty line before at-rule";
 

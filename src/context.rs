@@ -1,7 +1,7 @@
+pub use crate::fix::Fix;
 use crate::{
     diagnostic::{Diagnostic, Severity, StylelintWarning},
     disable::DisableDirectives,
-    fix::Fix,
     line_index::LineIndex,
 };
 use oxc_css_parser::{

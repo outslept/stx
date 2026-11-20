@@ -1,5 +1,3 @@
-use crate::test_rule;
-
 fn rejected(at_rule: &str) -> String {
     format!("Disallowed at-rule \"{at_rule}\"")
 }

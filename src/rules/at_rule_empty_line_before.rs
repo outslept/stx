@@ -14,12 +14,13 @@ use oxc_css_parser::ast::Stylesheet;
 
 /// Primary expectation mode for [`AtRuleEmptyLineBefore`].
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Expectation {
+pub enum EmptyLineMode {
     /// Require an empty line before at-rules (`"always"`).
     Always,
     /// Disallow an empty line before at-rules (`"never"`).
     Never,
 }
+type Expectation = EmptyLineMode;
 
 /// Requires or disallows an empty line before standard-syntax at-rules.
 ///
