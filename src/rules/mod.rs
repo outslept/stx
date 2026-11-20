@@ -292,30 +292,37 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                            )
                            .map(|r| Box::new(r) as Box<dyn Rule>)
                        },
-            "custom-property-empty-line-before" => {
-                let mode = if setting.primary.as_str() == Some("never") {
-                    at_rule_empty_line_before::EmptyLineMode::Never
-                } else {
-                    at_rule_empty_line_before::EmptyLineMode::Always
-                };
-                Some(Box::new(
-                    custom_property_empty_line_before::CustomPropertyEmptyLineBefore { mode },
-                ))
-            }
+                       "custom-property-empty-line-before" => {
+                                       custom_property_empty_line_before::CustomPropertyEmptyLineBefore::from_config(
+                                           &setting.primary,
+                                           setting.secondary.as_ref(),
+                                       )
+                                       .map(|r| Box::new(r) as Box<dyn Rule>)
+                                   }
             "custom-property-no-missing-var-function" => Some(Box::new(
                 custom_property_no_missing_var_function::CustomPropertyNoMissingVarFunction,
             )),
-            "custom-property-pattern" => Some(Box::new(
-                custom_property_pattern::CustomPropertyPattern {
-                    matcher: PatternMatcher::new(setting.primary.as_str()),
-                },
-            )),
-            "declaration-block-no-duplicate-custom-properties" => Some(Box::new(
-                declaration_block_no_duplicate_custom_properties::DeclarationBlockNoDuplicateCustomProperties,
-            )),
-            "declaration-block-no-duplicate-properties" => Some(Box::new(
-                declaration_block_no_duplicate_properties::DeclarationBlockNoDuplicateProperties,
-            )),
+            "custom-property-pattern" => {
+                            custom_property_pattern::CustomPropertyPattern::from_config(
+                                &setting.primary,
+                                setting.secondary.as_ref(),
+                            )
+                            .map(|r| Box::new(r) as Box<dyn Rule>)
+                        }
+                        "declaration-block-no-duplicate-custom-properties" => {
+                                      declaration_block_no_duplicate_custom_properties::DeclarationBlockNoDuplicateCustomProperties::from_config(
+                                          &setting.primary,
+                                          setting.secondary.as_ref(),
+                                      )
+                                      .map(|r| Box::new(r) as Box<dyn Rule>)
+                                  }
+                                  "declaration-block-no-duplicate-properties" => {
+                                                 declaration_block_no_duplicate_properties::DeclarationBlockNoDuplicateProperties::from_config(
+                                                     &setting.primary,
+                                                     setting.secondary.as_ref(),
+                                                 )
+                                                 .map(|r| Box::new(r) as Box<dyn Rule>)
+                                             }
             "declaration-block-no-redundant-longhand-properties" => Some(Box::new(
                 declaration_block_no_redundant_longhand_properties::DeclarationBlockNoRedundantLonghandProperties,
             )),
