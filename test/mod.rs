@@ -4,6 +4,7 @@ pub mod harness;
 mod alpha_value_notation;
 mod annotation_no_unknown;
 mod at_rule_allowed_list;
+mod at_rule_descriptor_no_unknown;
 mod block_no_empty;
 mod comment_no_empty;
 mod declaration_no_important;

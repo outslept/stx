@@ -3874,3 +3874,124 @@ pub fn applicable_elements_by_pseudo_class(pseudo_class: &str) -> Option<&'stati
         _ => None,
     }
 }
+
+pub const COLOR_PROFILE_DESCRIPTORS: &[&str] = &["components", "rendering-intent", "src"];
+
+pub const COUNTER_STYLE_DESCRIPTORS: &[&str] = &[
+    "additive-symbols",
+    "fallback",
+    "negative",
+    "pad",
+    "prefix",
+    "range",
+    "speak-as",
+    "suffix",
+    "symbols",
+    "system",
+];
+
+pub const FONT_FACE_DESCRIPTORS: &[&str] = &[
+    "-moz-font-feature-settings",
+    "ascent-override",
+    "descent-override",
+    "font-display",
+    "font-family",
+    "font-feature-settings",
+    "font-language-override",
+    "font-named-instance",
+    "font-stretch",
+    "font-style",
+    "font-variation-settings",
+    "font-weight",
+    "font-width",
+    "line-gap-override",
+    "size-adjust",
+    "src",
+    "unicode-range",
+];
+
+pub const FONT_FEATURE_VALUES_DESCRIPTORS: &[&str] = &["font-display"];
+
+pub const FONT_PALETTE_VALUES_DESCRIPTORS: &[&str] =
+    &["base-palette", "font-family", "override-colors"];
+
+pub const PAGE_DESCRIPTORS: &[&str] =
+    &["bleed", "marks", "orientation", "page-orientation", "size"];
+
+pub const POSITION_TRY_DESCRIPTORS: &[&str] = &[
+    "align-self",
+    "block-size",
+    "bottom",
+    "height",
+    "inline-size",
+    "inset",
+    "inset-area",
+    "inset-block",
+    "inset-block-end",
+    "inset-block-start",
+    "inset-inline",
+    "inset-inline-end",
+    "inset-inline-start",
+    "justify-self",
+    "left",
+    "margin",
+    "margin-block",
+    "margin-block-end",
+    "margin-block-start",
+    "margin-bottom",
+    "margin-inline",
+    "margin-inline-end",
+    "margin-inline-start",
+    "margin-left",
+    "margin-right",
+    "margin-top",
+    "max-block-size",
+    "max-height",
+    "max-inline-size",
+    "max-width",
+    "min-block-size",
+    "min-height",
+    "min-inline-size",
+    "min-width",
+    "place-self",
+    "position-anchor",
+    "position-area",
+    "right",
+    "top",
+    "width",
+];
+
+pub const PROPERTY_DESCRIPTORS: &[&str] = &["inherits", "initial-value", "syntax"];
+
+pub const VIEW_TRANSITION_DESCRIPTORS: &[&str] = &["navigation", "types"];
+
+pub const VIEWPORT_DESCRIPTORS: &[&str] = &[
+    "height",
+    "max-height",
+    "max-width",
+    "max-zoom",
+    "min-height",
+    "min-width",
+    "min-zoom",
+    "orientation",
+    "user-zoom",
+    "viewport-fit",
+    "width",
+    "zoom",
+];
+
+pub fn at_rule_descriptors(at_rule_name: &str) -> Option<&'static [&'static str]> {
+    match at_rule_name.to_ascii_lowercase().as_str() {
+        "color-profile" => Some(COLOR_PROFILE_DESCRIPTORS),
+        "counter-style" => Some(COUNTER_STYLE_DESCRIPTORS),
+        "font-face" => Some(FONT_FACE_DESCRIPTORS),
+        "font-feature-values" => Some(FONT_FEATURE_VALUES_DESCRIPTORS),
+        "font-palette-values" => Some(FONT_PALETTE_VALUES_DESCRIPTORS),
+        "page" => Some(PAGE_DESCRIPTORS),
+        "position-try" => Some(POSITION_TRY_DESCRIPTORS),
+        "property" => Some(PROPERTY_DESCRIPTORS),
+        "view-transition" => Some(VIEW_TRANSITION_DESCRIPTORS),
+        "viewport" | "-ms-viewport" | "-o-viewport" => Some(VIEWPORT_DESCRIPTORS),
+        _ => None,
+    }
+}
