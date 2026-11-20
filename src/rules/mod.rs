@@ -434,10 +434,10 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
             "selector-id-pattern" => Some(Box::new(selector_id_pattern::SelectorIdPattern {
                 matcher: PatternMatcher::new(setting.primary.as_str()),
             })),
-            "selector-max-id" => {
-                let max = setting.primary.as_u64().unwrap_or(0) as usize;
-                Some(Box::new(selector_max_id::SelectorMaxId { max }))
-            }
+            "selector-max-id" => Some(Box::new(selector_max_id::SelectorMaxId::from_config(
+                           &setting.primary,
+                           setting.secondary.as_ref(),
+                       ))),
             "selector-no-vendor-prefix" => {
                 Some(Box::new(selector_no_vendor_prefix::SelectorNoVendorPrefix))
             }

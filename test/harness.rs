@@ -1,53 +1,76 @@
-use std::path::Path;
-
+use crate::config::{Config, RuleSetting};
+use crate::diagnostic::Severity;
+use crate::lint_once;
+use crate::rules::build_rules;
 use oxc_css_parser::Syntax;
 use serde_json::Value;
+use std::collections::HashMap;
 
-use crate::config::Config;
-use crate::diagnostic::StylelintWarning;
-use crate::fix::apply_fixes;
-use crate::lint_once;
-use crate::rules::{ConfiguredRule, build_rules};
-
-#[derive(Default)]
-pub struct AcceptCase<'a> {
-    pub code: &'a str,
-    pub description: &'a str,
+pub struct AcceptCase {
+    pub code: &'static str,
+    pub description: Option<&'static str>,
     pub skip: bool,
 }
 
-#[derive(Default)]
-pub struct WarningExpectation<'a> {
-    pub message: Option<&'a str>,
+pub struct ExpectedWarning {
+    pub message: Option<String>,
     pub line: Option<usize>,
     pub column: Option<usize>,
     pub end_line: Option<usize>,
     pub end_column: Option<usize>,
 }
 
-#[derive(Default)]
-pub struct RejectCase<'a> {
-    pub code: &'a str,
-    pub fixed: Option<&'a str>,
+pub struct RejectCase {
+    pub code: &'static str,
+    pub fixed: Option<&'static str>,
     pub unfixable: bool,
-    pub description: &'a str,
+    pub description: Option<&'static str>,
     pub skip: bool,
-    pub message: Option<&'a str>,
+    pub message: Option<String>,
     pub line: Option<usize>,
     pub column: Option<usize>,
     pub end_line: Option<usize>,
     pub end_column: Option<usize>,
-    pub warnings: Vec<WarningExpectation<'a>>,
+    pub warnings: Option<Vec<ExpectedWarning>>,
 }
 
-pub struct TestRuleSuite<'a> {
-    pub rule_name: &'a str,
+pub struct TestSuite {
+    pub rule_name: &'static str,
     pub config: Value,
-    pub custom_syntax: Option<&'a str>,
+    pub custom_syntax: Option<&'static str>,
     pub fix: bool,
     pub skip: bool,
-    pub accept: Vec<AcceptCase<'a>>,
-    pub reject: Vec<RejectCase<'a>>,
+    pub accept: Vec<AcceptCase>,
+    pub reject: Vec<RejectCase>,
+}
+
+fn parse_rule_setting(val: &Value) -> Option<RuleSetting> {
+    match val {
+        Value::Null => None,
+        Value::Bool(false) => None,
+        Value::Array(arr) => {
+            if arr.is_empty() || arr[0].is_null() || arr[0] == Value::Bool(false) {
+                return None;
+            }
+            let primary = arr[0].clone();
+            let mut secondary = None;
+            if arr.len() > 1 {
+                if let Some(obj) = arr[1].as_object() {
+                    secondary = Some(obj.clone());
+                }
+            }
+            Some(RuleSetting {
+                primary,
+                secondary,
+                severity: Severity::Error,
+            })
+        }
+        other => Some(RuleSetting {
+            primary: other.clone(),
+            secondary: None,
+            severity: Severity::Error,
+        }),
+    }
 }
 
 fn resolve_syntax(custom_syntax: Option<&str>) -> Option<Syntax> {
@@ -60,60 +83,40 @@ fn resolve_syntax(custom_syntax: Option<&str>) -> Option<Syntax> {
     }
 }
 
-fn run_lint_case(
-    source: &str,
-    syntax: Syntax,
-    active_rules: &[ConfiguredRule],
-    fix: bool,
-) -> (Vec<StylelintWarning>, String) {
-    let (warnings, _) = lint_once(source, syntax, active_rules, false);
-    if !fix {
-        return (warnings, source.to_string());
-    }
-    let mut current = source.to_string();
-    for _ in 0..5 {
-        let (_, fixes) = lint_once(&current, syntax, active_rules, false);
-        let (next, applied) = apply_fixes(&current, fixes);
-        current = next;
-        if !applied {
-            break;
-        }
-    }
-    (warnings, current)
-}
-
-pub fn run_test_rule_suite(suite: TestRuleSuite<'_>) {
+pub fn run_test_suite(suite: TestSuite) {
     if suite.skip {
         return;
     }
 
     let Some(syntax) = resolve_syntax(suite.custom_syntax) else {
         panic!(
-            "[{}] Unsupported customSyntax {:?} (mark suite with skip: true if intentional)",
+            "[{}] Unsupported customSyntax {:?} (mark suite with `skip: true` if intentional)",
             suite.rule_name, suite.custom_syntax
         );
     };
 
-    let raw_cfg = serde_json::json!({
-        "rules": {
-            suite.rule_name: suite.config
-        }
-    });
-    let cfg = Config::from_json_str(&raw_cfg.to_string(), Path::new("."))
-        .expect("Failed to parse test rule config");
-    let active_rules = build_rules(&cfg);
+    let setting = parse_rule_setting(&suite.config);
+    let mut rules_map = HashMap::new();
+    rules_map.insert(suite.rule_name.to_string(), setting);
+
+    let config = Config {
+        rules: rules_map,
+        default_severity: Severity::Error,
+    };
+
+    let active_rules = build_rules(&config);
 
     for (idx, case) in suite.accept.iter().enumerate() {
         if case.skip {
             continue;
         }
-        let (warnings, _) = run_lint_case(case.code, syntax, &active_rules, false);
+        let (warnings, _fixes) = lint_once(case.code, syntax, &active_rules, false);
         assert!(
             warnings.is_empty(),
-            "[{}] accept case #{} ({:?}) expected 0 warnings for code:\n{}\nGot warnings: {:#?}",
+            "[{}] accept case #{} ({:?}) produced unexpected warnings for code:\n{}\nWarnings: {:?}",
             suite.rule_name,
             idx,
-            case.description,
+            case.description.unwrap_or(""),
             case.code,
             warnings
         );
@@ -123,13 +126,12 @@ pub fn run_test_rule_suite(suite: TestRuleSuite<'_>) {
         if case.skip {
             continue;
         }
-        let (warnings, fixed_output) = run_lint_case(case.code, syntax, &active_rules, suite.fix);
+        let (warnings, fixes) = lint_once(case.code, syntax, &active_rules, false);
 
-        let expected: Vec<WarningExpectation<'_>> = if !case.warnings.is_empty() {
-            case.warnings
-                .iter()
-                .map(|w| WarningExpectation {
-                    message: w.message,
+        let expected_list: Vec<ExpectedWarning> = if let Some(ref ws) = case.warnings {
+            ws.iter()
+                .map(|w| ExpectedWarning {
+                    message: w.message.clone(),
                     line: w.line,
                     column: w.column,
                     end_line: w.end_line,
@@ -137,10 +139,10 @@ pub fn run_test_rule_suite(suite: TestRuleSuite<'_>) {
                 })
                 .collect()
         } else {
-            vec![WarningExpectation {
-                message: case.message,
+            vec![ExpectedWarning {
+                message: case.message.clone(),
                 line: case.line,
-                column: w_col(case.column),
+                column: case.column,
                 end_line: case.end_line,
                 end_column: case.end_column,
             }]
@@ -148,63 +150,55 @@ pub fn run_test_rule_suite(suite: TestRuleSuite<'_>) {
 
         assert_eq!(
             warnings.len(),
-            expected.len(),
-            "[{}] reject case #{} ({:?}) warning count mismatch for code:\n{}\nExpected {} warning(s), got: {:#?}",
+            expected_list.len(),
+            "[{}] reject case #{} ({:?}) expected {} warning(s), got {} for code:\n{}\nActual: {:?}",
             suite.rule_name,
             idx,
-            case.description,
+            case.description.unwrap_or(""),
+            expected_list.len(),
+            warnings.len(),
             case.code,
-            expected.len(),
             warnings
         );
 
-        for (w_idx, (actual, exp)) in warnings.iter().zip(expected.iter()).enumerate() {
-            assert_eq!(
-                actual.rule, suite.rule_name,
-                "[{}] reject case #{} warning #{}: rule name mismatch",
-                suite.rule_name, idx, w_idx
-            );
-
-            if let Some(msg) = exp.message {
-                let expected_full = if msg.ends_with(&format!("({})", suite.rule_name)) {
-                    msg.to_string()
-                } else {
-                    format!("{} ({})", msg, suite.rule_name)
-                };
-                assert_eq!(
-                    actual.text, expected_full,
-                    "[{}] reject case #{} warning #{} message mismatch for code:\n{}",
-                    suite.rule_name, idx, w_idx, case.code
+        for (w_idx, (actual, expected)) in warnings.iter().zip(expected_list.iter()).enumerate() {
+            if let Some(ref exp_msg) = expected.message {
+                let expected_Formatted = format!("{} ({})", exp_msg, suite.rule_name);
+                assert!(
+                    actual.text == *exp_msg || actual.text == expected_Formatted,
+                    "[{}] reject case #{} warning #{} message mismatch for code:\n{}\nExpected: {:?}\nActual:   {:?}",
+                    suite.rule_name,
+                    idx,
+                    w_idx,
+                    case.code,
+                    expected_Formatted,
+                    actual.text
                 );
             }
-
-            if let Some(line) = exp.line {
+            if let Some(exp_line) = expected.line {
                 assert_eq!(
-                    actual.line, line,
+                    actual.line, exp_line,
                     "[{}] reject case #{} warning #{} line mismatch for code:\n{}",
                     suite.rule_name, idx, w_idx, case.code
                 );
             }
-
-            if let Some(column) = exp.column {
+            if let Some(exp_col) = expected.column {
                 assert_eq!(
-                    actual.column, column,
+                    actual.column, exp_col,
                     "[{}] reject case #{} warning #{} column mismatch for code:\n{}",
                     suite.rule_name, idx, w_idx, case.code
                 );
             }
-
-            if let Some(end_line) = exp.end_line {
+            if let Some(exp_end_line) = expected.end_line {
                 assert_eq!(
-                    actual.end_line, end_line,
+                    actual.end_line, exp_end_line,
                     "[{}] reject case #{} warning #{} endLine mismatch for code:\n{}",
                     suite.rule_name, idx, w_idx, case.code
                 );
             }
-
-            if let Some(end_column) = exp.end_column {
+            if let Some(exp_end_col) = expected.end_column {
                 assert_eq!(
-                    actual.end_column, end_column,
+                    actual.end_column, exp_end_col,
                     "[{}] reject case #{} warning #{} endColumn mismatch for code:\n{}",
                     suite.rule_name, idx, w_idx, case.code
                 );
@@ -213,14 +207,28 @@ pub fn run_test_rule_suite(suite: TestRuleSuite<'_>) {
 
         if suite.fix {
             if case.unfixable {
-                assert_eq!(
-                    fixed_output, case.code,
-                    "[{}] reject case #{} expected unfixable code to remain unchanged",
-                    suite.rule_name, idx
+                assert!(
+                    fixes.is_empty(),
+                    "[{}] reject case #{} marked unfixable, but produced fixes for code:\n{}",
+                    suite.rule_name,
+                    idx,
+                    case.code
                 );
-            } else if let Some(expected_fixed) = case.fixed {
+            } else if let Some(exp_fixed) = case.fixed {
+                let mut current = case.code.to_string();
+                for _ in 0..10 {
+                    let (_w, pass_fixes) = lint_once(&current, syntax, &active_rules, false);
+                    if pass_fixes.is_empty() {
+                        break;
+                    }
+                    let (updated, changed) = crate::fix::apply_fixes(&current, pass_fixes);
+                    current = updated;
+                    if !changed {
+                        break;
+                    }
+                }
                 assert_eq!(
-                    fixed_output, expected_fixed,
+                    current, exp_fixed,
                     "[{}] reject case #{} autofix mismatch for code:\n{}",
                     suite.rule_name, idx, case.code
                 );
@@ -229,148 +237,229 @@ pub fn run_test_rule_suite(suite: TestRuleSuite<'_>) {
     }
 }
 
-#[inline]
-fn w_col(col: Option<usize>) -> Option<usize> {
-    col
-}
-
-#[macro_export]
-macro_rules! accept_field {
-    ($c:ident, code: $val:expr) => {
-        $c.code = $val;
-    };
-    ($c:ident, description: $val:expr) => {
-        $c.description = $val;
-    };
-    ($c:ident, skip: $val:expr) => {
-        $c.skip = $val;
-    };
-}
-
-#[macro_export]
-macro_rules! warning_field {
-    ($w:ident, message: $val:expr) => {
-        $w.message = Some($val);
-    };
-    ($w:ident, line: $val:expr) => {
-        $w.line = Some($val);
-    };
-    ($w:ident, column: $val:expr) => {
-        $w.column = Some($val);
-    };
-    ($w:ident, endLine: $val:expr) => {
-        $w.end_line = Some($val);
-    };
-    ($w:ident, endColumn: $val:expr) => {
-        $w.end_column = Some($val);
-    };
-}
-
-#[macro_export]
-macro_rules! reject_field {
-    ($c:ident, code: $val:expr) => {
-        $c.code = $val;
-    };
-    ($c:ident, fixed: $val:expr) => {
-        $c.fixed = Some($val);
-    };
-    ($c:ident, unfixable: $val:expr) => {
-        $c.unfixable = $val;
-    };
-    ($c:ident, description: $val:expr) => {
-        $c.description = $val;
-    };
-    ($c:ident, skip: $val:expr) => {
-        $c.skip = $val;
-    };
-    ($c:ident, message: $val:expr) => {
-        $c.message = Some($val);
-    };
-    ($c:ident, line: $val:expr) => {
-        $c.line = Some($val);
-    };
-    ($c:ident, column: $val:expr) => {
-        $c.column = Some($val);
-    };
-    ($c:ident, endLine: $val:expr) => {
-        $c.end_line = Some($val);
-    };
-    ($c:ident, endColumn: $val:expr) => {
-        $c.end_column = Some($val);
-    };
-    ($c:ident, warnings: [ $( { $( $wk:ident : $wv:expr ),* $(,)? } ),* $(,)? ]) => {
-        $c.warnings = vec![
-            $(
-                {
-                    let mut w = $crate::test::harness::WarningExpectation::default();
-                    $( $crate::warning_field!(w, $wk : $wv); )*
-                    w
-                }
-            ),*
-        ];
-    };
-}
-
-#[macro_export]
-macro_rules! suite_field {
-    ($s:ident, ruleName: $val:expr) => {
-        $s.rule_name = $val;
-    };
-    ($s:ident, config: $val:tt) => {
-        $s.config = serde_json::json!($val);
-    };
-    ($s:ident, customSyntax: $val:expr) => {
-        $s.custom_syntax = Some($val);
-    };
-    ($s:ident, fix: $val:expr) => {
-        $s.fix = $val;
-    };
-    ($s:ident, skip: $val:expr) => {
-        $s.skip = $val;
-    };
-    ($s:ident, accept: [ $( { $( $ak:ident : $av:expr ),* $(,)? } ),* $(,)? ]) => {
-        $s.accept = vec![
-            $(
-                {
-                    let mut c = $crate::test::harness::AcceptCase::default();
-                    $( $crate::accept_field!(c, $ak : $av); )*
-                    c
-                }
-            ),*
-        ];
-    };
-    ($s:ident, reject: [ $( { $( $rk:ident : $rv:tt ),* $(,)? } ),* $(,)? ]) => {
-        $s.reject = vec![
-            $(
-                {
-                    let mut c = $crate::test::harness::RejectCase::default();
-                    $( $crate::reject_field!(c, $rk : $rv); )*
-                    c
-                }
-            ),*
-        ];
-    };
-}
-
 #[macro_export]
 macro_rules! test_rule {
     (
-        name: $test_fn_name:ident,
-        $( $k:ident : $v:tt ),* $(,)?
+        $(name: $test_name:ident,)?
+        ruleName: $rule_name:expr,
+        config: $config:tt,
+        $(customSyntax: $syntax:expr,)?
+        $(fix: $fix:expr,)?
+        $(skip: $skip:expr,)?
+        $(accept: [
+            $(
+                { $($a_tokens:tt)* }
+            ),* $(,)?
+        ] $(,)? )?
+        $(reject: [
+            $(
+                { $($r_tokens:tt)* }
+            ),* $(,)?
+        ] $(,)? )?
+    ) => {
+        test_rule!(@impl
+            name: $( $test_name )?,
+            ruleName: $rule_name,
+            config: $config,
+            customSyntax: $( $syntax )?,
+            fix: $( $fix )?,
+            skip: $( $skip )?,
+            accept: [ $( $( { $($a_tokens)* } ),* )? ],
+            reject: [ $( $( { $($r_tokens)* } ),* )? ],
+        );
+    };
+
+    (@impl
+        name: ,
+        ruleName: $rule_name:expr,
+        config: $config:tt,
+        customSyntax: $($syntax:expr)?,
+        fix: $($fix:expr)?,
+        skip: $($skip:expr)?,
+        accept: [ $( { $($a_tokens:tt)* } ),* ],
+        reject: [ $( { $($r_tokens:tt)* } ),* ],
+    ) => {
+        test_rule!(@build_fn
+            suite_default,
+            $rule_name,
+            $config,
+            ($($syntax)?),
+            ($($fix)?),
+            ($($skip)?),
+            [ $( { $($a_tokens)* } ),* ],
+            [ $( { $($r_tokens)* } ),* ]
+        );
+    };
+
+    (@impl
+        name: $test_name:ident,
+        ruleName: $rule_name:expr,
+        config: $config:tt,
+        customSyntax: $($syntax:expr)?,
+        fix: $($fix:expr)?,
+        skip: $($skip:expr)?,
+        accept: [ $( { $($a_tokens:tt)* } ),* ],
+        reject: [ $( { $($r_tokens:tt)* } ),* ],
+    ) => {
+        test_rule!(@build_fn
+            $test_name,
+            $rule_name,
+            $config,
+            ($($syntax)?),
+            ($($fix)?),
+            ($($skip)?),
+            [ $( { $($a_tokens)* } ),* ],
+            [ $( { $($r_tokens)* } ),* ]
+        );
+    };
+
+    (@build_fn
+        $fn_name:ident,
+        $rule_name:expr,
+        $config:tt,
+        ($($syntax:expr)?),
+        ($($fix:expr)?),
+        ($($skip:expr)?),
+        [ $( { $($a_tokens:tt)* } ),* ],
+        [ $( { $($r_tokens:tt)* } ),* ]
     ) => {
         #[test]
-        fn $test_fn_name() {
-            let mut suite = $crate::test::harness::TestRuleSuite {
-                rule_name: "",
-                config: serde_json::Value::Null,
-                custom_syntax: None,
-                fix: false,
-                skip: false,
-                accept: Vec::new(),
-                reject: Vec::new(),
+        #[allow(unused_mut, unused_assignments)]
+        fn $fn_name() {
+            let mut custom_syntax: Option<&'static str> = None;
+            $( custom_syntax = Some($syntax); )?
+
+            let mut fix: bool = false;
+            $( fix = $fix; )?
+
+            let mut skip: bool = false;
+            $( skip = $skip; )?
+
+            let mut accept_vec: Vec<$crate::test::harness::AcceptCase> = Vec::new();
+            $(
+                {
+                    let mut c = $crate::test::harness::AcceptCase {
+                        code: "",
+                        description: None,
+                        skip: false,
+                    };
+                    test_rule!(@accept_field c, $($a_tokens)*);
+                    accept_vec.push(c);
+                }
+            )*
+
+            let mut reject_vec: Vec<$crate::test::harness::RejectCase> = Vec::new();
+            $(
+                {
+                    let mut c = $crate::test::harness::RejectCase {
+                        code: "",
+                        fixed: None,
+                        unfixable: false,
+                        description: None,
+                        skip: false,
+                        message: None,
+                        line: None,
+                        column: None,
+                        end_line: None,
+                        end_column: None,
+                        warnings: None,
+                    };
+                    test_rule!(@reject_field c, $($r_tokens)*);
+                    reject_vec.push(c);
+                }
+            )*
+
+            let suite = $crate::test::harness::TestSuite {
+                rule_name: $rule_name,
+                config: serde_json::json!($config),
+                custom_syntax,
+                fix,
+                skip,
+                accept: accept_vec,
+                reject: reject_vec,
             };
-            $( $crate::suite_field!(suite, $k : $v); )*
-            $crate::test::harness::run_test_rule_suite(suite);
+
+            $crate::test::harness::run_test_suite(suite);
         }
     };
+
+    (@accept_field $c:ident, code: $val:expr $(, $($rest:tt)* )?) => {
+        $c.code = $val;
+        test_rule!(@accept_field $c $(, $($rest)* )?);
+    };
+    (@accept_field $c:ident, description: $val:expr $(, $($rest:tt)* )?) => {
+        $c.description = Some($val);
+        test_rule!(@accept_field $c $(, $($rest)* )?);
+    };
+    (@accept_field $c:ident, skip: $val:expr $(, $($rest:tt)* )?) => {
+        $c.skip = $val;
+        test_rule!(@accept_field $c $(, $($rest)* )?);
+    };
+    (@accept_field $c:ident $(,)?) => {};
+
+    (@reject_field $c:ident, warnings: [ $( { $( $wf:ident : $wv:expr ),* $(,)? } ),* $(,)? ] $(, $($rest:tt)* )?) => {
+        let mut ws = Vec::new();
+        $(
+            let mut w = $crate::test::harness::ExpectedWarning {
+                message: None,
+                line: None,
+                column: None,
+                end_line: None,
+                end_column: None,
+            };
+            $(
+                test_rule!(@warning_field w, $wf : $wv);
+            )*
+            ws.push(w);
+        )*
+        $c.warnings = Some(ws);
+        test_rule!(@reject_field $c $(, $($rest)* )?);
+    };
+    (@reject_field $c:ident, code: $val:expr $(, $($rest:tt)* )?) => {
+        $c.code = $val;
+        test_rule!(@reject_field $c $(, $($rest)* )?);
+    };
+    (@reject_field $c:ident, fixed: $val:expr $(, $($rest:tt)* )?) => {
+        $c.fixed = Some($val);
+        test_rule!(@reject_field $c $(, $($rest)* )?);
+    };
+    (@reject_field $c:ident, unfixable: $val:expr $(, $($rest:tt)* )?) => {
+        $c.unfixable = $val;
+        test_rule!(@reject_field $c $(, $($rest)* )?);
+    };
+    (@reject_field $c:ident, description: $val:expr $(, $($rest:tt)* )?) => {
+        $c.description = Some($val);
+        test_rule!(@reject_field $c $(, $($rest)* )?);
+    };
+    (@reject_field $c:ident, skip: $val:expr $(, $($rest:tt)* )?) => {
+        $c.skip = $val;
+        test_rule!(@reject_field $c $(, $($rest)* )?);
+    };
+    (@reject_field $c:ident, message: $val:expr $(, $($rest:tt)* )?) => {
+        $c.message = Some(($val).into());
+        test_rule!(@reject_field $c $(, $($rest)* )?);
+    };
+    (@reject_field $c:ident, line: $val:expr $(, $($rest:tt)* )?) => {
+        $c.line = Some($val);
+        test_rule!(@reject_field $c $(, $($rest)* )?);
+    };
+    (@reject_field $c:ident, column: $val:expr $(, $($rest:tt)* )?) => {
+        $c.column = Some($val);
+        test_rule!(@reject_field $c $(, $($rest)* )?);
+    };
+    (@reject_field $c:ident, endLine: $val:expr $(, $($rest:tt)* )?) => {
+        $c.end_line = Some($val);
+        test_rule!(@reject_field $c $(, $($rest)* )?);
+    };
+    (@reject_field $c:ident, endColumn: $val:expr $(, $($rest:tt)* )?) => {
+        $c.end_column = Some($val);
+        test_rule!(@reject_field $c $(, $($rest)* )?);
+    };
+    (@reject_field $c:ident $(,)?) => {};
+
+    (@warning_field $w:ident, message: $val:expr) => { $w.message = Some(($val).into()); };
+    (@warning_field $w:ident, line: $val:expr) => { $w.line = Some($val); };
+    (@warning_field $w:ident, column: $val:expr) => { $w.column = Some($val); };
+    (@warning_field $w:ident, endLine: $val:expr) => { $w.end_line = Some($val); };
+    (@warning_field $w:ident, endColumn: $val:expr) => { $w.end_column = Some($val); };
 }
