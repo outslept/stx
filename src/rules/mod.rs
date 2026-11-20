@@ -18,10 +18,13 @@ pub mod color_function_notation;
 pub mod color_hex_alpha;
 pub mod color_hex_length;
 pub mod color_named;
+pub mod color_no_hex;
 pub mod color_no_invalid_hex;
 pub mod comment_empty_line_before;
 pub mod comment_no_empty;
+pub mod comment_pattern;
 pub mod comment_whitespace_inside;
+pub mod comment_word_disallowed_list;
 pub mod container_name_pattern;
 pub mod custom_media_pattern;
 pub mod custom_property_empty_line_before;
@@ -168,7 +171,14 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
             "at-rule-disallowed-list" => {
                 at_rule_disallowed_list::AtRuleDisallowedList::from_setting(setting)
                     .map(|r| Box::new(r) as Box<dyn Rule>)
-            }
+            },
+            "comment-word-disallowed-list" => {
+                           comment_word_disallowed_list::CommentWordDisallowedList::from_config(
+                               &setting.primary,
+                               setting.severity,
+                           )
+                           .map(|r| Box::new(r) as Box<dyn Rule>)
+                       }
             "at-rule-property-required-list" => Some(Box::new(
                 at_rule_property_required_list::AtRulePropertyRequiredList::new(
                     &setting.primary,
@@ -201,6 +211,10 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
             "block-no-empty" => Some(Box::new(block_no_empty::BlockNoEmpty::from_secondary(
                 setting.secondary.as_ref(),
             ))),
+            "comment-pattern" => {
+                          comment_pattern::CommentPattern::from_config(&setting.primary, setting.severity)
+                              .map(|r| Box::new(r) as Box<dyn Rule>)
+                      },
             "color-function-alias-notation" => {
                 color_function_alias_notation::ColorFunctionAliasNotation::from_primary(
                     &setting.primary,
@@ -213,7 +227,13 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                     setting.secondary.as_ref(),
                 )
                 .map(|r| Box::new(r) as Box<dyn Rule>)
-            }
+            },
+            "color-no-hex" => color_no_hex::ColorNoHex::from_config(
+                           &setting.primary,
+                           setting.secondary.as_ref(),
+                           setting.severity,
+                       )
+                       .map(|r| Box::new(r) as Box<dyn Rule>),
             "color-hex-length" => {
                 let mode = if setting.primary.as_str() == Some("long") {
                     color_hex_length::HexLengthMode::Long
@@ -222,7 +242,10 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                 };
                 Some(Box::new(color_hex_length::ColorHexLength { mode }))
             }
-            "color-no-invalid-hex" => Some(Box::new(color_no_invalid_hex::ColorNoInvalidHex)),
+            "color-no-invalid-hex" => {
+                        color_no_invalid_hex::ColorNoInvalidHex::from_config(&setting.primary, setting.severity)
+                            .map(|r| Box::new(r) as Box<dyn Rule>)
+                    }
             "comment-empty-line-before" => {
                 let mode = if setting.primary.as_str() == Some("never") {
                     at_rule_empty_line_before::EmptyLineMode::Never
@@ -233,22 +256,24 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                     comment_empty_line_before::CommentEmptyLineBefore { mode },
                 ))
             }
-            "comment-no-empty" => Some(Box::new(comment_no_empty::CommentNoEmpty)),
-            "comment-whitespace-inside" => {
-                let mode = if setting.primary.as_str() == Some("never") {
-                    comment_whitespace_inside::CommentWhitespaceMode::Never
-                } else {
-                    comment_whitespace_inside::CommentWhitespaceMode::Always
-                };
-                Some(Box::new(
-                    comment_whitespace_inside::CommentWhitespaceInside { mode },
-                ))
-            }
-            "container-name-pattern" => Some(Box::new(
-                container_name_pattern::ContainerNamePattern {
-                    matcher: PatternMatcher::new(setting.primary.as_str()),
-                },
-            )),
+            "comment-no-empty" => {
+                           comment_no_empty::CommentNoEmpty::from_config(&setting.primary, setting.severity)
+                               .map(|r| Box::new(r) as Box<dyn Rule>)
+                       }
+                       "comment-whitespace-inside" => {
+                                     comment_whitespace_inside::CommentWhitespaceInside::from_config(
+                                         &setting.primary,
+                                         setting.severity,
+                                     )
+                                     .map(|r| Box::new(r) as Box<dyn Rule>)
+                                 }
+                                 "container-name-pattern" => {
+                                     container_name_pattern::ContainerNamePattern::from_config(
+                                         &setting.primary,
+                                         setting.secondary.as_ref(),
+                                     )
+                                     .map(|r| Box::new(r) as Box<dyn Rule>)
+                                 }
             "media-query-no-invalid" => Some(Box::new(
                 media_query_no_invalid::MediaQueryNoInvalid::from_secondary(
                     setting.secondary.as_ref(),
@@ -260,9 +285,13 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                             setting.severity,
                         )
                         .map(|r| Box::new(r) as Box<dyn Rule>),
-            "custom-media-pattern" => Some(Box::new(custom_media_pattern::CustomMediaPattern {
-                matcher: PatternMatcher::new(setting.primary.as_str()),
-            })),
+            "custom-media-pattern" => {
+                           custom_media_pattern::CustomMediaPattern::from_config(
+                               &setting.primary,
+                               setting.secondary.as_ref(),
+                           )
+                           .map(|r| Box::new(r) as Box<dyn Rule>)
+                       },
             "custom-property-empty-line-before" => {
                 let mode = if setting.primary.as_str() == Some("never") {
                     at_rule_empty_line_before::EmptyLineMode::Never
