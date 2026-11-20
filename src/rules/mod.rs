@@ -1,4 +1,5 @@
 pub mod alpha_value_notation;
+pub mod annotation_no_unknown;
 pub mod at_rule_empty_line_before;
 pub mod at_rule_no_unknown;
 pub mod at_rule_no_vendor_prefix;
@@ -141,7 +142,12 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                 Some(Box::new(at_rule_empty_line_before::AtRuleEmptyLineBefore {
                     mode,
                 }))
-            }
+            },
+            "annotation-no-unknown" => Some(Box::new(
+                           annotation_no_unknown::AnnotationNoUnknown::from_secondary(
+                               setting.secondary.as_ref(),
+                           ),
+                       )),
             "at-rule-no-unknown" => Some(Box::new(at_rule_no_unknown::AtRuleNoUnknown)),
             "at-rule-no-vendor-prefix" => {
                 Some(Box::new(at_rule_no_vendor_prefix::AtRuleNoVendorPrefix))
