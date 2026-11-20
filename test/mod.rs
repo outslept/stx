@@ -7,6 +7,7 @@ mod comment_no_empty;
 mod declaration_no_important;
 mod font_family_no_duplicate_names;
 mod keyframe_declaration_no_important;
+mod media_query_no_invalid;
 mod no_empty_source;
 mod no_irregular_whitespace;
 mod selector_id_pattern;

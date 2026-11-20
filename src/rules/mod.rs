@@ -42,6 +42,7 @@ pub mod lightness_notation;
 pub mod media_feature_name_no_unknown;
 pub mod media_feature_name_no_vendor_prefix;
 pub mod media_feature_range_notation;
+pub mod media_query_no_invalid;
 pub mod named_grid_areas_no_invalid;
 pub mod no_descending_specificity;
 pub mod no_duplicate_at_import_rules;
@@ -202,6 +203,11 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                 container_name_pattern::ContainerNamePattern {
                     matcher: PatternMatcher::new(setting.primary.as_str()),
                 },
+            )),
+            "media-query-no-invalid" => Some(Box::new(
+                media_query_no_invalid::MediaQueryNoInvalid::from_secondary(
+                    setting.secondary.as_ref(),
+                ),
             )),
             "custom-media-pattern" => Some(Box::new(custom_media_pattern::CustomMediaPattern {
                 matcher: PatternMatcher::new(setting.primary.as_str()),

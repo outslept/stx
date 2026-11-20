@@ -1,0 +1,350 @@
+const RULE_NAME: &str = "media-query-no-invalid";
+
+fn rejected(query: &str) -> String {
+    format!("Invalid media query \"{query}\"")
+}
+
+fn rejected_with_reason(query: &str, reason: &str) -> String {
+    format!("Invalid media query \"{query}\", {reason}")
+}
+
+test_rule! {
+    name: default_config,
+    ruleName: RULE_NAME,
+    config: [true],
+    accept: [
+        {
+            code: "@media screen {}",
+        },
+        {
+            code: "@media print {}",
+        },
+        {
+            code: "@media all {}",
+        },
+        {
+            code: "@media {}",
+        },
+        {
+            code: "@media screen and (color) {}",
+        },
+        {
+            code: "@media only screen and (color) {}",
+        },
+        {
+            code: "@media speech and (device-aspect-ratio: 16/9) {}",
+        },
+        {
+            code: "@media (width >= 600px) {}",
+        },
+        {
+            code: "@media (width: 600px) {}",
+        },
+        {
+            code: "@media not (width <= -100px) {}",
+        },
+        {
+            code: "@media not (resolution: -300dpi) {}",
+        },
+        {
+            code: "@media (min-width: 320.01px) {}",
+        },
+        {
+            code: "@media not (color) {}",
+        },
+        {
+            code: "@media (width < 600px) and (height < 600px) {}",
+        },
+        {
+            code: "@media (width < 600px) and (height < 600px) {}",
+        },
+        {
+            code: "@media (not (color)) or (hover) {}",
+        },
+        {
+            code: "@media (not (color)) and (not (hover)) {}",
+        },
+        {
+            code: "@media (not (color)) and (not (hover)) {}",
+        },
+        {
+            code: "@media screen and (max-weight: 3kg) and (color), (color) {}",
+        },
+        {
+            code: "@media not unknown {}",
+        },
+    ],
+    reject: [
+        {
+            code: "@media @foo {}",
+            message: rejected("@foo"),
+            line: 1,
+            column: 8,
+            endLine: 1,
+            endColumn: 12,
+        },
+        {
+            code: "@media screen or (min-width > 500px) {}",
+            message: rejected("screen or (min-width > 500px)"),
+            line: 1,
+            column: 8,
+            endLine: 1,
+            endColumn: 37,
+        },
+        {
+            code: "@media ((min-width: 300px) and (hover: hover) or (aspect-ratio: 1 / 1)) {}",
+            message: rejected("((min-width: 300px) and (hover: hover) or (aspect-ratio: 1 / 1))"),
+            line: 1,
+            column: 8,
+            endLine: 1,
+            endColumn: 72,
+        },
+        {
+            code: "@media (min-width: var(--foo)) {}",
+            message: rejected("(min-width: var(--foo))"),
+            line: 1,
+            column: 8,
+            endLine: 1,
+            endColumn: 31,
+        },
+        {
+            code: "@media (min-width: 50%) {}",
+            message: rejected("(min-width: 50%)"),
+            line: 1,
+            column: 8,
+            endLine: 1,
+            endColumn: 24,
+        },
+        {
+            code: "@media ((color: 2) and (min-width: 50%)) {}",
+            message: rejected("(min-width: 50%)"),
+            line: 1,
+            column: 24,
+            endLine: 1,
+            endColumn: 40,
+        },
+        {
+            code: "@media ((color: foo(--bar)) and (min-width: 50%)) {}",
+            warnings: [
+                {
+                    message: rejected("(color: foo(--bar))"),
+                    line: 1,
+                    column: 9,
+                    endLine: 1,
+                    endColumn: 28,
+                },
+                {
+                    message: rejected("(min-width: 50%)"),
+                    line: 1,
+                    column: 33,
+                    endLine: 1,
+                    endColumn: 49,
+                },
+            ],
+        },
+        {
+            code: "@media (color: foo(--bar)), (min-width: 50%) {}",
+            warnings: [
+                {
+                    message: rejected("(color: foo(--bar))"),
+                    line: 1,
+                    column: 8,
+                    endLine: 1,
+                    endColumn: 27,
+                },
+                {
+                    message: rejected("(min-width: 50%)"),
+                    line: 1,
+                    column: 29,
+                    endLine: 1,
+                    endColumn: 45,
+                },
+            ],
+        },
+        {
+            code: "@media (--foo: 2) {}",
+            message: rejected_with_reason(
+                "(--foo: 2)",
+                "custom media queries can only be used in boolean queries",
+            ),
+            line: 1,
+            column: 8,
+            endLine: 1,
+            endColumn: 18,
+        },
+        {
+            code: "@media (min-width < 500px) {}",
+            message: rejected_with_reason(
+                "(min-width < 500px)",
+                "\"min-\" and \"max-\" prefixes are not needed when using range queries",
+            ),
+            line: 1,
+            column: 8,
+            endLine: 1,
+            endColumn: 27,
+        },
+        {
+            code: "@media (min-width) {}",
+            message: rejected_with_reason(
+                "(min-width)",
+                "\"min-\" and \"max-\" prefixes are not needed in boolean queries",
+            ),
+            line: 1,
+            column: 8,
+            endLine: 1,
+            endColumn: 19,
+        },
+        {
+            code: "@media (grid < 0) {}",
+            message: rejected_with_reason(
+                "(grid < 0)",
+                "discrete features can only be used in plain and boolean queries",
+            ),
+            line: 1,
+            column: 8,
+            endLine: 1,
+            endColumn: 18,
+        },
+        {
+            code: "@media (not (color) and (hover)) {}",
+            message: rejected("(not (color) and (hover))"),
+            line: 1,
+            column: 8,
+            endLine: 1,
+            endColumn: 33,
+        },
+        {
+            code: "@media (color) and (hover) or (width) {}",
+            message: rejected("(color) and (hover) or (width)"),
+            line: 1,
+            column: 8,
+            endLine: 1,
+            endColumn: 38,
+        },
+        {
+            code: "@media (width => 100px) {}",
+            message: rejected("(width => 100px)"),
+            line: 1,
+            column: 8,
+            endLine: 1,
+            endColumn: 24,
+        },
+        {
+            code: "@media (width == 100px) {}",
+            message: rejected("(width == 100px)"),
+            line: 1,
+            column: 8,
+            endLine: 1,
+            endColumn: 24,
+        },
+        {
+            code: "@media not(min-width: 100px) {}",
+            message: rejected("not(min-width: 100px)"),
+            line: 1,
+            column: 8,
+            endLine: 1,
+            endColumn: 29,
+        },
+        {
+            code: "@media foo screen {}",
+            message: rejected("foo screen"),
+            line: 1,
+            column: 8,
+            endLine: 1,
+            endColumn: 18,
+        },
+        {
+            code: "@media not screen foo (min-width: 300px) {}",
+            message: rejected("not screen foo (min-width: 300px)"),
+            line: 1,
+            column: 8,
+            endLine: 1,
+            endColumn: 41,
+        },
+        {
+            code: "@media (--foo: 300px) {}",
+            message: rejected_with_reason(
+                "(--foo: 300px)",
+                "custom media queries can only be used in boolean queries",
+            ),
+            line: 1,
+            column: 8,
+            endLine: 1,
+            endColumn: 22,
+        },
+        {
+            code: "@media (--foo < 300px) {}",
+            message: rejected_with_reason(
+                "(--foo < 300px)",
+                "custom media queries can only be used in boolean queries",
+            ),
+            line: 1,
+            column: 8,
+            endLine: 1,
+            endColumn: 23,
+        },
+    ],
+}
+
+test_rule! {
+    name: ignore_functions,
+    ruleName: RULE_NAME,
+    config: [true, { "ignoreFunctions": ["theme", "fooFunction", "/^get.*$/"] }],
+    accept: [
+        {
+            code: "@media (min-width: theme(screens.md)) {}",
+        },
+        {
+            code: "@media (min-width: theme(screens.md) and fooFunction(300px)) {}",
+        },
+        {
+            code: "@media (min-width: getDefaultWidth()) {}",
+        },
+        {
+            code: "@media (min-width: theme(screens.md) and var(300px)) {}",
+        },
+        {
+            code: "@media (min-width: var(300px) or theme(screens.md)) {}",
+        },
+        {
+            code: "@media theme(screens.md) {}",
+        },
+        {
+            code: "@media (min-width: fooFunction(300px)), (min-width: theme(screens.md)) {}",
+        },
+    ],
+    reject: [
+        {
+            code: "@media (min-width: var(--foo)) {}",
+            message: rejected("(min-width: var(--foo))"),
+            line: 1,
+            column: 8,
+            endLine: 1,
+            endColumn: 31,
+        },
+        {
+            code: "@media (min-width: var(--foo)) {}",
+            message: rejected("(min-width: var(--foo))"),
+            line: 1,
+            column: 8,
+            endLine: 1,
+            endColumn: 31,
+        },
+        {
+            code: "@media var(--foo) {}",
+            message: rejected("var(--foo)"),
+            line: 1,
+            column: 8,
+            endLine: 1,
+            endColumn: 18,
+        },
+        {
+            code: "@media (min-width: var(300px)), (min-width: theme(screens.md)) {}",
+            message: rejected("(min-width: var(300px))"),
+            line: 1,
+            column: 8,
+            endLine: 1,
+            endColumn: 31,
+        },
+    ],
+}
