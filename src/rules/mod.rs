@@ -138,16 +138,8 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                            setting.secondary.as_ref(),
                        ),
                    )),
-            "at-rule-empty-line-before" => {
-                let mode = if setting.primary.as_str() == Some("never") {
-                    at_rule_empty_line_before::EmptyLineMode::Never
-                } else {
-                    at_rule_empty_line_before::EmptyLineMode::Always
-                };
-                Some(Box::new(at_rule_empty_line_before::AtRuleEmptyLineBefore {
-                    mode,
-                }))
-            },
+        "at-rule-empty-line-before" => at_rule_empty_line_before::AtRuleEmptyLineBefore::from_setting(setting)
+            .map(|r| Box::new(r) as Box<dyn Rule>),
             "at-rule-allowed-list" => Some(Box::new(
                            at_rule_allowed_list::AtRuleAllowedList::from_primary(&setting.primary),
                        )),
