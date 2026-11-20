@@ -1,28 +1,142 @@
-use crate::{
-    context::LintContext,
-    fix::{Edit, Fix},
-    rules::{
-        Rule,
-        value_utils::{ValueTokenKind, extract_function_name_and_args, tokenize_value},
-    },
-};
-use oxc_css_parser::{Span, ast::ComponentValue};
+//! Rule `color-function-notation`: specify modern or legacy notation for
+//! applicable color-functions.
+//!
+//! Reference: <https://stylelint.io/user-guide/rules/color-function-notation>
 
+use crate::context::LintContext;
+use crate::fix::Fix;
+use oxc_css_parser::{Span, ast::Stylesheet};
+use serde_json::{Map, Value};
+
+use crate::rules::Rule;
+use crate::utils::options::secondary_has_flag;
+use crate::utils::reference::{
+    LEGACY_NOTATION_COLOR_FUNCTIONS, WITH_ALPHA_ALIAS_COLOR_FUNCTIONS, in_set_ignore_case,
+};
+
+/// Primary option mode for [`ColorFunctionNotation`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ColorFunctionNotationMode {
+enum Mode {
+    /// Space-separated channels with optional `/ <alpha>` and canonical `rgb`/`hsl` names.
     Modern,
+    /// Comma-separated arguments (`rgb(r, g, b)` / `rgba(r, g, b, a)`).
     Legacy,
 }
 
+/// [`color-function-notation`](https://stylelint.io/user-guide/rules/color-function-notation)
+///
+/// Specify modern or legacy notation for applicable color-functions.
+///
+/// ### What it does
+///
+/// Enforces either the modern space-separated syntax (`rgb(0 0 0 / 50%)`) or
+/// the legacy comma-separated syntax (`rgba(0, 0, 0, 50%)`) for `rgb()`,
+/// `rgba()`, `hsl()`, and `hsla()` color functions.
+///
+/// Preprocessor color helper calls (such as Sass `rgba(#fff, 0.85)` or
+/// `rgba($color, 0.5)`) are ignored.
+///
+/// ### Why is this bad?
+///
+/// Mixing legacy comma-separated color functions with modern space-separated
+/// CSS Color 4 syntax reduces consistency across stylesheets. Modern notation
+/// also aligns `rgb()` and `hsl()` with newer CSS color functions such as
+/// `lab()`, `lch()`, `oklab()`, and `oklch()`.
+///
+/// ### Autofix
+///
+/// When configured with `"modern"`, this rule automatically:
+/// - Replaces the first two channel-separating commas with spaces.
+/// - Replaces the third (alpha) comma with `/`.
+/// - Strips the trailing `a` from `rgba` / `hsla` function names.
+///
+/// ### Primary Option
+///
+/// - `"modern"`: require space-separated channels and `/` before alpha.
+/// - `"legacy"`: require comma-separated channels.
+///
+/// ### Secondary Options
+///
+/// ```json
+/// {
+///   "ignore": ["with-var-inside"]
+/// }
+/// ```
+///
+/// - `"ignore": ["with-var-inside"]`: ignore color functions that contain a
+///   direct `var()` argument (since a single `var()` may expand to multiple
+///   comma-separated or space-separated tokens at runtime).
+///
+/// ### Examples
+///
+/// #### `"modern"`
+///
+/// ##### Incorrect
+///
+/// ```css
+/// a { color: rgb(0, 0, 0); }
+/// a { color: rgba(12, 122, 231, 0.2); }
+/// ```
+///
+/// ##### Correct
+///
+/// ```css
+/// a { color: rgb(0 0 0); }
+/// a { color: rgb(12 122 231 / 0.2); }
+/// ```
+///
+/// #### `"legacy"`
+///
+/// ##### Incorrect
+///
+/// ```css
+/// a { color: rgb(0 0 0); }
+/// a { color: rgb(12 122 231 / 0.2); }
+/// ```
+///
+/// ##### Correct
+///
+/// ```css
+/// a { color: rgb(0, 0, 0); }
+/// a { color: rgba(12, 122, 231, 0.2); }
+/// ```
 pub struct ColorFunctionNotation {
-    pub mode: ColorFunctionNotationMode,
+    mode: Mode,
+    ignore_with_var_inside: bool,
 }
 
 impl Default for ColorFunctionNotation {
     fn default() -> Self {
         Self {
-            mode: ColorFunctionNotationMode::Modern,
+            mode: Mode::Modern,
+            ignore_with_var_inside: false,
         }
+    }
+}
+
+impl ColorFunctionNotation {
+    /// Creates a new `color-function-notation` rule instance from configuration options.
+    pub fn from_config(primary: &Value, secondary: Option<&Map<String, Value>>) -> Option<Self> {
+        let mode = match primary.as_str()? {
+            "modern" => Mode::Modern,
+            "legacy" => Mode::Legacy,
+            _ => return None,
+        };
+        let ignore_with_var_inside = secondary_has_flag(secondary, "ignore", "with-var-inside");
+        Some(Self {
+            mode,
+            ignore_with_var_inside,
+        })
+    }
+
+    /// Formats the diagnostic message for a color function using the wrong notation.
+    #[inline]
+    fn expected_message(&self) -> String {
+        let mode_str = match self.mode {
+            Mode::Modern => "modern",
+            Mode::Legacy => "legacy",
+        };
+        format!("Expected {mode_str} color-function notation")
     }
 }
 
@@ -31,81 +145,457 @@ impl Rule for ColorFunctionNotation {
         "color-function-notation"
     }
 
-    fn check_component_value<'a>(&self, val: &'a ComponentValue<'a>, ctx: &mut LintContext<'a>) {
-        let ComponentValue::Function(func) = val else {
-            return;
-        };
-        let Some((fn_name, name_span, args_span)) =
-            extract_function_name_and_args(ctx.source, func.span)
-        else {
-            return;
-        };
-        let lower = fn_name.to_ascii_lowercase();
-        if !matches!(lower.as_str(), "rgb" | "rgba" | "hsl" | "hsla") {
-            return;
-        }
+    fn check_stylesheet<'a>(&self, _ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {
+        let len = u32::try_from(ctx.source.len()).unwrap_or(u32::MAX);
+        let mut i: u32 = 0;
 
-        let tokens = tokenize_value(ctx.source, args_span);
-        let mut depth = 0usize;
-        let mut comma_spans = Vec::new();
-        let mut has_var_or_scss = false;
+        while i < len {
+            let b = byte_at(ctx, i);
 
-        for tok in &tokens {
-            match tok.kind {
-                ValueTokenKind::Function => {
-                    if tok.raw.eq_ignore_ascii_case("var(") {
-                        has_var_or_scss = true;
+            // Skip block comments `/* ... */`.
+            if b == b'/' && i + 1 < len && byte_at(ctx, i + 1) == b'*' {
+                i = skip_block_comment(ctx, i, len);
+                continue;
+            }
+
+            // Skip single-line comments `// ...` when not part of a URL scheme (`://`).
+            if b == b'/'
+                && i + 1 < len
+                && byte_at(ctx, i + 1) == b'/'
+                && (i == 0 || byte_at(ctx, i - 1) != b':')
+            {
+                i = skip_line_comment(ctx, i, len);
+                continue;
+            }
+
+            // Skip quoted string literals.
+            if b == b'"' || b == b'\'' {
+                i = skip_string(ctx, i, len);
+                continue;
+            }
+
+            // Look for function calls `<ident>(`.
+            if is_ident_start(b) {
+                let fn_start = i;
+                let mut fn_end = i + 1;
+                while fn_end < len && is_ident_char(byte_at(ctx, fn_end)) {
+                    fn_end += 1;
+                }
+
+                // Ignore namespaced Sass calls such as `color.rgb(...)`.
+                let is_namespaced = fn_start > 0 && byte_at(ctx, fn_start - 1) == b'.';
+
+                if !is_namespaced && fn_end < len && byte_at(ctx, fn_end) == b'(' {
+                    let fn_name = ctx.slice_range(fn_start, fn_end);
+
+                    if in_set_ignore_case(LEGACY_NOTATION_COLOR_FUNCTIONS, fn_name)
+                        && let Some(close_paren) = find_matching_paren(ctx, fn_end, len)
+                    {
+                        self.check_color_function(ctx, fn_start, fn_end, close_paren);
                     }
-                    depth += 1;
                 }
-                ValueTokenKind::CloseParen => depth = depth.saturating_sub(1),
-                ValueTokenKind::Comma if depth == 0 => comma_spans.push(tok.span),
-                ValueTokenKind::Ident if tok.raw.starts_with('$') => has_var_or_scss = true,
-                _ => {}
-            }
-        }
 
-        if self.mode == ColorFunctionNotationMode::Modern {
-            if has_var_or_scss || !matches!(comma_spans.len(), 2 | 3) {
-                return;
+                i = fn_end;
+                continue;
             }
 
-            let mut edits = Vec::new();
-            if lower == "rgba" || lower == "hsla" {
-                edits.push(Edit {
-                    span: name_span,
-                    replacement: fn_name[..3].to_string(),
-                });
-            }
-
-            let bytes = ctx.source.as_bytes();
-            let args_start = args_span.start as usize;
-            let args_end = args_span.end as usize;
-            for (i, c_span) in comma_spans.iter().enumerate() {
-                let mut start = c_span.start as usize;
-                while start > args_start && bytes[start - 1].is_ascii_whitespace() {
-                    start -= 1;
-                }
-                let mut end = c_span.end as usize;
-                while end < args_end && bytes[end].is_ascii_whitespace() {
-                    end += 1;
-                }
-                let replacement = if i == 2 { " / " } else { " " };
-                edits.push(Edit {
-                    span: Span {
-                        start: start as u32,
-                        end: end as u32,
-                    },
-                    replacement: replacement.to_string(),
-                });
-            }
-
-            ctx.report_with_fix(
-                self.name(),
-                func.span,
-                "Expected modern color-function notation".to_string(),
-                Some(Fix { edits }),
-            );
+            i += 1;
         }
     }
+}
+
+/// Represents a direct child node inside a color function's argument list,
+/// mirroring `postcss-value-parser` node segmentation.
+#[derive(Debug)]
+enum ArgNode {
+    /// A comma `,` divider along with the whitespace immediately before and after it.
+    Comma {
+        /// Start byte of the `before` whitespace.
+        full_start: u32,
+        /// End byte of the `after` whitespace.
+        full_end: u32,
+        /// Slice of whitespace before `,`.
+        before_start: u32,
+        before_end: u32,
+        /// Slice of whitespace after `,`.
+        after_start: u32,
+        after_end: u32,
+    },
+    /// A slash `/` divider.
+    Slash,
+    /// A `var(...)` function call.
+    VarFunction,
+    /// A word token that disqualifies the function as a standard CSS color function
+    /// (starts with `#`, starts with `$`, or contains `.$`).
+    NonStandardWord,
+    /// Any other value node (`word`, `function`, `string`, `comment`, `space`).
+    Other,
+}
+
+impl ColorFunctionNotation {
+    /// Inspects a single `rgb`/`rgba`/`hsl`/`hsla` function call at `fn_start..(close_paren + 1)`.
+    fn check_color_function<'a>(
+        &self,
+        ctx: &mut LintContext<'a>,
+        fn_start: u32,
+        fn_end: u32,
+        close_paren: u32,
+    ) {
+        let nodes = parse_arg_nodes(ctx, fn_end + 1, close_paren);
+
+        // `isStandardSyntaxColorFunction(node)`
+        if nodes.iter().any(|n| matches!(n, ArgNode::NonStandardWord)) {
+            return;
+        }
+
+        // `if (ignoreWithVarInside && containsVariable(nodes)) return;`
+        if self.ignore_with_var_inside && nodes.iter().any(|n| matches!(n, ArgNode::VarFunction)) {
+            return;
+        }
+
+        // `const hasEnoughArguments = nodes.length >= 5;`
+        if nodes.len() < 5 {
+            return;
+        }
+
+        let is_legacy = is_likely_legacy(&nodes);
+        match self.mode {
+            Mode::Modern if !is_legacy => return,
+            Mode::Legacy if is_legacy => return,
+            _ => {}
+        }
+
+        let full_span = Span {
+            start: fn_start,
+            end: close_paren + 1,
+        };
+
+        let fix = if self.mode == Mode::Modern {
+            let orig_call = ctx.slice(full_span);
+            let fixed_call = build_modern_fixed_call(ctx, fn_start, fn_end, close_paren, &nodes);
+            Some(minimal_edit_fix(full_span, orig_call, &fixed_call))
+        } else {
+            None
+        };
+
+        ctx.report_with_fix(self.name(), full_span, self.expected_message(), fix);
+    }
+}
+
+/// Checks `isLikelyLegacy(nodes)` from Stylelint:
+/// returns `false` if any slash `/` is present, otherwise `true` if there are 2 or 3 commas.
+fn is_likely_legacy(nodes: &[ArgNode]) -> bool {
+    let mut commas: u32 = 0;
+    for node in nodes {
+        match node {
+            ArgNode::Comma { .. } => commas += 1,
+            ArgNode::Slash => return false,
+            _ => {}
+        }
+    }
+    commas == 2 || commas == 3
+}
+
+/// Constructs the autofixed modern color function call string, matching Stylelint's `modernFixer`.
+fn build_modern_fixed_call(
+    ctx: &LintContext<'_>,
+    fn_start: u32,
+    fn_end: u32,
+    close_paren: u32,
+    nodes: &[ArgNode],
+) -> String {
+    let fn_name = ctx.slice_range(fn_start, fn_end);
+    let fixed_fn_name = if in_set_ignore_case(WITH_ALPHA_ALIAS_COLOR_FUNCTIONS, fn_name) {
+        ctx.slice_range(fn_start, fn_end - 1)
+    } else {
+        fn_name
+    };
+
+    let mut out = String::new();
+    out.push_str(fixed_fn_name);
+    out.push('(');
+
+    let mut cursor = fn_end + 1;
+    let mut comma_count: u32 = 0;
+
+    for node in nodes {
+        if let ArgNode::Comma {
+            full_start,
+            full_end,
+            before_start,
+            before_end,
+            after_start,
+            after_end,
+        } = *node
+        {
+            if full_start > cursor {
+                out.push_str(ctx.slice_range(cursor, full_start));
+            }
+            let before = ctx.slice_range(before_start, before_end);
+            let after = ctx.slice_range(after_start, after_end);
+
+            if comma_count < 2 {
+                out.push_str(at_least_one_space(after));
+                comma_count += 1;
+            } else {
+                out.push_str(at_least_one_space(before));
+                out.push('/');
+                out.push_str(at_least_one_space(after));
+            }
+            cursor = full_end;
+        }
+    }
+
+    if close_paren > cursor {
+        out.push_str(ctx.slice_range(cursor, close_paren));
+    }
+    out.push(')');
+    out
+}
+
+/// Returns `ws` if non-empty, or `" "` if empty (matching Stylelint's `atLeastOneSpace`).
+#[inline]
+fn at_least_one_space(ws: &str) -> &str {
+    if ws.is_empty() { " " } else { ws }
+}
+
+/// Computes the minimal edit [`Fix`] between `orig` (at `orig_span`) and `fixed`
+/// by trimming their longest common prefix and longest common suffix.
+fn minimal_edit_fix(orig_span: Span, orig: &str, fixed: &str) -> Fix {
+    let ob = orig.as_bytes();
+    let fb = fixed.as_bytes();
+
+    let mut prefix_len = 0;
+    while prefix_len < ob.len() && prefix_len < fb.len() && ob[prefix_len] == fb[prefix_len] {
+        prefix_len += 1;
+    }
+
+    let mut suffix_len = 0;
+    while suffix_len < (ob.len() - prefix_len)
+        && suffix_len < (fb.len() - prefix_len)
+        && ob[ob.len() - 1 - suffix_len] == fb[fb.len() - 1 - suffix_len]
+    {
+        suffix_len += 1;
+    }
+
+    let prefix_u32 = u32::try_from(prefix_len).unwrap_or(0);
+    let suffix_u32 = u32::try_from(suffix_len).unwrap_or(0);
+
+    Fix::single(
+        Span {
+            start: orig_span.start + prefix_u32,
+            end: orig_span.end - suffix_u32,
+        },
+        fixed[prefix_len..(fb.len() - suffix_len)].to_string(),
+    )
+}
+
+/// Parses direct child nodes of a function call in `args_start..args_end`
+/// following `postcss-value-parser` tokenization rules.
+fn parse_arg_nodes(ctx: &LintContext<'_>, args_start: u32, args_end: u32) -> Vec<ArgNode> {
+    let mut nodes = Vec::new();
+    let mut pos = args_start;
+
+    while pos < args_end {
+        // Check for whitespace and see if it precedes a `,` or `/` divider.
+        let ws_start = pos;
+        while pos < args_end && byte_at(ctx, pos).is_ascii_whitespace() {
+            pos += 1;
+        }
+        let ws_end = pos;
+
+        if pos < args_end {
+            let b = byte_at(ctx, pos);
+
+            // Comma divider `,` absorbs preceding and following whitespace.
+            if b == b',' {
+                let comma_pos = pos;
+                pos += 1;
+                let after_start = pos;
+                while pos < args_end && byte_at(ctx, pos).is_ascii_whitespace() {
+                    pos += 1;
+                }
+                let after_end = pos;
+                nodes.push(ArgNode::Comma {
+                    full_start: ws_start,
+                    full_end: after_end,
+                    before_start: ws_start,
+                    before_end: comma_pos,
+                    after_start,
+                    after_end,
+                });
+                continue;
+            }
+
+            // Slash divider `/` (when not the start of a comment `/*` or `//`).
+            if b == b'/' && !(pos + 1 < args_end && matches!(byte_at(ctx, pos + 1), b'*' | b'/')) {
+                pos += 1;
+                while pos < args_end && byte_at(ctx, pos).is_ascii_whitespace() {
+                    pos += 1;
+                }
+                nodes.push(ArgNode::Slash);
+                continue;
+            }
+        }
+
+        // If we consumed whitespace that was not attached to a `,` or `/` divider,
+        // `postcss-value-parser` emits a `space` node.
+        if ws_end > ws_start {
+            nodes.push(ArgNode::Other);
+        }
+
+        if pos >= args_end {
+            break;
+        }
+
+        let b = byte_at(ctx, pos);
+
+        // Block comment `/* ... */`.
+        if b == b'/' && pos + 1 < args_end && byte_at(ctx, pos + 1) == b'*' {
+            pos = skip_block_comment(ctx, pos, args_end);
+            nodes.push(ArgNode::Other);
+            continue;
+        }
+
+        // Quoted string literal.
+        if b == b'"' || b == b'\'' {
+            pos = skip_string(ctx, pos, args_end);
+            nodes.push(ArgNode::Other);
+            continue;
+        }
+
+        // Parenthesized group `( ... )`.
+        if b == b'(' {
+            if let Some(close) = find_matching_paren(ctx, pos, args_end) {
+                pos = close + 1;
+            } else {
+                pos = args_end;
+            }
+            nodes.push(ArgNode::Other);
+            continue;
+        }
+
+        // Word or function token.
+        let word_start = pos;
+        while pos < args_end {
+            let cur = byte_at(ctx, pos);
+            if cur.is_ascii_whitespace() || matches!(cur, b',' | b'(' | b')' | b'"' | b'\'') {
+                break;
+            }
+            if cur == b'/' {
+                break;
+            }
+            pos += 1;
+        }
+        let word_end = pos;
+
+        if word_end < args_end && byte_at(ctx, word_end) == b'(' {
+            let fn_name = ctx.slice_range(word_start, word_end);
+            if let Some(close) = find_matching_paren(ctx, word_end, args_end) {
+                pos = close + 1;
+            } else {
+                pos = args_end;
+            }
+            if fn_name.eq_ignore_ascii_case("var") {
+                nodes.push(ArgNode::VarFunction);
+            } else {
+                nodes.push(ArgNode::Other);
+            }
+            continue;
+        }
+
+        let word = ctx.slice_range(word_start, word_end);
+        if word.starts_with('#') || word.starts_with('$') || word.contains(".$") {
+            nodes.push(ArgNode::NonStandardWord);
+        } else {
+            nodes.push(ArgNode::Other);
+        }
+    }
+
+    nodes
+}
+
+/// Finds the matching `)` for an opening `(` at `open_paren_pos`.
+fn find_matching_paren(ctx: &LintContext<'_>, open_paren_pos: u32, len: u32) -> Option<u32> {
+    let mut depth: u32 = 0;
+    let mut pos = open_paren_pos;
+
+    while pos < len {
+        let b = byte_at(ctx, pos);
+
+        if b == b'/' && pos + 1 < len && byte_at(ctx, pos + 1) == b'*' {
+            pos = skip_block_comment(ctx, pos, len);
+            continue;
+        }
+        if b == b'"' || b == b'\'' {
+            pos = skip_string(ctx, pos, len);
+            continue;
+        }
+        if b == b'(' {
+            depth += 1;
+        } else if b == b')' {
+            depth = depth.saturating_sub(1);
+            if depth == 0 {
+                return Some(pos);
+            }
+        }
+
+        pos += 1;
+    }
+
+    None
+}
+
+/// Skips a `/* ... */` block comment starting at `pos`.
+fn skip_block_comment(ctx: &LintContext<'_>, mut pos: u32, len: u32) -> u32 {
+    pos += 2;
+    while pos + 1 < len && !(byte_at(ctx, pos) == b'*' && byte_at(ctx, pos + 1) == b'/') {
+        pos += 1;
+    }
+    if pos + 1 < len { pos + 2 } else { len }
+}
+
+/// Skips a `// ...` line comment starting at `pos`.
+fn skip_line_comment(ctx: &LintContext<'_>, mut pos: u32, len: u32) -> u32 {
+    pos += 2;
+    while pos < len && byte_at(ctx, pos) != b'\n' {
+        pos += 1;
+    }
+    pos
+}
+
+/// Skips a quoted string literal starting at `pos`.
+fn skip_string(ctx: &LintContext<'_>, mut pos: u32, len: u32) -> u32 {
+    let quote = byte_at(ctx, pos);
+    pos += 1;
+    while pos < len {
+        let cur = byte_at(ctx, pos);
+        if cur == b'\\' {
+            pos = (pos + 2).min(len);
+            continue;
+        }
+        if cur == quote {
+            return pos + 1;
+        }
+        pos += 1;
+    }
+    len
+}
+
+/// Returns the byte at `pos` in the source string.
+#[inline]
+fn byte_at(ctx: &LintContext<'_>, pos: u32) -> u8 {
+    ctx.slice_range(pos, pos + 1).as_bytes()[0]
+}
+
+/// Returns `true` if `b` can start a CSS identifier.
+#[inline]
+fn is_ident_start(b: u8) -> bool {
+    b.is_ascii_alphabetic() || b == b'_' || b == b'-' || b >= 0x80
+}
+
+/// Returns `true` if `b` can continue a CSS identifier.
+#[inline]
+fn is_ident_char(b: u8) -> bool {
+    is_ident_start(b) || b.is_ascii_digit()
 }
