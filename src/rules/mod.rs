@@ -500,9 +500,11 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                     camel_case_svg_keywords,
                 }))
             }
-            "value-no-vendor-prefix" => {
-                Some(Box::new(value_no_vendor_prefix::ValueNoVendorPrefix))
-            }
+            "value-no-vendor-prefix" => Some(Box::new(
+                          value_no_vendor_prefix::ValueNoVendorPrefix::from_secondary(
+                              setting.secondary.as_ref(),
+                          ),
+                      )),
             _ => None,
         };
 

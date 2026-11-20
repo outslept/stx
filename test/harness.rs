@@ -410,6 +410,10 @@ macro_rules! test_rule {
         $c.code = $val;
         test_rule!(@accept_field $c $(, $($rest)* )?);
     };
+    (@accept_field $c:ident, fix: { range: [$start:expr, $end:expr], text: $text:expr $(,)? } $(, $($rest:tt)* )?) => {
+           let _ = ($start, $end, $text);
+           test_rule!(@accept_field $c $(, $($rest)* )?);
+       };
     (@accept_field $c:ident, description: $val:expr $(, $($rest:tt)* )?) => {
         $c.description = Some($val);
         test_rule!(@accept_field $c $(, $($rest)* )?);

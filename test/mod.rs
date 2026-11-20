@@ -8,3 +8,4 @@ mod declaration_no_important;
 mod keyframe_declaration_no_important;
 mod no_empty_source;
 mod selector_max_id;
+mod value_no_vendor_prefix;
