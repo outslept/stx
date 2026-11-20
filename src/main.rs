@@ -103,17 +103,75 @@ pub(crate) fn lint_once(
         .comments()
         .build();
 
-    let Ok(stylesheet) = parser.parse::<Stylesheet<'_>>() else {
+    if let Ok(stylesheet) = parser.parse::<Stylesheet<'_>>() {
+        let comments = parser.comments();
+        let line_index = LineIndex::new(source);
+        let disables = DisableDirectives::parse(comments, source, &line_index);
+        let mut ctx = LintContext::new(source, &stylesheet, comments, &line_index, &disables);
+        SinglePassVisitor::new(&mut ctx, active_rules).visit_stylesheet(&stylesheet);
+        let fixes = ctx.take_fixes();
+        let warnings = ctx.into_warnings(quiet);
+        return (warnings, fixes);
+    }
+
+    let sanitized: String = source
+        .chars()
+        .map(|ch| {
+            if matches!(
+                ch,
+                '\u{000B}'
+                    | '\u{000C}'
+                    | '\u{0085}'
+                    | '\u{00A0}'
+                    | '\u{1680}'
+                    | '\u{180E}'
+                    | '\u{2000}'
+                    ..='\u{200B}'
+                        | '\u{2028}'
+                        | '\u{2029}'
+                        | '\u{202F}'
+                        | '\u{205F}'
+                        | '\u{3000}'
+                        | '\u{FEFF}'
+            ) {
+                // Keep exact byte length so spans and comment offsets stay identical
+                std::iter::repeat(' ')
+                    .take(ch.len_utf8())
+                    .collect::<String>()
+            } else {
+                ch.to_string()
+            }
+        })
+        .collect();
+
+    let mut fallback_parser = ParserBuilder::new(&allocator, &sanitized)
+        .syntax(syntax)
+        .comments()
+        .build();
+
+    if let Ok(stylesheet) = fallback_parser.parse::<Stylesheet<'_>>() {
+        let comments = fallback_parser.comments();
+        let line_index = LineIndex::new(source);
+        let disables = DisableDirectives::parse(comments, source, &line_index);
+        let mut ctx = LintContext::new(source, &stylesheet, comments, &line_index, &disables);
+        SinglePassVisitor::new(&mut ctx, active_rules).visit_stylesheet(&stylesheet);
+        let fixes = ctx.take_fixes();
+        let warnings = ctx.into_warnings(quiet);
+        return (warnings, fixes);
+    }
+
+    let mut empty_parser = ParserBuilder::new(&allocator, "")
+        .syntax(syntax)
+        .comments()
+        .build();
+    let Ok(empty_stylesheet) = empty_parser.parse::<Stylesheet<'_>>() else {
         return (Vec::new(), Vec::new());
     };
-
-    let comments = parser.comments();
+    let comments = fallback_parser.comments();
     let line_index = LineIndex::new(source);
     let disables = DisableDirectives::parse(comments, source, &line_index);
-
-    let mut ctx = LintContext::new(source, &stylesheet, comments, &line_index, &disables);
-    SinglePassVisitor::new(&mut ctx, active_rules).visit_stylesheet(&stylesheet);
-
+    let mut ctx = LintContext::new(source, &empty_stylesheet, comments, &line_index, &disables);
+    SinglePassVisitor::new(&mut ctx, active_rules).visit_stylesheet(&empty_stylesheet);
     let fixes = ctx.take_fixes();
     let warnings = ctx.into_warnings(quiet);
     (warnings, fixes)
