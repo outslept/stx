@@ -1,25 +1,119 @@
-use crate::{
-    context::LintContext,
-    fix::Fix,
-    rules::{Rule, value_utils::extract_function_name_and_args},
-};
-use oxc_css_parser::ast::ComponentValue;
+//! Rule `color-function-alias-notation`: specify alias notation for color-functions
+//! with an identical syntax.
+//!
+//! Reference: <https://stylelint.io/user-guide/rules/color-function-alias-notation>
 
+use crate::context::LintContext;
+use crate::fix::Fix;
+use oxc_css_parser::{Span, ast::Declaration};
+use serde_json::Value;
+
+use crate::rules::Rule;
+use crate::utils::ast::decl_value_span;
+use crate::utils::reference::{
+    WITH_ALPHA_ALIAS_COLOR_FUNCTIONS, WITHOUT_ALPHA_ALIAS_COLOR_FUNCTIONS, in_set_ignore_case,
+};
+
+/// Primary option mode for [`ColorFunctionAliasNotation`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ColorFunctionAliasMode {
-    WithoutAlpha,
+enum Mode {
+    /// Require the `a`-suffixed alias (`rgba()`, `hsla()`).
     WithAlpha,
+    /// Require the non-alias form without trailing `a` (`rgb()`, `hsl()`).
+    WithoutAlpha,
 }
 
+/// [`color-function-alias-notation`](https://stylelint.io/user-guide/rules/color-function-alias-notation)
+///
+/// Specify alias notation for color-functions with an identical syntax.
+///
+/// ### What it does
+///
+/// Enforces consistent usage of either the `a`-suffixed legacy aliases (`rgba`,
+/// `hsla`) or the canonical function names (`rgb`, `hsl`).
+///
+/// In CSS Color Module Level 4, `rgb()` and `rgba()` (as well as `hsl()` and
+/// `hsla()`) are exact syntactic aliases of one another: both accept an
+/// optional alpha channel regardless of whether the trailing `a` is present.
+///
+/// ### Why is this bad?
+///
+/// Mixing `rgb()` and `rgba()` (or `hsl()` and `hsla()`) across a codebase
+/// introduces unnecessary stylistic inconsistency when both forms support the
+/// exact same arguments.
+///
+/// ### Autofix
+///
+/// This rule automatically adds or removes the trailing `a` on matching color
+/// function calls while preserving the original casing of the function name.
+///
+/// ### Primary Option
+///
+/// - `"with-alpha"`: require `rgba()` and `hsla()`.
+/// - `"without-alpha"`: require `rgb()` and `hsl()`.
+///
+/// ### Examples
+///
+/// #### `"without-alpha"`
+///
+/// ##### Incorrect
+///
+/// ```css
+/// a { color: rgba(0 0 0 / 50%); }
+/// a { color: hsla(270 60% 70%); }
+/// ```
+///
+/// ##### Correct
+///
+/// ```css
+/// a { color: rgb(0 0 0 / 50%); }
+/// a { color: hsl(270 60% 70%); }
+/// ```
+///
+/// #### `"with-alpha"`
+///
+/// ##### Incorrect
+///
+/// ```css
+/// a { color: rgb(0 0 0); }
+/// a { color: hsl(270 60% 70%); }
+/// ```
+///
+/// ##### Correct
+///
+/// ```css
+/// a { color: rgba(0 0 0); }
+/// a { color: hsla(270 60% 70%); }
+/// ```
 pub struct ColorFunctionAliasNotation {
-    pub mode: ColorFunctionAliasMode,
+    mode: Mode,
 }
 
 impl Default for ColorFunctionAliasNotation {
     fn default() -> Self {
         Self {
-            mode: ColorFunctionAliasMode::WithoutAlpha,
+            mode: Mode::WithoutAlpha,
         }
+    }
+}
+
+impl ColorFunctionAliasNotation {
+    /// Creates a new `color-function-alias-notation` rule instance from the primary option.
+    ///
+    /// Returns `None` if the primary option is neither `"with-alpha"` nor `"without-alpha"`.
+    pub fn from_primary(primary: &Value) -> Option<Self> {
+        let mode = match primary.as_str()? {
+            "with-alpha" => Mode::WithAlpha,
+            "without-alpha" => Mode::WithoutAlpha,
+            _ => return None,
+        };
+        Some(Self { mode })
+    }
+
+    /// Formats the diagnostic message for a mismatched color function name.
+    #[inline]
+    fn expected_message(unfixed: &str, fixed: &str) -> String {
+        format!("Expected \"{unfixed}\" to be \"{fixed}\"")
     }
 }
 
@@ -28,44 +122,202 @@ impl Rule for ColorFunctionAliasNotation {
         "color-function-alias-notation"
     }
 
-    fn check_component_value<'a>(&self, val: &'a ComponentValue<'a>, ctx: &mut LintContext<'a>) {
-        let ComponentValue::Function(func) = val else {
+    fn check_declaration<'a>(&self, decl: &Declaration<'a>, ctx: &mut LintContext<'a>) {
+        let Some(val_span) = decl_value_span(ctx.source, decl) else {
             return;
         };
-        let Some((fn_name, name_span, _)) = extract_function_name_and_args(ctx.source, func.span)
-        else {
-            return;
-        };
-        let lower = fn_name.to_ascii_lowercase();
+        let start = val_span.start;
+        let end = val_span.end;
 
-        match self.mode {
-            ColorFunctionAliasMode::WithoutAlpha => {
-                if lower == "rgba" || lower == "hsla" {
-                    let expected = &fn_name[..3];
-                    ctx.report_with_fix(
-                        self.name(),
-                        name_span,
-                        format!("Expected \"{}\" to be \"{}\"", fn_name, expected),
-                        Some(Fix::single(name_span, expected.to_string())),
-                    );
-                }
+        if start >= end {
+            return;
+        }
+
+        let target_set = match self.mode {
+            Mode::WithAlpha => WITHOUT_ALPHA_ALIAS_COLOR_FUNCTIONS,
+            Mode::WithoutAlpha => WITH_ALPHA_ALIAS_COLOR_FUNCTIONS,
+        };
+
+        let mut i = start;
+        while i < end {
+            let b = byte_at(ctx, i);
+
+            // Skip block comments `/* ... */`.
+            if b == b'/' && i + 1 < end && byte_at(ctx, i + 1) == b'*' {
+                i = skip_block_comment(ctx, i, end);
+                continue;
             }
-            ColorFunctionAliasMode::WithAlpha => {
-                if lower == "rgb" || lower == "hsl" {
-                    let suffix = if fn_name.chars().all(|c| c.is_ascii_uppercase()) {
-                        "A"
-                    } else {
-                        "a"
-                    };
-                    let expected = format!("{}{}", fn_name, suffix);
-                    ctx.report_with_fix(
-                        self.name(),
-                        name_span,
-                        format!("Expected \"{}\" to be \"{}\"", fn_name, expected),
-                        Some(Fix::single(name_span, expected)),
-                    );
-                }
+
+            // Skip single-line comments `// ...` when not part of a URL scheme (`://`).
+            if b == b'/'
+                && i + 1 < end
+                && byte_at(ctx, i + 1) == b'/'
+                && (i == start || byte_at(ctx, i - 1) != b':')
+            {
+                i = skip_line_comment(ctx, i, end);
+                continue;
             }
+
+            // Skip quoted string literals.
+            if b == b'"' || b == b'\'' {
+                i = skip_string(ctx, i, end);
+                continue;
+            }
+
+            // Scan CSS identifiers and check if followed by `(`.
+            if is_ident_start(b) {
+                let fn_start = i;
+                let mut fn_end = i + 1;
+                while fn_end < end && is_ident_char(byte_at(ctx, fn_end)) {
+                    fn_end += 1;
+                }
+
+                // Check for a function call `<ident>(`.
+                if fn_end < end && byte_at(ctx, fn_end) == b'(' {
+                    let fn_name = ctx.slice_range(fn_start, fn_end);
+
+                    if in_set_ignore_case(target_set, fn_name)
+                        && is_standard_syntax_color_function(ctx, fn_end + 1, end)
+                    {
+                        let (fixed_name, fix) = match self.mode {
+                            Mode::WithAlpha => {
+                                let fixed = format!("{fn_name}a");
+                                let last_char = ctx.slice_range(fn_end - 1, fn_end);
+                                let fix = Fix::single(
+                                    Span {
+                                        start: fn_end - 1,
+                                        end: fn_end,
+                                    },
+                                    format!("{last_char}a"),
+                                );
+                                (fixed, fix)
+                            }
+                            Mode::WithoutAlpha => {
+                                let fixed = ctx.slice_range(fn_start, fn_end - 1).to_string();
+                                let fix = Fix::single(
+                                    Span {
+                                        start: fn_end - 1,
+                                        end: fn_end,
+                                    },
+                                    String::new(),
+                                );
+                                (fixed, fix)
+                            }
+                        };
+
+                        ctx.report_with_fix(
+                            self.name(),
+                            Span {
+                                start: fn_start,
+                                end: fn_end,
+                            },
+                            Self::expected_message(fn_name, &fixed_name),
+                            Some(fix),
+                        );
+                    }
+                }
+
+                i = fn_end;
+                continue;
+            }
+
+            i += 1;
         }
     }
+}
+
+/// Checks `isStandardSyntaxColorFunction(node)`: returns `false` if any top-level
+/// argument token inside the function call starts with `#` (hex color) or `$`
+/// (Sass variable), such as `rgba(#fff, 0.5)` or `rgba($color, 0.5)`.
+fn is_standard_syntax_color_function(ctx: &LintContext<'_>, args_start: u32, limit: u32) -> bool {
+    let mut pos = args_start;
+    let mut paren_depth: u32 = 0;
+
+    while pos < limit {
+        let b = byte_at(ctx, pos);
+
+        if b == b'/' && pos + 1 < limit && byte_at(ctx, pos + 1) == b'*' {
+            pos = skip_block_comment(ctx, pos, limit);
+            continue;
+        }
+        if b == b'"' || b == b'\'' {
+            pos = skip_string(ctx, pos, limit);
+            continue;
+        }
+        if b == b'(' {
+            paren_depth += 1;
+            pos += 1;
+            continue;
+        }
+        if b == b')' {
+            if paren_depth == 0 {
+                return true;
+            }
+            paren_depth -= 1;
+            pos += 1;
+            continue;
+        }
+
+        if paren_depth == 0 && (b == b'#' || b == b'$') {
+            return false;
+        }
+
+        pos += 1;
+    }
+
+    true
+}
+
+/// Skips a `/* ... */` block comment starting at `pos`.
+fn skip_block_comment(ctx: &LintContext<'_>, mut pos: u32, len: u32) -> u32 {
+    pos += 2;
+    while pos + 1 < len && !(byte_at(ctx, pos) == b'*' && byte_at(ctx, pos + 1) == b'/') {
+        pos += 1;
+    }
+    if pos + 1 < len { pos + 2 } else { len }
+}
+
+/// Skips a `// ...` line comment starting at `pos`.
+fn skip_line_comment(ctx: &LintContext<'_>, mut pos: u32, len: u32) -> u32 {
+    pos += 2;
+    while pos < len && byte_at(ctx, pos) != b'\n' {
+        pos += 1;
+    }
+    pos
+}
+
+/// Skips a quoted string literal starting at `pos`.
+fn skip_string(ctx: &LintContext<'_>, mut pos: u32, len: u32) -> u32 {
+    let quote = byte_at(ctx, pos);
+    pos += 1;
+    while pos < len {
+        let cur = byte_at(ctx, pos);
+        if cur == b'\\' {
+            pos = (pos + 2).min(len);
+            continue;
+        }
+        if cur == quote {
+            return pos + 1;
+        }
+        pos += 1;
+    }
+    len
+}
+
+/// Returns the byte at `pos` in the source string.
+#[inline]
+fn byte_at(ctx: &LintContext<'_>, pos: u32) -> u8 {
+    ctx.slice_range(pos, pos + 1).as_bytes()[0]
+}
+
+/// Returns `true` if `b` can start a CSS identifier.
+#[inline]
+fn is_ident_start(b: u8) -> bool {
+    b.is_ascii_alphabetic() || b == b'_' || b == b'-' || b >= 0x80
+}
+
+/// Returns `true` if `b` can continue a CSS identifier.
+#[inline]
+fn is_ident_char(b: u8) -> bool {
+    is_ident_start(b) || b.is_ascii_digit()
 }
