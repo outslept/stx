@@ -1,6 +1,7 @@
 use crate::{context::LintContext, rules::Rule};
 use oxc_css_parser::token::Comment;
 
+#[derive(Default)]
 pub struct CommentNoEmpty;
 
 impl Rule for CommentNoEmpty {

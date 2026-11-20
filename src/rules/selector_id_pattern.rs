@@ -18,13 +18,18 @@ impl Rule for SelectorIdPattern {
     }
 
     fn check_selector_list<'a>(&self, list: &'a SelectorList<'a>, ctx: &mut LintContext<'a>) {
+        let raw_selector = ctx.slice(list.span);
+        if raw_selector.contains("#{") || raw_selector.contains("@{") {
+            return;
+        }
+
         for item in scan_selector_items(ctx.source, list.span) {
             if item.kind == SelectorItemKind::Id && !self.matcher.is_match(item.name) {
                 ctx.report(
                     self.name(),
                     item.span,
                     format!(
-                        "Expected id selector \"#{}\" to match pattern \"{}\"",
+                        "Expected \"#{}\" to match pattern \"{}\"",
                         item.name, self.matcher.raw_pattern
                     ),
                 );
