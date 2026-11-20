@@ -18,6 +18,7 @@ mod block_no_redundant_nested_style_rules;
 mod color_function_alias_notation;
 mod color_function_notation;
 mod color_hex_alpha;
+mod color_hex_length;
 mod comment_no_empty;
 mod declaration_no_important;
 mod font_family_no_duplicate_names;
