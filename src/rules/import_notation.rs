@@ -39,12 +39,10 @@ impl Rule for ImportNotation {
         let Some(p_span) = at_rule_prelude_span(ctx.source, at_rule) else {
             return;
         };
-
         let tokens = tokenize_value(ctx.source, p_span);
         let Some(first) = tokens.first() else {
             return;
         };
-
         match self.mode {
             ImportNotationMode::Url => {
                 if first.kind == ValueTokenKind::String {
@@ -71,9 +69,7 @@ impl Rule for ImportNotation {
                         let raw_url = &slice[..close_rel + 1];
                         let inner = slice[4..close_rel].trim();
                         if !inner.is_empty() {
-                            let expected = if (inner.starts_with('"') && inner.ends_with('"'))
-                                || (inner.starts_with('\'') && inner.ends_with('\''))
-                            {
+                            let expected = if inner.starts_with('"') || inner.starts_with('\'') {
                                 inner.to_string()
                             } else {
                                 format!("\"{}\"", inner)
