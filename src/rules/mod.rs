@@ -270,8 +270,10 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                 }))
             }
             "font-family-no-duplicate-names" => Some(Box::new(
-                font_family_no_duplicate_names::FontFamilyNoDuplicateNames,
-            )),
+                            font_family_no_duplicate_names::FontFamilyNoDuplicateNames::from_secondary(
+                                setting.secondary.as_ref(),
+                            ),
+                        )),
             "font-family-no-missing-generic-family-keyword" => Some(Box::new(
                 font_family_no_missing_generic_family_keyword::FontFamilyNoMissingGenericFamilyKeyword,
             )),
