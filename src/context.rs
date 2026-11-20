@@ -54,7 +54,25 @@ impl<'a> LintContext<'a> {
 
     #[inline]
     pub fn slice(&self, span: Span) -> &'a str {
-        &self.source[span.start as usize..span.end as usize]
+        self.slice_range(span.start, span.end)
+    }
+
+    #[inline]
+    pub fn slice_range(&self, start: u32, end: u32) -> &'a str {
+        let len = self.source.len();
+        let s = (start as usize).min(len);
+        let e = (end as usize).min(len).max(s);
+        &self.source[s..e]
+    }
+
+    #[inline]
+    pub fn comments_in_range(&self, start: u32, end: u32) -> &'a [Comment<'a>] {
+        if start >= end {
+            return &[];
+        }
+        let first = self.comments.partition_point(|c| c.span.end <= start);
+        let last = self.comments[first..].partition_point(|c| c.span.start < end);
+        &self.comments[first..first + last]
     }
 
     pub fn in_keyframes(&self) -> bool {
@@ -86,7 +104,6 @@ impl<'a> LintContext<'a> {
         if self.disables.is_suppressed(rule, line) {
             return;
         }
-
         self.diagnostics.push(Diagnostic {
             rule,
             severity: self.current_severity,
