@@ -1,14 +1,27 @@
 #[macro_use]
 pub mod harness;
-
 mod alpha_value_notation;
 mod annotation_no_unknown;
+mod at_charset_rule_no_invalid;
 mod at_rule_allowed_list;
 mod at_rule_descriptor_no_unknown;
+mod at_rule_descriptor_value_no_unknown;
+mod at_rule_disallowed_list;
+mod at_rule_empty_line_before;
+mod at_rule_no_deprecated;
+mod at_rule_no_unknown;
+mod at_rule_no_vendor_prefix;
+mod at_rule_prelude_no_invalid;
+mod at_rule_property_required_list;
 mod block_no_empty;
+mod block_no_redundant_nested_style_rules;
+mod color_function_alias_notation;
+mod color_function_notation;
+mod color_hex_alpha;
 mod comment_no_empty;
 mod declaration_no_important;
 mod font_family_no_duplicate_names;
+mod import_notation;
 mod keyframe_declaration_no_important;
 mod media_query_no_invalid;
 mod no_empty_source;

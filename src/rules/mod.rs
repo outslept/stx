@@ -6,11 +6,16 @@ pub mod at_rule_descriptor_no_unknown;
 pub mod at_rule_descriptor_value_no_unknown;
 pub mod at_rule_disallowed_list;
 pub mod at_rule_empty_line_before;
+pub mod at_rule_no_deprecated;
 pub mod at_rule_no_unknown;
 pub mod at_rule_no_vendor_prefix;
+pub mod at_rule_prelude_no_invalid;
+pub mod at_rule_property_required_list;
 pub mod block_no_empty;
+pub mod block_no_redundant_nested_style_rules;
 pub mod color_function_alias_notation;
 pub mod color_function_notation;
+pub mod color_hex_alpha;
 pub mod color_hex_length;
 pub mod color_no_invalid_hex;
 pub mod comment_empty_line_before;
@@ -125,64 +130,88 @@ pub struct ConfiguredRule {
 
 pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
     let mut active = Vec::new();
-
     for (name, maybe_setting) in &config.rules {
         let Some(setting) = maybe_setting else {
             continue;
         };
-
         let rule: Option<Box<dyn Rule>> = match name.as_str() {
-        "alpha-value-notation" => Some(Box::new(
-                       alpha_value_notation::AlphaValueNotation::from_config(
-                           &setting.primary,
-                           setting.secondary.as_ref(),
-                       ),
-                   )),
-        "at-rule-empty-line-before" => at_rule_empty_line_before::AtRuleEmptyLineBefore::from_setting(setting)
-            .map(|r| Box::new(r) as Box<dyn Rule>),
+            "alpha-value-notation" => Some(Box::new(
+                alpha_value_notation::AlphaValueNotation::from_config(
+                    &setting.primary,
+                    setting.secondary.as_ref(),
+                ),
+            )),
+            "at-rule-empty-line-before" => {
+                at_rule_empty_line_before::AtRuleEmptyLineBefore::from_setting(setting)
+                    .map(|r| Box::new(r) as Box<dyn Rule>)
+            },
+            "at-rule-no-deprecated" => Some(Box::new(
+                          at_rule_no_deprecated::AtRuleNoDeprecated::new(setting.secondary.as_ref()),
+                      )),
             "at-rule-allowed-list" => Some(Box::new(
-                           at_rule_allowed_list::AtRuleAllowedList::from_primary(&setting.primary),
-                       )),
-            "at-rule-descriptor-value-no-unknown" => at_rule_descriptor_value_no_unknown::AtRuleDescriptorValueNoUnknown::from_setting(setting)
-                .map(|r| Box::new(r) as Box<dyn Rule>),
-            "at-rule-disallowed-list" => at_rule_disallowed_list::AtRuleDisallowedList::from_setting(setting)
-                .map(|r| Box::new(r) as Box<dyn Rule>),
-            "at-rule-descriptor-no-unknown" => at_rule_descriptor_no_unknown::AtRuleDescriptorNoUnknown::from_setting(setting)
-                .map(|r| Box::new(r) as Box<dyn Rule>),
-            "at-charset-rule-no-invalid" => Some(Box::new(
-                           at_charset_rule_no_invalid::AtCharsetRuleNoInvalid,
-                       )),
-            "annotation-no-unknown" => Some(Box::new(
-                           annotation_no_unknown::AnnotationNoUnknown::from_secondary(
-                               setting.secondary.as_ref(),
-                           ),
-                       )),
-            "at-rule-no-unknown" => Some(Box::new(at_rule_no_unknown::AtRuleNoUnknown)),
-            "at-rule-no-vendor-prefix" => {
-                Some(Box::new(at_rule_no_vendor_prefix::AtRuleNoVendorPrefix))
+                at_rule_allowed_list::AtRuleAllowedList::from_primary(&setting.primary),
+            )),
+            "block-no-redundant-nested-style-rules" => Some(Box::new(
+                          block_no_redundant_nested_style_rules::BlockNoRedundantNestedStyleRules,
+                      )),
+                      "color-hex-alpha" => {
+                          color_hex_alpha::ColorHexAlpha::from_primary(&setting.primary)
+                              .map(|r| Box::new(r) as Box<dyn Rule>)
+                      },
+            "at-rule-descriptor-value-no-unknown" => {
+                at_rule_descriptor_value_no_unknown::AtRuleDescriptorValueNoUnknown::from_setting(
+                    setting,
+                )
+                .map(|r| Box::new(r) as Box<dyn Rule>)
             }
+            "at-rule-disallowed-list" => {
+                at_rule_disallowed_list::AtRuleDisallowedList::from_setting(setting)
+                    .map(|r| Box::new(r) as Box<dyn Rule>)
+            }
+            "at-rule-property-required-list" => Some(Box::new(
+                at_rule_property_required_list::AtRulePropertyRequiredList::new(
+                    &setting.primary,
+                    setting.secondary.as_ref(),
+                ),
+            )),
+            "at-rule-descriptor-no-unknown" => {
+                at_rule_descriptor_no_unknown::AtRuleDescriptorNoUnknown::from_setting(setting)
+                    .map(|r| Box::new(r) as Box<dyn Rule>)
+            }
+            "at-charset-rule-no-invalid" => Some(Box::new(
+                at_charset_rule_no_invalid::AtCharsetRuleNoInvalid,
+            )),
+            "annotation-no-unknown" => Some(Box::new(
+                annotation_no_unknown::AnnotationNoUnknown::from_secondary(
+                    setting.secondary.as_ref(),
+                ),
+            )),
+            "at-rule-prelude-no-invalid" => Some(Box::new(
+                at_rule_prelude_no_invalid::AtRulePreludeNoInvalid::new(
+                    setting.secondary.as_ref(),
+                ),
+            )),
+            "at-rule-no-unknown" => Some(Box::new(at_rule_no_unknown::AtRuleNoUnknown::new(
+                setting.secondary.as_ref(),
+            ))),
+            "at-rule-no-vendor-prefix" => Some(Box::new(
+                at_rule_no_vendor_prefix::AtRuleNoVendorPrefix::new(setting.secondary.as_ref()),
+            )),
             "block-no-empty" => Some(Box::new(block_no_empty::BlockNoEmpty::from_secondary(
-                        setting.secondary.as_ref(),
-                    ))),
+                setting.secondary.as_ref(),
+            ))),
             "color-function-alias-notation" => {
-                let mode = if setting.primary.as_str() == Some("with-alpha") {
-                    color_function_alias_notation::ColorFunctionAliasMode::WithAlpha
-                } else {
-                    color_function_alias_notation::ColorFunctionAliasMode::WithoutAlpha
-                };
-                Some(Box::new(
-                    color_function_alias_notation::ColorFunctionAliasNotation { mode },
-                ))
+                color_function_alias_notation::ColorFunctionAliasNotation::from_primary(
+                    &setting.primary,
+                )
+                .map(|r| Box::new(r) as Box<dyn Rule>)
             }
             "color-function-notation" => {
-                let mode = if setting.primary.as_str() == Some("legacy") {
-                    color_function_notation::ColorFunctionNotationMode::Legacy
-                } else {
-                    color_function_notation::ColorFunctionNotationMode::Modern
-                };
-                Some(Box::new(color_function_notation::ColorFunctionNotation {
-                    mode,
-                }))
+                color_function_notation::ColorFunctionNotation::from_config(
+                    &setting.primary,
+                    setting.secondary.as_ref(),
+                )
+                .map(|r| Box::new(r) as Box<dyn Rule>)
             }
             "color-hex-length" => {
                 let mode = if setting.primary.as_str() == Some("long") {
@@ -291,10 +320,10 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                 }))
             }
             "font-family-no-duplicate-names" => Some(Box::new(
-                            font_family_no_duplicate_names::FontFamilyNoDuplicateNames::from_secondary(
-                                setting.secondary.as_ref(),
-                            ),
-                        )),
+                font_family_no_duplicate_names::FontFamilyNoDuplicateNames::from_secondary(
+                    setting.secondary.as_ref(),
+                ),
+            )),
             "font-family-no-missing-generic-family-keyword" => Some(Box::new(
                 font_family_no_missing_generic_family_keyword::FontFamilyNoMissingGenericFamilyKeyword,
             )),
@@ -456,9 +485,9 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                 matcher: PatternMatcher::new(setting.primary.as_str()),
             })),
             "selector-max-id" => Some(Box::new(selector_max_id::SelectorMaxId::from_config(
-                           &setting.primary,
-                           setting.secondary.as_ref(),
-                       ))),
+                &setting.primary,
+                setting.secondary.as_ref(),
+            ))),
             "selector-no-vendor-prefix" => {
                 Some(Box::new(selector_no_vendor_prefix::SelectorNoVendorPrefix))
             }
@@ -524,13 +553,12 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                 }))
             }
             "value-no-vendor-prefix" => Some(Box::new(
-                          value_no_vendor_prefix::ValueNoVendorPrefix::from_secondary(
-                              setting.secondary.as_ref(),
-                          ),
-                      )),
+                value_no_vendor_prefix::ValueNoVendorPrefix::from_secondary(
+                    setting.secondary.as_ref(),
+                ),
+            )),
             _ => None,
         };
-
         if let Some(rule) = rule {
             active.push(ConfiguredRule {
                 rule,
@@ -538,6 +566,5 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
             });
         }
     }
-
     active
 }
