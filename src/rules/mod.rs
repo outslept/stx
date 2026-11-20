@@ -125,14 +125,12 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
         };
 
         let rule: Option<Box<dyn Rule>> = match name.as_str() {
-            "alpha-value-notation" => {
-                let mode = if setting.primary.as_str() == Some("number") {
-                    alpha_value_notation::AlphaNotationMode::Number
-                } else {
-                    alpha_value_notation::AlphaNotationMode::Percentage
-                };
-                Some(Box::new(alpha_value_notation::AlphaValueNotation { mode }))
-            }
+        "alpha-value-notation" => Some(Box::new(
+                       alpha_value_notation::AlphaValueNotation::from_config(
+                           &setting.primary,
+                           setting.secondary.as_ref(),
+                       ),
+                   )),
             "at-rule-empty-line-before" => {
                 let mode = if setting.primary.as_str() == Some("never") {
                     at_rule_empty_line_before::EmptyLineMode::Never

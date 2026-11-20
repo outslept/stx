@@ -104,32 +104,29 @@ impl<'a> LintContext<'a> {
     }
 
     pub fn into_warnings(self, quiet: bool) -> Vec<StylelintWarning> {
-        let mut warnings: Vec<StylelintWarning> = self
-            .diagnostics
-            .into_iter()
-            .filter(|d| !quiet || d.severity == Severity::Error)
-            .map(|d| {
-                let (line, column) = self.line_index.line_col(self.source, d.span.start);
-                let src_len = self.source.len() as u32;
-                let (end_line, end_column) = if d.span.end > src_len {
-                    let (l, c) = self.line_index.line_col(self.source, src_len);
-                    (l, c + (d.span.end - src_len) as usize)
-                } else {
-                    self.line_index.line_col(self.source, d.span.end)
-                };
-                StylelintWarning {
-                    line,
-                    column,
-                    end_line,
-                    end_column,
-                    rule: d.rule,
-                    severity: d.severity.as_str(),
-                    text: format!("{} ({})", d.message, d.rule),
-                }
-            })
-            .collect();
-
-        warnings.sort_by(|a, b| a.line.cmp(&b.line).then_with(|| a.column.cmp(&b.column)));
+        let src_len = self.source.len() as u32;
+        let mut warnings = Vec::with_capacity(self.diagnostics.len());
+        for d in self.diagnostics {
+            if quiet && d.severity == Severity::Warning {
+                continue;
+            }
+            let (line, column) = self.line_index.line_col(self.source, d.span.start);
+            let (end_line, end_column) = if d.span.end > src_len {
+                let (el, ec) = self.line_index.line_col(self.source, src_len);
+                (el, ec + (d.span.end - src_len) as usize)
+            } else {
+                self.line_index.line_col(self.source, d.span.end)
+            };
+            warnings.push(StylelintWarning {
+                line,
+                column,
+                end_line,
+                end_column,
+                rule: d.rule,
+                severity: d.severity.as_str(),
+                text: format!("{} ({})", d.message, d.rule),
+            });
+        }
         warnings
     }
 }

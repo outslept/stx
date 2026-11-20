@@ -12,12 +12,19 @@ pub struct AcceptCase {
     pub skip: bool,
 }
 
+#[derive(Clone, Debug)]
+pub struct ExpectedEditInfo {
+    pub range: (u32, u32),
+    pub text: &'static str,
+}
+
 pub struct ExpectedWarning {
     pub message: Option<String>,
     pub line: Option<usize>,
     pub column: Option<usize>,
     pub end_line: Option<usize>,
     pub end_column: Option<usize>,
+    pub fix: Option<ExpectedEditInfo>,
 }
 
 pub struct RejectCase {
@@ -31,6 +38,7 @@ pub struct RejectCase {
     pub column: Option<usize>,
     pub end_line: Option<usize>,
     pub end_column: Option<usize>,
+    pub fix: Option<ExpectedEditInfo>,
     pub warnings: Option<Vec<ExpectedWarning>>,
 }
 
@@ -39,6 +47,7 @@ pub struct TestSuite {
     pub config: Value,
     pub custom_syntax: Option<&'static str>,
     pub fix: bool,
+    pub compute_edit_info: bool,
     pub skip: bool,
     pub accept: Vec<AcceptCase>,
     pub reject: Vec<RejectCase>,
@@ -136,6 +145,7 @@ pub fn run_test_suite(suite: TestSuite) {
                     column: w.column,
                     end_line: w.end_line,
                     end_column: w.end_column,
+                    fix: w.fix.clone(),
                 })
                 .collect()
         } else {
@@ -145,6 +155,7 @@ pub fn run_test_suite(suite: TestSuite) {
                 column: case.column,
                 end_line: case.end_line,
                 end_column: case.end_column,
+                fix: case.fix.clone(),
             }]
         };
 
@@ -163,15 +174,15 @@ pub fn run_test_suite(suite: TestSuite) {
 
         for (w_idx, (actual, expected)) in warnings.iter().zip(expected_list.iter()).enumerate() {
             if let Some(ref exp_msg) = expected.message {
-                let expected_Formatted = format!("{} ({})", exp_msg, suite.rule_name);
+                let expected_formatted = format!("{} ({})", exp_msg, suite.rule_name);
                 assert!(
-                    actual.text == *exp_msg || actual.text == expected_Formatted,
+                    actual.text == *exp_msg || actual.text == expected_formatted,
                     "[{}] reject case #{} warning #{} message mismatch for code:\n{}\nExpected: {:?}\nActual:   {:?}",
                     suite.rule_name,
                     idx,
                     w_idx,
                     case.code,
-                    expected_Formatted,
+                    expected_formatted,
                     actual.text
                 );
             }
@@ -245,6 +256,7 @@ macro_rules! test_rule {
         config: $config:tt,
         $(customSyntax: $syntax:expr,)?
         $(fix: $fix:expr,)?
+        $(computeEditInfo: $compute_edit_info:expr,)?
         $(skip: $skip:expr,)?
         $(accept: [
             $(
@@ -263,6 +275,7 @@ macro_rules! test_rule {
             config: $config,
             customSyntax: $( $syntax )?,
             fix: $( $fix )?,
+            computeEditInfo: $( $compute_edit_info )?,
             skip: $( $skip )?,
             accept: [ $( $( { $($a_tokens)* } ),* )? ],
             reject: [ $( $( { $($r_tokens)* } ),* )? ],
@@ -275,6 +288,7 @@ macro_rules! test_rule {
         config: $config:tt,
         customSyntax: $($syntax:expr)?,
         fix: $($fix:expr)?,
+        computeEditInfo: $($compute_edit_info:expr)?,
         skip: $($skip:expr)?,
         accept: [ $( { $($a_tokens:tt)* } ),* ],
         reject: [ $( { $($r_tokens:tt)* } ),* ],
@@ -285,6 +299,7 @@ macro_rules! test_rule {
             $config,
             ($($syntax)?),
             ($($fix)?),
+            ($($compute_edit_info)?),
             ($($skip)?),
             [ $( { $($a_tokens)* } ),* ],
             [ $( { $($r_tokens)* } ),* ]
@@ -297,6 +312,7 @@ macro_rules! test_rule {
         config: $config:tt,
         customSyntax: $($syntax:expr)?,
         fix: $($fix:expr)?,
+        computeEditInfo: $($compute_edit_info:expr)?,
         skip: $($skip:expr)?,
         accept: [ $( { $($a_tokens:tt)* } ),* ],
         reject: [ $( { $($r_tokens:tt)* } ),* ],
@@ -307,6 +323,7 @@ macro_rules! test_rule {
             $config,
             ($($syntax)?),
             ($($fix)?),
+            ($($compute_edit_info)?),
             ($($skip)?),
             [ $( { $($a_tokens)* } ),* ],
             [ $( { $($r_tokens)* } ),* ]
@@ -319,6 +336,7 @@ macro_rules! test_rule {
         $config:tt,
         ($($syntax:expr)?),
         ($($fix:expr)?),
+        ($($compute_edit_info:expr)?),
         ($($skip:expr)?),
         [ $( { $($a_tokens:tt)* } ),* ],
         [ $( { $($r_tokens:tt)* } ),* ]
@@ -331,6 +349,9 @@ macro_rules! test_rule {
 
             let mut fix: bool = false;
             $( fix = $fix; )?
+
+            let mut compute_edit_info: bool = false;
+            $( compute_edit_info = $compute_edit_info; )?
 
             let mut skip: bool = false;
             $( skip = $skip; )?
@@ -362,6 +383,7 @@ macro_rules! test_rule {
                         column: None,
                         end_line: None,
                         end_column: None,
+                        fix: None,
                         warnings: None,
                     };
                     test_rule!(@reject_field c, $($r_tokens)*);
@@ -374,6 +396,7 @@ macro_rules! test_rule {
                 config: serde_json::json!($config),
                 custom_syntax,
                 fix,
+                compute_edit_info,
                 skip,
                 accept: accept_vec,
                 reject: reject_vec,
@@ -397,22 +420,30 @@ macro_rules! test_rule {
     };
     (@accept_field $c:ident $(,)?) => {};
 
-    (@reject_field $c:ident, warnings: [ $( { $( $wf:ident : $wv:expr ),* $(,)? } ),* $(,)? ] $(, $($rest:tt)* )?) => {
+    (@reject_field $c:ident, warnings: [ $( { $($w_tokens:tt)* } ),* $(,)? ] $(, $($rest:tt)* )?) => {
         let mut ws = Vec::new();
         $(
-            let mut w = $crate::test::harness::ExpectedWarning {
-                message: None,
-                line: None,
-                column: None,
-                end_line: None,
-                end_column: None,
-            };
-            $(
-                test_rule!(@warning_field w, $wf : $wv);
-            )*
-            ws.push(w);
+            {
+                let mut w = $crate::test::harness::ExpectedWarning {
+                    message: None,
+                    line: None,
+                    column: None,
+                    end_line: None,
+                    end_column: None,
+                    fix: None,
+                };
+                test_rule!(@warning_fields w, $($w_tokens)*);
+                ws.push(w);
+            }
         )*
         $c.warnings = Some(ws);
+        test_rule!(@reject_field $c $(, $($rest)* )?);
+    };
+    (@reject_field $c:ident, fix: { range: [$start:expr, $end:expr], text: $text:expr $(,)? } $(, $($rest:tt)* )?) => {
+        $c.fix = Some($crate::test::harness::ExpectedEditInfo {
+            range: ($start, $end),
+            text: $text,
+        });
         test_rule!(@reject_field $c $(, $($rest)* )?);
     };
     (@reject_field $c:ident, code: $val:expr $(, $($rest:tt)* )?) => {
@@ -457,9 +488,32 @@ macro_rules! test_rule {
     };
     (@reject_field $c:ident $(,)?) => {};
 
-    (@warning_field $w:ident, message: $val:expr) => { $w.message = Some(($val).into()); };
-    (@warning_field $w:ident, line: $val:expr) => { $w.line = Some($val); };
-    (@warning_field $w:ident, column: $val:expr) => { $w.column = Some($val); };
-    (@warning_field $w:ident, endLine: $val:expr) => { $w.end_line = Some($val); };
-    (@warning_field $w:ident, endColumn: $val:expr) => { $w.end_column = Some($val); };
+    (@warning_fields $w:ident, fix: { range: [$start:expr, $end:expr], text: $text:expr $(,)? } $(, $($rest:tt)* )?) => {
+        $w.fix = Some($crate::test::harness::ExpectedEditInfo {
+            range: ($start, $end),
+            text: $text,
+        });
+        test_rule!(@warning_fields $w $(, $($rest)* )?);
+    };
+    (@warning_fields $w:ident, message: $val:expr $(, $($rest:tt)* )?) => {
+        $w.message = Some(($val).into());
+        test_rule!(@warning_fields $w $(, $($rest)* )?);
+    };
+    (@warning_fields $w:ident, line: $val:expr $(, $($rest:tt)* )?) => {
+        $w.line = Some($val);
+        test_rule!(@warning_fields $w $(, $($rest)* )?);
+    };
+    (@warning_fields $w:ident, column: $val:expr $(, $($rest:tt)* )?) => {
+        $w.column = Some($val);
+        test_rule!(@warning_fields $w $(, $($rest)* )?);
+    };
+    (@warning_fields $w:ident, endLine: $val:expr $(, $($rest:tt)* )?) => {
+        $w.end_line = Some($val);
+        test_rule!(@warning_fields $w $(, $($rest)* )?);
+    };
+    (@warning_fields $w:ident, endColumn: $val:expr $(, $($rest:tt)* )?) => {
+        $w.end_column = Some($val);
+        test_rule!(@warning_fields $w $(, $($rest)* )?);
+    };
+    (@warning_fields $w:ident $(,)?) => {};
 }
