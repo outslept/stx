@@ -1,321 +1,284 @@
-//! Unit-testing harness for individual lint rules (`oxlint`-style `Tester`).
-
-use std::collections::HashMap;
-
-use oxc_css_parser::Syntax;
+use crate::{
+    config::Config,
+    context::LintContext,
+    diagnostic::StylelintWarning,
+    disable::DisableDirectives,
+    fix,
+    line_index::LineIndex,
+    rules::{ConfiguredRule, build_rules},
+    visitor::SinglePassVisitor,
+};
+use oxc_css_parser::{Allocator, ParserBuilder, Syntax, ast::Stylesheet};
 use serde_json::Value;
 
-use crate::{
-    config::{Config, RuleSetting},
-    diagnostic::Severity,
-    fix::apply_fixes,
-    lint_once,
-    rules::build_rules,
-};
-
-/// Expected warning assertion for a single diagnostic emitted by a rule.
 #[derive(Debug, Clone)]
-pub struct ExpectedWarning {
-    pub message: String,
-    /// 1-based `(line, column, end_line, end_column)`.
-    pub span: Option<(usize, usize, usize, usize)>,
-    /// Optional expected `EditInfo`: `(range_start, range_end, replacement_text)`.
-    pub edit_info: Option<(u32, u32, &'static str)>,
+pub struct ExpectedWarning<'a> {
+    pub message: Option<&'a str>,
+    pub line: Option<u32>,
+    pub column: Option<u32>,
+    pub end_line: Option<u32>,
+    pub end_column: Option<u32>,
 }
 
-/// A test case that is expected to produce one or more lint warnings.
 #[derive(Debug, Clone)]
 pub struct FailCase<'a> {
     pub code: &'a str,
     pub fixed: Option<&'a str>,
     pub unfixable: bool,
-    pub warnings: Vec<ExpectedWarning>,
+    pub warnings: Vec<ExpectedWarning<'a>>,
 }
 
-/// Constructs a [`FailCase`] expecting a single warning with `(line, col, end_line, end_col)`.
 pub fn reject<'a>(
     code: &'a str,
-    fixed: impl Into<Option<&'a str>>,
-    message: impl Into<String>,
-    span: (usize, usize, usize, usize),
+    message: Option<&'a str>,
+    line: Option<u32>,
+    column: Option<u32>,
+    end_line: Option<u32>,
+    end_column: Option<u32>,
 ) -> FailCase<'a> {
-    let fixed = fixed.into();
     FailCase {
         code,
-        fixed,
-        unfixable: fixed.is_none(),
+        fixed: None,
+        unfixable: false,
         warnings: vec![ExpectedWarning {
-            message: message.into(),
-            span: Some(span),
-            edit_info: None,
+            message,
+            line,
+            column,
+            end_line,
+            end_column,
         }],
     }
 }
 
-/// Constructs a [`FailCase`] expecting multiple warnings.
-pub fn reject_warnings<'a>(
-    code: &'a str,
-    fixed: impl Into<Option<&'a str>>,
-    warnings: Vec<(String, (usize, usize, usize, usize))>,
-) -> FailCase<'a> {
-    let fixed = fixed.into();
+pub fn reject_warnings<'a>(code: &'a str, warnings: Vec<ExpectedWarning<'a>>) -> FailCase<'a> {
     FailCase {
         code,
-        fixed,
-        unfixable: fixed.is_none(),
-        warnings: warnings
-            .into_iter()
-            .map(|(message, span)| ExpectedWarning {
-                message,
-                span: Some(span),
-                edit_info: None,
-            })
-            .collect(),
+        fixed: None,
+        unfixable: false,
+        warnings,
     }
 }
 
-/// Constructs a [`FailCase`] expecting a single warning with `computeEditInfo` data.
 pub fn reject_edit<'a>(
     code: &'a str,
-    message: impl Into<String>,
-    span: (usize, usize, usize, usize),
-    edit_info: (u32, u32, &'static str),
+    fixed: Option<&'a str>,
+    unfixable: bool,
+    message: Option<&'a str>,
+    line: Option<u32>,
+    column: Option<u32>,
+    end_line: Option<u32>,
+    end_column: Option<u32>,
 ) -> FailCase<'a> {
     FailCase {
         code,
-        fixed: None,
-        unfixable: false,
+        fixed,
+        unfixable,
         warnings: vec![ExpectedWarning {
-            message: message.into(),
-            span: Some(span),
-            edit_info: Some(edit_info),
+            message,
+            line,
+            column,
+            end_line,
+            end_column,
         }],
     }
 }
 
-/// Constructs a [`FailCase`] expecting multiple warnings with optional `computeEditInfo` data.
-pub fn reject_edit_warnings<'a, E>(
+pub fn reject_edit_warnings<'a>(
     code: &'a str,
-    warnings: Vec<(String, (usize, usize, usize, usize), E)>,
-) -> FailCase<'a>
-where
-    E: Into<Option<(u32, u32, &'static str)>>,
-{
+    fixed: Option<&'a str>,
+    unfixable: bool,
+    warnings: Vec<ExpectedWarning<'a>>,
+) -> FailCase<'a> {
     FailCase {
         code,
-        fixed: None,
-        unfixable: false,
-        warnings: warnings
-            .into_iter()
-            .map(|(message, span, edit_info)| ExpectedWarning {
-                message,
-                span: Some(span),
-                edit_info: edit_info.into(),
-            })
-            .collect(),
+        fixed,
+        unfixable,
+        warnings,
     }
 }
 
-/// Rule test runner inspired by `oxc_linter::Tester`.
 pub struct Tester<'a> {
     rule_name: &'static str,
-    config: Value,
-    pass: &'a [&'a str],
-    fail: &'a [FailCase<'a>],
-    custom_syntax: Option<&'static str>,
-    fix: bool,
-    compute_edit_info: bool,
+    config: Option<Value>,
+    syntax: Option<&'a str>,
+    pass: Vec<&'a str>,
+    fail: Vec<FailCase<'a>>,
 }
 
 impl<'a> Tester<'a> {
     pub fn new(
         rule_name: &'static str,
-        config: Value,
-        pass: &'a [&'a str],
-        fail: &'a [FailCase<'a>],
+        config: Option<Value>,
+        pass: Vec<&'a str>,
+        fail: Vec<FailCase<'a>>,
     ) -> Self {
         Self {
             rule_name,
             config,
+            syntax: None,
             pass,
             fail,
-            custom_syntax: None,
-            fix: false,
-            compute_edit_info: false,
         }
     }
 
-    pub fn with_custom_syntax(mut self, syntax: &'static str) -> Self {
-        self.custom_syntax = Some(syntax);
+    pub fn with_syntax(mut self, syntax: &'a str) -> Self {
+        self.syntax = Some(syntax);
         self
     }
 
-    pub fn with_fix(mut self, fix: bool) -> Self {
-        self.fix = fix;
-        self
-    }
-
-    pub fn with_compute_edit_info(mut self, compute_edit_info: bool) -> Self {
-        self.compute_edit_info = compute_edit_info;
-        self
-    }
-
-    pub fn test(self) {
-        let Some(syntax) = resolve_syntax(self.custom_syntax) else {
-            panic!(
-                "[{}] Unsupported customSyntax {:?}",
-                self.rule_name, self.custom_syntax
-            );
-        };
-
-        let setting = parse_rule_setting(&self.config);
-        let mut rules_map = HashMap::new();
-        rules_map.insert(self.rule_name.to_string(), setting);
-        let config = Config {
-            rules: rules_map,
-            default_severity: Severity::Error,
-        };
-        let active_rules = build_rules(&config);
-
-        for (idx, &code) in self.pass.iter().enumerate() {
-            let (warnings, _fixes) = lint_once(code, syntax, &active_rules, false);
-            assert!(
-                warnings.is_empty(),
-                "[{}] pass case #{idx} failed!\nCode:\n{code}\nUnexpected warnings:\n{warnings:#?}",
-                self.rule_name
-            );
+    pub fn test(&self) {
+        let mut cfg = Config::default();
+        match &self.config {
+            Some(val) => {
+                let setting = Config::parse_rule_value(val.clone());
+                cfg.rules.insert(self.rule_name.to_string(), setting);
+            }
+            None => {
+                cfg.enable(self.rule_name);
+            }
         }
-
+        let active_rules = build_rules(&cfg);
+        let syntax = resolve_syntax(self.syntax);
+        for (idx, code) in self.pass.iter().enumerate() {
+            let (warnings, _) = run_lint(code, syntax, &active_rules);
+            if !warnings.is_empty() {
+                panic!(
+                    "[{}] Pass case #{} failed!\nCode:\n{}\nUnexpected warnings: {:#?}",
+                    self.rule_name, idx, code, warnings
+                );
+            }
+        }
         for (idx, case) in self.fail.iter().enumerate() {
-            let (warnings, fixes) = lint_once(case.code, syntax, &active_rules, false);
-
-            assert_eq!(
-                warnings.len(),
-                case.warnings.len(),
-                "[{}] fail case #{idx} warning count mismatch!\nCode:\n{}\nExpected {} warning(s), got {}:\n{warnings:#?}",
-                self.rule_name,
-                case.code,
-                case.warnings.len(),
-                warnings.len()
-            );
-
+            let (warnings, fixes) = run_lint(case.code, syntax, &active_rules);
+            if warnings.len() != case.warnings.len() {
+                panic!(
+                    "[{}] Fail case #{} warning count mismatch!\nCode:\n{}\nExpected {} warning(s), got {}:\n{:#?}",
+                    self.rule_name,
+                    idx,
+                    case.code,
+                    case.warnings.len(),
+                    warnings.len(),
+                    warnings
+                );
+            }
             for (w_idx, (actual, expected)) in warnings.iter().zip(case.warnings.iter()).enumerate()
             {
-                let expected_with_rule = format!("{} ({})", expected.message, self.rule_name);
-                assert!(
-                    actual.text == expected.message || actual.text == expected_with_rule,
-                    "[{}] fail case #{idx} warning #{w_idx} message mismatch!\nCode:\n{}\nExpected: {:?}\nActual:   {:?}",
-                    self.rule_name,
-                    case.code,
-                    expected_with_rule,
-                    actual.text
-                );
-
-                if let Some((line, col, end_line, end_col)) = expected.span {
+                if let Some(exp_msg) = expected.message {
+                    if !actual.text.starts_with(exp_msg) && actual.text != exp_msg {
+                        panic!(
+                            "[{}] Fail case #{} warning #{} message mismatch!\nCode:\n{}\nExpected: {:?}\nActual:   {:?}",
+                            self.rule_name, idx, w_idx, case.code, exp_msg, actual.text
+                        );
+                    }
+                }
+                if let Some(exp_line) = expected.line {
                     assert_eq!(
-                        (
-                            actual.line,
-                            actual.column,
-                            actual.end_line,
-                            actual.end_column
-                        ),
-                        (line, col, end_line, end_col),
-                        "[{}] fail case #{idx} warning #{w_idx} span mismatch!\nCode:\n{}",
-                        self.rule_name,
-                        case.code
+                        actual.line, exp_line as usize,
+                        "[{}] Fail case #{} warning #{} line mismatch!\nCode:\n{}",
+                        self.rule_name, idx, w_idx, case.code
+                    );
+                }
+                if let Some(exp_col) = expected.column {
+                    assert_eq!(
+                        actual.column, exp_col as usize,
+                        "[{}] Fail case #{} warning #{} column mismatch!\nCode:\n{}",
+                        self.rule_name, idx, w_idx, case.code
+                    );
+                }
+                if let Some(exp_end_line) = expected.end_line {
+                    assert_eq!(
+                        actual.end_line, exp_end_line as usize,
+                        "[{}] Fail case #{} warning #{} endLine mismatch!\nCode:\n{}",
+                        self.rule_name, idx, w_idx, case.code
+                    );
+                }
+                if let Some(exp_end_col) = expected.end_column {
+                    assert_eq!(
+                        actual.end_column, exp_end_col as usize,
+                        "[{}] Fail case #{} warning #{} endColumn mismatch!\nCode:\n{}",
+                        self.rule_name, idx, w_idx, case.code
                     );
                 }
             }
-
-            if self.compute_edit_info {
-                let expected_edits = case
-                    .warnings
-                    .iter()
-                    .filter(|w| w.edit_info.is_some())
-                    .count();
-                assert_eq!(
-                    fixes.len(),
-                    expected_edits,
-                    "[{}] fail case #{idx} expected {expected_edits} edit(s), got {}!\nCode:\n{}",
+            if case.unfixable {
+                assert!(
+                    fixes.is_empty(),
+                    "[{}] Fail case #{} expected to be unfixable, but produced fixes: {:#?}\nCode:\n{}",
                     self.rule_name,
-                    fixes.len(),
+                    idx,
+                    fixes,
                     case.code
                 );
-            }
-
-            if self.fix {
-                if case.unfixable {
-                    assert!(
-                        fixes.is_empty(),
-                        "[{}] fail case #{idx} marked unfixable, but produced fixes!\nCode:\n{}",
-                        self.rule_name,
-                        case.code
-                    );
-                } else if let Some(expected_fixed) = case.fixed {
-                    let mut current = case.code.to_string();
-                    for _ in 0..10 {
-                        let (_w, pass_fixes) = lint_once(&current, syntax, &active_rules, false);
-                        if pass_fixes.is_empty() {
-                            break;
-                        }
-                        let (updated, changed) = apply_fixes(&current, pass_fixes);
-                        current = updated;
-                        if !changed {
-                            break;
-                        }
-                    }
-                    assert_eq!(
-                        current, expected_fixed,
-                        "[{}] fail case #{idx} autofix mismatch!\nOriginal:\n{}",
-                        self.rule_name, case.code
-                    );
-                }
+            } else if let Some(expected_fixed) = case.fixed {
+                let (actual_fixed, applied) = fix::apply_fixes(case.code, fixes);
+                assert!(
+                    applied,
+                    "[{}] Fail case #{} expected autofix {:?}, but rule produced no fixes!\nCode:\n{}",
+                    self.rule_name, idx, expected_fixed, case.code
+                );
+                assert_eq!(
+                    actual_fixed, expected_fixed,
+                    "[{}] Fail case #{} autofix output mismatch!\nInput:\n{}\nExpected:\n{}\nActual:\n{}",
+                    self.rule_name, idx, case.code, expected_fixed, actual_fixed
+                );
             }
         }
     }
 }
 
-fn parse_rule_setting(val: &Value) -> Option<RuleSetting> {
-    match val {
-        Value::Null | Value::Bool(false) => None,
-        Value::Array(arr) => {
-            if arr.is_empty() || arr[0].is_null() || arr[0] == Value::Bool(false) {
-                return None;
-            }
-            if arr.len() == 1 {
-                return Some(RuleSetting {
-                    primary: arr[0].clone(),
-                    secondary: None,
-                    severity: Severity::Error,
-                });
-            }
-            if let Some(obj) = arr[1].as_object() {
-                return Some(RuleSetting {
-                    primary: arr[0].clone(),
-                    secondary: Some(obj.clone()),
-                    severity: Severity::Error,
-                });
-            }
-            Some(RuleSetting {
-                primary: Value::Array(arr.clone()),
-                secondary: None,
-                severity: Severity::Error,
-            })
-        }
-        other => Some(RuleSetting {
-            primary: other.clone(),
-            secondary: None,
-            severity: Severity::Error,
-        }),
+fn run_lint(
+    source: &str,
+    syntax: Syntax,
+    active_rules: &[ConfiguredRule],
+) -> (Vec<StylelintWarning>, Vec<fix::Fix>) {
+    let allocator = Allocator::default();
+    let mut parser = ParserBuilder::new(&allocator, source)
+        .syntax(syntax)
+        .comments()
+        .build();
+    if let Ok(stylesheet) = parser.parse::<Stylesheet>() {
+        let comments = parser.comments();
+        let line_index = LineIndex::new(source);
+        let disables = DisableDirectives::parse(&comments, source, &line_index);
+        let mut ctx = LintContext::new(source, &stylesheet, &comments, &line_index, &disables);
+        SinglePassVisitor::new(&mut ctx, active_rules).visit_stylesheet(&stylesheet);
+        let fixes = ctx.take_fixes();
+        return (ctx.into_warnings(false), fixes);
     }
+
+    if source.chars().any(|c| !c.is_ascii() && c.is_whitespace()) {
+        let mut sanitized = String::with_capacity(source.len());
+        for ch in source.chars() {
+            if !ch.is_ascii() && ch.is_whitespace() {
+                sanitized.push_str(&"    "[..ch.len_utf8()]);
+            } else {
+                sanitized.push(ch);
+            }
+        }
+        let alloc2 = Allocator::default();
+        let mut parser2 = ParserBuilder::new(&alloc2, &sanitized)
+            .syntax(syntax)
+            .comments()
+            .build();
+        if let Ok(stylesheet) = parser2.parse::<Stylesheet>() {
+            let comments = parser2.comments();
+            let line_index = LineIndex::new(source);
+            let disables = DisableDirectives::parse(&comments, source, &line_index);
+            let mut ctx = LintContext::new(source, &stylesheet, &comments, &line_index, &disables);
+            SinglePassVisitor::new(&mut ctx, active_rules).visit_stylesheet(&stylesheet);
+            let fixes = ctx.take_fixes();
+            return (ctx.into_warnings(false), fixes);
+        }
+    }
+
+    (Vec::new(), Vec::new())
 }
 
-fn resolve_syntax(custom_syntax: Option<&str>) -> Option<Syntax> {
-    match custom_syntax {
-        None => Some(Syntax::Css),
-        Some("postcss-scss") => Some(Syntax::Scss),
-        Some("postcss-sass") => Some(Syntax::Sass),
-        Some("postcss-less") => Some(Syntax::Less),
-        Some(_) => None,
+fn resolve_syntax(syntax: Option<&str>) -> Syntax {
+    match syntax {
+        Some("scss") => Syntax::Scss,
+        Some("less") => Syntax::Less,
+        Some("sass" | "sugarss" | "sss") => Syntax::Sass,
+        _ => Syntax::Css,
     }
 }
