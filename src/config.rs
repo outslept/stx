@@ -14,39 +14,48 @@ pub struct RuleSetting {
     pub severity: Severity,
 }
 
-#[derive(Debug, Default, Clone)]
-pub struct Config {
-    pub rules: HashMap<String, Option<RuleSetting>>,
-    pub default_severity: Severity,
-}
-
-#[derive(Debug, Deserialize)]
-struct RawConfig {
-    #[serde(default)]
-    extends: Option<Value>,
-    #[serde(default, rename = "defaultSeverity")]
-    default_severity: Option<String>,
-    #[serde(default)]
-    rules: Option<Map<String, Value>>,
-}
-
 impl Default for Severity {
     fn default() -> Self {
         Self::Error
     }
 }
 
-impl Config {
-    pub fn discover(start_dir: &Path) -> Option<Self> {
-        let candidates = ["stx.json", ".stylelintrc", ".stylelintrc.json"];
+#[derive(Debug, Default, Clone)]
+pub struct Config {
+    pub rules: HashMap<String, Option<RuleSetting>>,
+}
 
+#[derive(Debug, Deserialize)]
+struct RawConfig {
+    extends: Option<Value>,
+    rules: Option<HashMap<String, Value>>,
+}
+
+const CONFIG_FILES: &[&str] = &[
+    ".stylelintrc",
+    ".stylelintrc.json",
+    "stylelint.config.json",
+    ".stxrc",
+    ".stxrc.json",
+];
+
+impl Config {
+    pub fn discover(start_dir: &Path) -> Option<PathBuf> {
         let mut current = Some(start_dir);
         while let Some(dir) = current {
-            for name in candidates {
+            for name in CONFIG_FILES {
                 let candidate = dir.join(name);
                 if candidate.is_file() {
-                    if let Ok(cfg) = Self::from_file(&candidate) {
-                        return Some(cfg);
+                    return Some(candidate);
+                }
+            }
+            let pkg = dir.join("package.json");
+            if pkg.is_file() {
+                if let Ok(content) = fs::read_to_string(&pkg) {
+                    if let Ok(json) = serde_json::from_str::<Value>(&content) {
+                        if json.get("stylelint").is_some() {
+                            return Some(pkg);
+                        }
                     }
                 }
             }
@@ -56,49 +65,97 @@ impl Config {
     }
 
     pub fn from_file(path: &Path) -> Result<Self, String> {
-        let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
-        let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
-        Self::from_json_str(&content, base_dir)
+        let content = fs::read_to_string(path)
+            .map_err(|e| format!("Failed to read config {}: {e}", path.display()))?;
+        if path.file_name().and_then(|n| n.to_str()) == Some("package.json") {
+            let json: Value = serde_json::from_str(&content)
+                .map_err(|e| format!("Invalid JSON in {}: {e}", path.display()))?;
+            if let Some(stylelint_cfg) = json.get("stylelint") {
+                return Self::from_json_str(&stylelint_cfg.to_string());
+            }
+            return Ok(Self::default());
+        }
+        Self::from_json_str(&content)
     }
 
-    pub fn from_json_str(content: &str, base_dir: &Path) -> Result<Self, String> {
-        let raw: RawConfig = serde_json::from_str(content).map_err(|e| e.to_string())?;
+    pub fn from_json_str(json_str: &str) -> Result<Self, String> {
+        let raw: RawConfig =
+            serde_json::from_str(json_str).map_err(|e| format!("Invalid config JSON: {e}"))?;
         let mut config = Self::default();
-
-        if let Some(sev) = &raw.default_severity {
-            if sev.eq_ignore_ascii_case("warning") {
-                config.default_severity = Severity::Warning;
-            }
-        }
-
-        if let Some(extends) = &raw.extends {
+        if let Some(extends) = raw.extends {
             match extends {
-                Value::String(s) => config.apply_extend(s, base_dir),
+                Value::String(s) => config.apply_extend(&s),
                 Value::Array(arr) => {
                     for item in arr {
-                        if let Value::String(s) = item {
-                            config.apply_extend(s, base_dir);
+                        if let Some(s) = item.as_str() {
+                            config.apply_extend(s);
                         }
                     }
                 }
                 _ => {}
             }
         }
-
         if let Some(rules) = raw.rules {
             for (name, val) in rules {
-                let parsed = Self::parse_rule_value(val, config.default_severity);
+                let parsed = Self::parse_rule_value(val);
                 config.rules.insert(name, parsed);
             }
         }
-
         Ok(config)
+    }
+
+    pub fn recommended_preset() -> Self {
+        let mut cfg = Self::default();
+        let recommended = [
+            "annotation-no-unknown",
+            "at-Rule-descriptor-no-unknown",
+            "at-rule-descriptor-value-no-unknown",
+            "at-rule-no-deprecated",
+            "at-rule-no-unknown",
+            "at-rule-prelude-no-invalid",
+            "block-no-empty",
+            "block-no-redundant-nested-style-rules",
+            "color-no-invalid-hex",
+            "comment-no-empty",
+            "custom-property-no-missing-var-function",
+            "declaration-block-no-duplicate-custom-properties",
+            "declaration-block-no-duplicate-properties",
+            "declaration-block-no-shorthand-property-overrides",
+            "font-family-no-duplicate-names",
+            "font-family-no-missing-generic-family-keyword",
+            "function-calc-no-unspaced-operator",
+            "function-linear-gradient-no-nonstandard-direction",
+            "function-no-unknown",
+            "keyframe-block-no-duplicate-selectors",
+            "keyframe-declaration-no-important",
+            "media-feature-name-no-unknown",
+            "media-query-no-invalid",
+            "named-grid-areas-no-invalid",
+            "no-descending-specificity",
+            "no-duplicate-at-import-rules",
+            "no-duplicate-selectors",
+            "no-empty-source",
+            "no-invalid-double-slash-comments",
+            "no-invalid-position-at-import-rule",
+            "no-invalid-position-declaration",
+            "no-irregular-whitespace",
+            "property-no-unknown",
+            "selector-anb-no-unmatchable",
+            "selector-pseudo-class-no-unknown",
+            "selector-pseudo-element-no-unknown",
+            "selector-type-no-unknown",
+            "string-no-newline",
+            "unit-no-unknown",
+        ];
+        for name in recommended {
+            cfg.enable(name);
+        }
+        cfg
     }
 
     pub fn standard_preset() -> Self {
         let mut cfg = Self::recommended_preset();
-        let kebab = "^([a-z][a-z0-9]*)(-[a-z0-9]+)*$";
-        let standard_rules: &[(&str, Value)] = &[
+        let standard_rules = [
             ("alpha-value-notation", Value::String("percentage".into())),
             ("at-rule-empty-line-before", Value::String("always".into())),
             ("at-rule-no-vendor-prefix", Value::Bool(true)),
@@ -110,13 +167,22 @@ impl Config {
             ("color-hex-length", Value::String("short".into())),
             ("comment-empty-line-before", Value::String("always".into())),
             ("comment-whitespace-inside", Value::String("always".into())),
-            ("container-name-pattern", Value::String(kebab.into())),
-            ("custom-media-pattern", Value::String(kebab.into())),
             (
                 "custom-property-empty-line-before",
                 Value::String("always".into()),
             ),
-            ("custom-property-pattern", Value::String(kebab.into())),
+            (
+                "custom-media-pattern",
+                Value::String("^([a-z][a-z0-9]*)(-[a-z0-9]+)*$".into()),
+            ),
+            (
+                "custom-property-pattern",
+                Value::String("^([a-z][a-z0-9]*)(-[a-z0-9]+)*$".into()),
+            ),
+            (
+                "container-name-pattern",
+                Value::String("^(--)?([a-z][a-z0-9]*)(-[a-z0-9]+)*$".into()),
+            ),
             (
                 "declaration-block-no-redundant-longhand-properties",
                 Value::Bool(true),
@@ -141,8 +207,16 @@ impl Config {
                 "keyframe-selector-notation",
                 Value::String("percentage-unless-within-keyword-only-block".into()),
             ),
-            ("keyframes-name-pattern", Value::String(kebab.into())),
-            ("layer-name-pattern", Value::String(kebab.into())),
+            (
+                "keyframes-name-pattern",
+                Value::String("^([a-z][a-z0-9]*)(-[a-z0-9]+)*$".into()),
+            ),
+            (
+                "layer-name-pattern",
+                Value::String(
+                    "^([a-z][a-z0-9]*)(-[a-z0-9]+)*(\\.([a-z][a-z0-9]*)(-[a-z0-9]+)*)*$".into(),
+                ),
+            ),
             ("length-zero-no-unit", Value::Bool(true)),
             ("lightness-notation", Value::String("percentage".into())),
             ("media-feature-name-no-vendor-prefix", Value::Bool(true)),
@@ -157,8 +231,14 @@ impl Config {
                 Value::String("always-multi-line".into()),
             ),
             ("selector-attribute-quotes", Value::String("always".into())),
-            ("selector-class-pattern", Value::String(kebab.into())),
-            ("selector-id-pattern", Value::String(kebab.into())),
+            (
+                "selector-class-pattern",
+                Value::String("^([a-z][a-z0-9]*)(-[a-z0-9]+)*$".into()),
+            ),
+            (
+                "selector-id-pattern",
+                Value::String("^([a-z][a-z0-9]*)(-[a-z0-9]+)*$".into()),
+            ),
             ("selector-no-vendor-prefix", Value::Bool(true)),
             ("selector-not-notation", Value::String("complex".into())),
             (
@@ -172,9 +252,9 @@ impl Config {
         ];
         for (name, primary) in standard_rules {
             cfg.rules.insert(
-                (*name).to_string(),
+                name.to_string(),
                 Some(RuleSetting {
-                    primary: primary.clone(),
+                    primary,
                     secondary: None,
                     severity: Severity::Error,
                 }),
@@ -183,130 +263,66 @@ impl Config {
         cfg
     }
 
-    pub fn recommended_preset() -> Self {
-        let mut cfg = Self::default();
-        for name in [
-            "at-rule-no-unknown",
-            "block-no-empty",
-            "comment-no-empty",
-            "custom-property-no-missing-var-function",
-            "no-empty-source",
-            "color-no-invalid-hex",
-            "declaration-block-no-duplicate-custom-properties",
-            "declaration-block-no-duplicate-properties",
-            "declaration-block-no-shorthand-property-overrides",
-            "font-family-no-duplicate-names",
-            "font-family-no-missing-generic-family-keyword",
-            "function-calc-no-unspaced-operator",
-            "function-linear-gradient-no-nonstandard-direction",
-            "function-no-unknown",
-            "keyframe-block-no-duplicate-selectors",
-            "keyframe-declaration-no-important",
-            "media-feature-name-no-unknown",
-            "named-grid-areas-no-invalid",
-            "no-descending-specificity",
-            "no-duplicate-at-import-rules",
-            "no-duplicate-selectors",
-            "no-invalid-double-slash-comments",
-            "no-invalid-position-at-import-rule",
-            "no-invalid-position-declaration",
-            "no-irregular-whitespace",
-            "property-no-unknown",
-            "selector-anb-no-unmatchable",
-            "selector-pseudo-class-no-unknown",
-            "selector-pseudo-element-no-unknown",
-            "selector-type-no-unknown",
-            "string-no-newline",
-            "unit-no-unknown",
-        ] {
-            cfg.enable(name, Value::Bool(true));
-        }
-        cfg
-    }
-
-    fn enable(&mut self, name: &str, primary: Value) {
+    pub fn enable(&mut self, rule_name: &str) {
         self.rules.insert(
-            name.to_string(),
+            rule_name.to_string(),
             Some(RuleSetting {
-                primary,
+                primary: Value::Bool(true),
                 secondary: None,
-                severity: self.default_severity,
+                severity: Severity::Error,
             }),
         );
     }
 
-    fn apply_extend(&mut self, extend_name: &str, base_dir: &Path) {
-        let preset = match extend_name {
-            "stylelint-config-recommended" | "stx:recommended" => Some(Self::recommended_preset()),
-            "stylelint-config-standard" | "stx:standard" => Some(Self::standard_preset()),
-            _ => {
-                let rel_path: PathBuf = base_dir.join(extend_name);
-                if rel_path.is_file() {
-                    Self::from_file(&rel_path).ok()
-                } else {
-                    None
-                }
-            }
+    fn apply_extend(&mut self, extend_name: &str) {
+        let base = if extend_name.contains("standard") {
+            Self::standard_preset()
+        } else if extend_name.contains("recommended") {
+            Self::recommended_preset()
+        } else {
+            return;
         };
-
-        if let Some(parent) = preset {
-            for (k, v) in parent.rules {
-                self.rules.insert(k, v);
-            }
+        for (k, v) in base.rules {
+            self.rules.insert(k, v);
         }
     }
 
-    fn parse_rule_value(val: Value, default_severity: Severity) -> Option<RuleSetting> {
+    pub(crate) fn parse_rule_value(val: Value) -> Option<RuleSetting> {
         match val {
             Value::Null | Value::Bool(false) => None,
             Value::String(ref s) if s == "off" => None,
+            Value::Bool(true) | Value::String(_) | Value::Number(_) => Some(RuleSetting {
+                primary: val,
+                secondary: None,
+                severity: Severity::Error,
+            }),
             Value::Array(mut arr) => {
                 if arr.is_empty() {
                     return None;
                 }
-                if arr[0].is_null() || arr[0] == Value::Bool(false) {
+                let first = arr.remove(0);
+                if first.is_null() || first == Value::Bool(false) {
                     return None;
                 }
-                let (primary, secondary) = if arr.len() == 1 {
-                    (arr.remove(0), None)
-                } else if arr.len() == 2 && arr[1].is_object() {
-                    let first = arr.remove(0);
-                    let sec = match arr.remove(0) {
-                        Value::Object(map) => Some(map),
-                        _ => None,
-                    };
-                    (first, sec)
-                } else if arr.last().is_some_and(Value::is_object) {
-                    let sec = match arr.pop() {
-                        Some(Value::Object(map)) => Some(map),
-                        _ => None,
-                    };
-                    (Value::Array(arr), sec)
-                } else {
-                    (Value::Array(arr), None)
-                };
-
-                let mut severity = default_severity;
-                if let Some(ref sec) = secondary {
-                    if let Some(Value::String(sev_str)) = sec.get("severity") {
-                        if sev_str.eq_ignore_ascii_case("warning") {
-                            severity = Severity::Warning;
-                        } else if sev_str.eq_ignore_ascii_case("error") {
-                            severity = Severity::Error;
+                let mut secondary = None;
+                let mut severity = Severity::Error;
+                if !arr.is_empty() {
+                    if let Value::Object(map) = arr.remove(0) {
+                        if let Some(sev_str) = map.get("severity").and_then(|v| v.as_str()) {
+                            if sev_str == "warning" {
+                                severity = Severity::Warning;
+                            }
                         }
+                        secondary = Some(map);
                     }
                 }
                 Some(RuleSetting {
-                    primary,
+                    primary: first,
                     secondary,
                     severity,
                 })
             }
-            other => Some(RuleSetting {
-                primary: other,
-                secondary: None,
-                severity: default_severity,
-            }),
+            _ => None,
         }
     }
 }
