@@ -1,9 +1,34 @@
-use oxc_css_parser::{Span, token::Comment};
-
 use crate::utils::{
     reference::{LEVEL_ONE_AND_TWO_PSEUDO_ELEMENTS, in_set_ignore_case},
     text::trim_subslice,
 };
+use oxc_css_parser::{Span, token::Comment};
+
+#[inline]
+fn skip_quoted_string(bytes: &[u8], mut i: usize, end: usize) -> usize {
+    let quote = bytes[i];
+    i += 1;
+    while i < end {
+        if bytes[i] == b'\\' {
+            i = (i + 2).min(end);
+            continue;
+        }
+        if bytes[i] == quote {
+            return i + 1;
+        }
+        i += 1;
+    }
+    end
+}
+
+#[inline]
+fn skip_block_comment(bytes: &[u8], mut i: usize, end: usize) -> usize {
+    i += 2;
+    while i + 1 < end && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+        i += 1;
+    }
+    (i + 2).min(end)
+}
 
 // ============================================================================
 // At-rule prelude scanner (fallback for invalid CSS preludes)
@@ -19,27 +44,11 @@ pub fn scan_at_rule_preludes<'a>(source: &'a str, target_name: &str) -> Vec<(Spa
     while i < len {
         let b = bytes[i];
         if b == b'"' || b == b'\'' {
-            let q = b;
-            i += 1;
-            while i < len {
-                if bytes[i] == b'\\' {
-                    i = (i + 2).min(len);
-                    continue;
-                }
-                if bytes[i] == q {
-                    i += 1;
-                    break;
-                }
-                i += 1;
-            }
+            i = skip_quoted_string(bytes, i, len);
             continue;
         }
         if b == b'/' && i + 1 < len && bytes[i + 1] == b'*' {
-            i += 2;
-            while i + 1 < len && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
-                i += 1;
-            }
-            i = (i + 2).min(len);
+            i = skip_block_comment(bytes, i, len);
             continue;
         }
         if b == b'/' && i + 1 < len && bytes[i + 1] == b'/' {
@@ -68,27 +77,11 @@ pub fn scan_at_rule_preludes<'a>(source: &'a str, target_name: &str) -> Vec<(Spa
                 while j < len {
                     let cj = bytes[j];
                     if cj == b'"' || cj == b'\'' {
-                        let q = cj;
-                        j += 1;
-                        while j < len {
-                            if bytes[j] == b'\\' {
-                                j = (j + 2).min(len);
-                                continue;
-                            }
-                            if bytes[j] == q {
-                                j += 1;
-                                break;
-                            }
-                            j += 1;
-                        }
+                        j = skip_quoted_string(bytes, j, len);
                         continue;
                     }
                     if cj == b'/' && j + 1 < len && bytes[j + 1] == b'*' {
-                        j += 2;
-                        while j + 1 < len && !(bytes[j] == b'*' && bytes[j + 1] == b'/') {
-                            j += 1;
-                        }
-                        j = (j + 2).min(len);
+                        j = skip_block_comment(bytes, j, len);
                         continue;
                     }
                     match cj {
@@ -164,28 +157,12 @@ pub fn tokenize_value<'a>(source: &'a str, span: Span) -> Vec<ValueToken<'a>> {
             continue;
         }
         if b == b'/' && i + 1 < end_idx && bytes[i + 1] == b'*' {
-            i += 2;
-            while i + 1 < end_idx && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
-                i += 1;
-            }
-            i = (i + 2).min(end_idx);
+            i = skip_block_comment(bytes, i, end_idx);
             continue;
         }
         if b == b'"' || b == b'\'' {
-            let quote = b;
             let tok_start = i;
-            i += 1;
-            while i < end_idx {
-                if bytes[i] == b'\\' {
-                    i = (i + 2).min(end_idx);
-                    continue;
-                }
-                if bytes[i] == quote {
-                    i += 1;
-                    break;
-                }
-                i += 1;
-            }
+            i = skip_quoted_string(bytes, i, end_idx);
             tokens.push(ValueToken {
                 kind: ValueTokenKind::String,
                 raw: &source[tok_start..i],
@@ -196,45 +173,15 @@ pub fn tokenize_value<'a>(source: &'a str, span: Span) -> Vec<ValueToken<'a>> {
             });
             continue;
         }
-        if b == b',' {
+        if let Some(kind) = match b {
+            b',' => Some(ValueTokenKind::Comma),
+            b'/' => Some(ValueTokenKind::Slash),
+            b':' => Some(ValueTokenKind::Colon),
+            b')' => Some(ValueTokenKind::CloseParen),
+            _ => None,
+        } {
             tokens.push(ValueToken {
-                kind: ValueTokenKind::Comma,
-                raw: &source[i..i + 1],
-                span: Span {
-                    start: i as u32,
-                    end: (i + 1) as u32,
-                },
-            });
-            i += 1;
-            continue;
-        }
-        if b == b'/' {
-            tokens.push(ValueToken {
-                kind: ValueTokenKind::Slash,
-                raw: &source[i..i + 1],
-                span: Span {
-                    start: i as u32,
-                    end: (i + 1) as u32,
-                },
-            });
-            i += 1;
-            continue;
-        }
-        if b == b':' {
-            tokens.push(ValueToken {
-                kind: ValueTokenKind::Colon,
-                raw: &source[i..i + 1],
-                span: Span {
-                    start: i as u32,
-                    end: (i + 1) as u32,
-                },
-            });
-            i += 1;
-            continue;
-        }
-        if b == b')' {
-            tokens.push(ValueToken {
-                kind: ValueTokenKind::CloseParen,
+                kind,
                 raw: &source[i..i + 1],
                 span: Span {
                     start: i as u32,
@@ -272,38 +219,25 @@ pub fn tokenize_value<'a>(source: &'a str, span: Span) -> Vec<ValueToken<'a>> {
             }
             let num_end = i;
             let num_len = num_end - tok_start;
-            if i < end_idx && bytes[i] == b'%' {
+            let kind = if i < end_idx && bytes[i] == b'%' {
                 i += 1;
-                tokens.push(ValueToken {
-                    kind: ValueTokenKind::Percentage,
-                    raw: &source[tok_start..i],
-                    span: Span {
-                        start: tok_start as u32,
-                        end: i as u32,
-                    },
-                });
+                ValueTokenKind::Percentage
             } else if i < end_idx && is_ident_start_byte(bytes[i]) {
                 while i < end_idx && is_ident_char_byte(bytes[i]) {
                     i += 1;
                 }
-                tokens.push(ValueToken {
-                    kind: ValueTokenKind::Dimension { num_len },
-                    raw: &source[tok_start..i],
-                    span: Span {
-                        start: tok_start as u32,
-                        end: i as u32,
-                    },
-                });
+                ValueTokenKind::Dimension { num_len }
             } else {
-                tokens.push(ValueToken {
-                    kind: ValueTokenKind::Number,
-                    raw: &source[tok_start..i],
-                    span: Span {
-                        start: tok_start as u32,
-                        end: i as u32,
-                    },
-                });
-            }
+                ValueTokenKind::Number
+            };
+            tokens.push(ValueToken {
+                kind,
+                raw: &source[tok_start..i],
+                span: Span {
+                    start: tok_start as u32,
+                    end: i as u32,
+                },
+            });
             continue;
         }
         if is_ident_start_byte(b) || b == b'-' || b == b'$' || b == b'@' {
@@ -312,26 +246,20 @@ pub fn tokenize_value<'a>(source: &'a str, span: Span) -> Vec<ValueToken<'a>> {
             while i < end_idx && is_ident_char_byte(bytes[i]) {
                 i += 1;
             }
-            if i < end_idx && bytes[i] == b'(' {
+            let kind = if i < end_idx && bytes[i] == b'(' {
                 i += 1;
-                tokens.push(ValueToken {
-                    kind: ValueTokenKind::Function,
-                    raw: &source[tok_start..i],
-                    span: Span {
-                        start: tok_start as u32,
-                        end: i as u32,
-                    },
-                });
+                ValueTokenKind::Function
             } else {
-                tokens.push(ValueToken {
-                    kind: ValueTokenKind::Ident,
-                    raw: &source[tok_start..i],
-                    span: Span {
-                        start: tok_start as u32,
-                        end: i as u32,
-                    },
-                });
-            }
+                ValueTokenKind::Ident
+            };
+            tokens.push(ValueToken {
+                kind,
+                raw: &source[tok_start..i],
+                span: Span {
+                    start: tok_start as u32,
+                    end: i as u32,
+                },
+            });
             continue;
         }
         let ch_len = source[i..end_idx]
@@ -431,7 +359,11 @@ pub fn analyze_preceding_gap(
             indent_slice,
         };
     }
-    let after_comment = comments.iter().any(|c| c.span.end as usize == gap_start);
+    let gap_start_u32 = gap_start as u32;
+    let idx = comments.partition_point(|c| c.span.end < gap_start_u32);
+    let after_comment = comments
+        .get(idx)
+        .is_some_and(|c| c.span.end == gap_start_u32);
     let last_char = bytes[gap_start - 1];
     let is_first_nested = last_char == b'{';
     let prev_was_block = last_char == b'}';
@@ -465,7 +397,7 @@ pub fn analyze_preceding_gap(
         prev_statement_head,
         prev_was_block,
         indent_start: indent_start as u32,
-        gap_start: gap_start as u32,
+        gap_start: gap_start_u32,
         indent_slice,
     }
 }
@@ -498,27 +430,11 @@ pub fn scan_direct_declarations<'a>(source: &'a str, block_span: Span) -> Vec<Sc
     while i < end {
         let b = bytes[i];
         if b == b'/' && i + 1 < end && bytes[i + 1] == b'*' {
-            i += 2;
-            while i + 1 < end && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
-                i += 1;
-            }
-            i = (i + 2).min(end);
+            i = skip_block_comment(bytes, i, end);
             continue;
         }
         if b == b'"' || b == b'\'' {
-            let q = b;
-            i += 1;
-            while i < end {
-                if bytes[i] == b'\\' {
-                    i = (i + 2).min(end);
-                    continue;
-                }
-                if bytes[i] == q {
-                    i += 1;
-                    break;
-                }
-                i += 1;
-            }
+            i = skip_quoted_string(bytes, i, end);
             continue;
         }
         match b {
@@ -560,14 +476,10 @@ pub fn scan_direct_declarations<'a>(source: &'a str, block_span: Span) -> Vec<Sc
 }
 
 fn parse_scanned_decl<'a>(source: &'a str, start: usize, end: usize) -> Option<ScannedDecl<'a>> {
-    let raw = &source[start..end];
-    let trimmed = raw.trim();
+    let (decl_start, decl_end, trimmed) = trim_subslice(source, start, end);
     if trimmed.is_empty() || trimmed.starts_with('@') || trimmed.starts_with("/*") {
         return None;
     }
-    let offset = raw.find(trimmed)?;
-    let decl_start = start + offset;
-    let decl_end = decl_start + trimmed.len();
     let colon_pos = trimmed.find(':')?;
     let prop = trimmed[..colon_pos].trim();
     if prop.is_empty()
@@ -578,7 +490,8 @@ fn parse_scanned_decl<'a>(source: &'a str, start: usize, end: usize) -> Option<S
         return None;
     }
     let val_part = trimmed[colon_pos + 1..].trim_end_matches(';').trim();
-    let important = val_part.to_ascii_lowercase().ends_with("!important");
+    let important = val_part.len() >= 10
+        && val_part.as_bytes()[val_part.len() - 10..].eq_ignore_ascii_case(b"!important");
     Some(ScannedDecl {
         prop,
         important,
@@ -634,27 +547,11 @@ pub fn scan_selector_items<'a>(source: &'a str, list_span: Span) -> Vec<ScannedS
             continue;
         }
         if b == b'/' && i + 1 < end && bytes[i + 1] == b'*' {
-            i += 2;
-            while i + 1 < end && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
-                i += 1;
-            }
-            i = (i + 2).min(end);
+            i = skip_block_comment(bytes, i, end);
             continue;
         }
         if b == b'"' || b == b'\'' {
-            let q = b;
-            i += 1;
-            while i < end {
-                if bytes[i] == b'\\' {
-                    i = (i + 2).min(end);
-                    continue;
-                }
-                if bytes[i] == q {
-                    i += 1;
-                    break;
-                }
-                i += 1;
-            }
+            i = skip_quoted_string(bytes, i, end);
             continue;
         }
         if b == b'[' {
@@ -785,12 +682,7 @@ pub fn scan_selector_items<'a>(source: &'a str, list_span: Span) -> Vec<ScannedS
             });
             continue;
         }
-        let ch_len = source[i..end]
-            .chars()
-            .next()
-            .map(|c| c.len_utf8())
-            .unwrap_or(1);
-        i += ch_len;
+        i += 1;
     }
     items
 }
