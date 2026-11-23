@@ -1,33 +1,29 @@
-pub use crate::fix::Fix;
 use crate::{
     diagnostic::{Diagnostic, Severity, StylelintWarning},
     disable::DisableDirectives,
+    fix::Fix,
     line_index::LineIndex,
 };
 use oxc_css_parser::{
     Span,
-    ast::{AtRule, Declaration, KeyframeBlock, QualifiedRule, SimpleBlock, Stylesheet},
+    ast::{AtRule, KeyframeBlock, QualifiedRule, Stylesheet},
     token::Comment,
 };
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub enum AstParent<'a> {
     QualifiedRule(&'a QualifiedRule<'a>),
     AtRule(&'a AtRule<'a>),
     KeyframeBlock(&'a KeyframeBlock<'a>),
-    SimpleBlock(&'a SimpleBlock<'a>),
-    Declaration(&'a Declaration<'a>),
 }
 
-#[allow(dead_code)]
 pub struct LintContext<'a> {
     pub source: &'a str,
     pub stylesheet: &'a Stylesheet<'a>,
     pub comments: &'a [Comment<'a>],
     pub line_index: &'a LineIndex,
     pub disables: &'a DisableDirectives,
-    pub ancestry: Vec<AstParent<'a>>,
+    pub ancestors: Vec<AstParent<'a>>,
     pub current_severity: Severity,
     diagnostics: Vec<Diagnostic>,
 }
@@ -46,7 +42,7 @@ impl<'a> LintContext<'a> {
             comments,
             line_index,
             disables,
-            ancestry: Vec::with_capacity(32),
+            ancestors: Vec::with_capacity(16),
             current_severity: Severity::Error,
             diagnostics: Vec::new(),
         }
@@ -54,51 +50,60 @@ impl<'a> LintContext<'a> {
 
     #[inline]
     pub fn slice(&self, span: Span) -> &'a str {
-        self.slice_range(span.start, span.end)
+        let start = (span.start as usize).min(self.source.len());
+        let end = (span.end as usize).min(self.source.len());
+        if start <= end {
+            &self.source[start..end]
+        } else {
+            ""
+        }
     }
 
     #[inline]
     pub fn slice_range(&self, start: u32, end: u32) -> &'a str {
-        let len = self.source.len();
-        let s = (start as usize).min(len);
-        let e = (end as usize).min(len).max(s);
-        &self.source[s..e]
+        self.slice(Span { start, end })
     }
 
-    #[inline]
     pub fn comments_in_range(&self, start: u32, end: u32) -> &'a [Comment<'a>] {
-        if start >= end {
-            return &[];
+        let start_idx = self.comments.partition_point(|c| c.span.start < start);
+        let end_idx = self.comments.partition_point(|c| c.span.end <= end);
+        if start_idx < end_idx {
+            &self.comments[start_idx..end_idx]
+        } else {
+            &[]
         }
-        let first = self.comments.partition_point(|c| c.span.end <= start);
-        let last = self.comments[first..].partition_point(|c| c.span.start < end);
-        &self.comments[first..first + last]
     }
 
     pub fn in_keyframes(&self) -> bool {
-        self.ancestry.iter().rev().any(|parent| match parent {
-            AstParent::KeyframeBlock(_) => true,
+        self.ancestors.iter().any(|p| match p {
             AstParent::AtRule(at_rule) => {
-                let name = at_rule.name.name;
-                name.eq_ignore_ascii_case("keyframes")
-                    || name.eq_ignore_ascii_case("-webkit-keyframes")
-                    || name.eq_ignore_ascii_case("-moz-keyframes")
-                    || name.eq_ignore_ascii_case("-o-keyframes")
+                crate::utils::unprefixed(at_rule.name.name).eq_ignore_ascii_case("keyframes")
             }
+            AstParent::KeyframeBlock(_) => true,
             _ => false,
         })
     }
 
-    pub fn report(&mut self, rule: &'static str, span: Span, message: String) {
-        self.report_with_fix(rule, span, message, None);
+    pub fn report(&mut self, rule: &'static str, span: Span, message: impl Into<String>) {
+        let (line, _) = self.line_index.line_col(self.source, span.start);
+        if self.disables.is_suppressed(rule, line) {
+            return;
+        }
+        self.diagnostics.push(Diagnostic {
+            rule,
+            message: message.into(),
+            span,
+            severity: self.current_severity,
+            fix: None,
+        });
     }
 
     pub fn report_with_fix(
         &mut self,
         rule: &'static str,
         span: Span,
-        message: String,
-        fix: Option<Fix>,
+        message: impl Into<String>,
+        fix: Fix,
     ) {
         let (line, _) = self.line_index.line_col(self.source, span.start);
         if self.disables.is_suppressed(rule, line) {
@@ -106,10 +111,10 @@ impl<'a> LintContext<'a> {
         }
         self.diagnostics.push(Diagnostic {
             rule,
-            severity: self.current_severity,
+            message: message.into(),
             span,
-            message,
-            fix,
+            severity: self.current_severity,
+            fix: Some(fix),
         });
     }
 
@@ -121,27 +126,37 @@ impl<'a> LintContext<'a> {
     }
 
     pub fn into_warnings(self, quiet: bool) -> Vec<StylelintWarning> {
-        let src_len = self.source.len() as u32;
         let mut warnings = Vec::with_capacity(self.diagnostics.len());
         for d in self.diagnostics {
             if quiet && d.severity == Severity::Warning {
                 continue;
             }
             let (line, column) = self.line_index.line_col(self.source, d.span.start);
-            let (end_line, end_column) = if d.span.end > src_len {
-                let (el, ec) = self.line_index.line_col(self.source, src_len);
-                (el, ec + (d.span.end - src_len) as usize)
+            let end_offset = if d.span.end > d.span.start {
+                d.span.end
             } else {
-                self.line_index.line_col(self.source, d.span.end)
+                d.span.start + 1
+            };
+            let (end_line, end_column) = self.line_index.line_col(self.source, end_offset);
+            let rule_str = d.rule;
+            let has_suffix = d
+                .message
+                .strip_suffix(')')
+                .and_then(|s| s.strip_suffix(rule_str))
+                .is_some_and(|s| s.ends_with('('));
+            let text = if has_suffix {
+                d.message
+            } else {
+                format!("{} ({})", d.message, rule_str)
             };
             warnings.push(StylelintWarning {
                 line,
                 column,
                 end_line,
                 end_column,
-                rule: d.rule,
+                rule: rule_str,
                 severity: d.severity.as_str(),
-                text: format!("{} ({})", d.message, d.rule),
+                text,
             });
         }
         warnings
