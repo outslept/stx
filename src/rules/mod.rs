@@ -88,11 +88,8 @@ pub mod string_no_newline;
 pub mod unit_no_unknown;
 pub mod value_keyword_case;
 pub mod value_no_vendor_prefix;
-pub mod value_utils;
 
-use crate::{
-    config::Config, context::LintContext, diagnostic::Severity, rules::value_utils::PatternMatcher,
-};
+use crate::{config::Config, context::LintContext, diagnostic::Severity, utils::PatternMatcher};
 use oxc_css_parser::{
     ast::{
         AtRule, ComplexSelector, ComponentValue, CompoundSelector, Declaration, KeyframeBlock,
@@ -125,6 +122,86 @@ pub trait Rule: Send + Sync {
     }
     fn check_simple_selector<'a>(&self, _sel: &'a SimpleSelector<'a>, _ctx: &mut LintContext<'a>) {}
     fn check_component_value<'a>(&self, _val: &'a ComponentValue<'a>, _ctx: &mut LintContext<'a>) {}
+}
+
+/// High-level category of a lint rule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuleCategory {
+    /// Rules that catch invalid, unknown, or broken CSS syntax (`*-no-unknown`, `*-no-invalid`).
+    Correctness,
+    /// Rules that catch likely mistakes, overrides, or duplicates (`no-duplicate-*`).
+    Suspicious,
+    /// Rules that enforce stylistic conventions and notations (`*-notation`, `*-pattern`, `*-case`).
+    Style,
+    /// Rules that restrict specific CSS features (`*-no-vendor-prefix`, `*-allowed-list`, `*-disallowed-list`).
+    Restriction,
+}
+
+/// Auto-fixing capability of a lint rule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuleFixMeta {
+    /// Rule does not provide auto-fixes.
+    None,
+    /// Auto-fix is planned but not yet implemented.
+    FixPending,
+    /// Rule provides safe auto-fixes.
+    Fixable,
+    /// Rule provides auto-fixes under certain conditions or options.
+    Conditional,
+}
+
+/// Static metadata and documentation associated with a lint rule.
+pub trait RuleMeta {
+    const NAME: &'static str;
+    const CATEGORY: RuleCategory;
+    const FIX: RuleFixMeta = RuleFixMeta::None;
+    const IS_RECOMMENDED: bool = false;
+    const SHORT_DESCRIPTION: &'static str = "";
+
+    fn documentation() -> Option<&'static str> {
+        None
+    }
+}
+
+/// Declares static metadata, documentation, and constants for a `stx` lint rule.
+#[macro_export]
+macro_rules! declare_stx_lint {
+    (
+        $(#[doc = $doc:literal])*
+        $struct_name:ident,
+        $rule_name:literal,
+        $category:ident
+        $(, fix = $fix:ident)?
+        $(, recommended = $recommended:literal)?
+        $(, short_description = $short_desc:literal)?
+        $(,)?
+    ) => {
+        impl $crate::rules::RuleMeta for $struct_name {
+            const NAME: &'static str = $rule_name;
+            const CATEGORY: $crate::rules::RuleCategory = $crate::declare_stx_lint!(@category $category);
+            $(const FIX: $crate::rules::RuleFixMeta = $crate::declare_stx_lint!(@fix $fix);)?
+            $(const IS_RECOMMENDED: bool = $recommended;)?
+            $(const SHORT_DESCRIPTION: &'static str = $short_desc;)?
+
+            fn documentation() -> Option<&'static str> {
+                Some(concat!($($doc, "\n"),*))
+            }
+        }
+
+        impl $struct_name {
+            pub const NAME: &'static str = $rule_name;
+        }
+    };
+
+    (@category correctness) => { $crate::rules::RuleCategory::Correctness };
+    (@category suspicious) => { $crate::rules::RuleCategory::Suspicious };
+    (@category style) => { $crate::rules::RuleCategory::Style };
+    (@category restriction) => { $crate::rules::RuleCategory::Restriction };
+
+    (@fix none) => { $crate::rules::RuleFixMeta::None };
+    (@fix pending) => { $crate::rules::RuleFixMeta::FixPending };
+    (@fix fix) => { $crate::rules::RuleFixMeta::Fixable };
+    (@fix conditional) => { $crate::rules::RuleFixMeta::Conditional };
 }
 
 pub struct ConfiguredRule {
