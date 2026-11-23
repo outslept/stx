@@ -4,42 +4,30 @@
 //! and CSS-in-JS extensions (such as variables, mixins, and interpolations), as well as
 //! low-level validators for identifiers, hex colors, dimensions, and URLs.
 
+use std::borrow::Cow;
+
 /// Returns `true` if `s` contains Less variable interpolation (`@{...}`).
 #[inline]
 pub fn has_less_interpolation(s: &str) -> bool {
-    has_delimited(s, b"@{", b'}')
+    has_delimited(s, "@{", b'}')
 }
 
 /// Returns `true` if `s` contains SCSS/Sass interpolation (`#{...}`).
 #[inline]
 pub fn has_scss_interpolation(s: &str) -> bool {
-    has_delimited(s, b"#{", b'}')
+    has_delimited(s, "#{", b'}')
 }
 
 /// Returns `true` if `s` contains PostCSS simple-vars interpolation (`$(...)`).
 #[inline]
 pub fn has_psv_interpolation(s: &str) -> bool {
-    has_delimited(s, b"$(", b')')
+    has_delimited(s, "$(", b')')
 }
 
 /// Returns `true` if `s` contains template literal or brace interpolation (`{...}`).
 #[inline]
 pub fn has_tpl_interpolation(s: &str) -> bool {
-    let bytes = s.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'{' {
-            let mut j = i + 1;
-            while j < bytes.len() {
-                if bytes[j] == b'}' && j > i + 1 {
-                    return true;
-                }
-                j += 1;
-            }
-        }
-        i += 1;
-    }
-    false
+    has_delimited(s, "{", b'}')
 }
 
 /// Returns `true` if `s` contains any supported preprocessor or template interpolation.
@@ -50,25 +38,10 @@ pub fn has_interpolation(s: &str) -> bool {
         || has_tpl_interpolation(s)
 }
 
-fn has_delimited(s: &str, open: &[u8; 2], close: u8) -> bool {
-    let bytes = s.as_bytes();
-    if bytes.len() < 4 {
-        return false;
-    }
-    let mut i = 0;
-    while i + 1 < bytes.len() {
-        if bytes[i] == open[0] && bytes[i + 1] == open[1] {
-            let mut j = i + 2;
-            while j < bytes.len() {
-                if bytes[j] == close && j > i + 2 {
-                    return true;
-                }
-                j += 1;
-            }
-        }
-        i += 1;
-    }
-    false
+fn has_delimited(s: &str, open: &str, close: u8) -> bool {
+    s.find(open)
+        .and_then(|i| s.as_bytes().get(i + open.len() + 1..))
+        .is_some_and(|rest| rest.contains(&close))
 }
 
 /// Replaces contiguous runs of interpolation sigils (`#`, `@`, `{`, `}`) with `replacement`.
@@ -337,7 +310,6 @@ pub fn is_valid_identifier(ident: &str) -> bool {
     if s.is_empty() {
         return false;
     }
-
     let bytes = s.as_bytes();
     let mut cleaned = Vec::with_capacity(bytes.len());
     let mut i = 0;
@@ -369,7 +341,6 @@ pub fn is_valid_identifier(ident: &str) -> bool {
         cleaned.push(bytes[i]);
         i += 1;
     }
-
     if cleaned
         .iter()
         .any(|&b| !(b.is_ascii_alphanumeric() || b == b'_' || b == b'-'))
@@ -402,12 +373,14 @@ pub fn get_scheme_from_url(url_str: &str) -> Option<String> {
     if !chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.')) {
         return None;
     }
-    let scheme = scheme_raw.to_ascii_lowercase();
     let rest = &url_str[colon_idx + 1..];
-    if scheme != "data" && !rest.starts_with("//") {
+    if !scheme_raw.eq_ignore_ascii_case("data") && !rest.starts_with("//") {
         return None;
     }
-    if matches!(scheme.as_str(), "http" | "https" | "ws" | "wss" | "ftp") {
+    if ["http", "https", "ws", "wss", "ftp"]
+        .iter()
+        .any(|s| scheme_raw.eq_ignore_ascii_case(s))
+    {
         let after_slashes = &rest[2..];
         if after_slashes.is_empty()
             || after_slashes.starts_with('/')
@@ -416,7 +389,7 @@ pub fn get_scheme_from_url(url_str: &str) -> Option<String> {
             return None;
         }
     }
-    Some(scheme)
+    Some(scheme_raw.to_ascii_lowercase())
 }
 
 /// Splits a numeric word token into `(number_literal, unit_suffix)` after stripping
@@ -427,14 +400,21 @@ pub fn get_dimension(word: &str) -> Option<(String, String)> {
     if word.is_empty() || word.starts_with('#') || !is_standard_syntax_value(word) {
         return None;
     }
-    let blurred = blur_interpolation(word, "")
-        .replace("\\0", "")
-        .replace("\\9", "");
+    let blurred: Cow<'_, str> = if word
+        .bytes()
+        .any(|b| matches!(b, b'\\' | b'#' | b'@' | b'{' | b'}'))
+    {
+        blur_interpolation(word, "")
+            .replace("\\0", "")
+            .replace("\\9", "")
+            .into()
+    } else {
+        word.into()
+    };
     let bytes = blurred.as_bytes();
     if bytes.is_empty() {
         return None;
     }
-
     let mut i = 0;
     if matches!(bytes[i], b'+' | b'-') {
         i += 1;
@@ -471,7 +451,6 @@ pub fn get_dimension(word: &str) -> Option<(String, String)> {
             i = exp_i;
         }
     }
-
     let number = blurred[..i].to_string();
     let unit = blurred[i..].to_string();
     Some((number, unit))
