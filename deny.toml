@@ -1,0 +1,89 @@
+# cargo-deny configuration.
+#
+#   cargo install cargo-deny   # once
+#   cargo deny check           # or: just deny
+#
+# Structure and levels follow oxc-project/oxc's deny.toml: strict where a failure
+# means something is wrong with *this* repository, lenient where a failure would
+# mean something is wrong with the ecosystem today. If your cargo-deny is older
+# than 0.18 it may ask for `version = 2` under [advisories] and [licenses].
+
+[graph]
+# stx ships exactly these five targets (see napi/package.json), so a dependency
+# that is only compiled elsewhere cannot break a release and should not fail CI.
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+]
+# Check the graph as it ships, not every optional feature. Run
+# `cargo deny check --all-features` when you want the wider picture.
+all-features = false
+
+[advisories]
+# A yanked crate is not automatically broken, and it is not our mistake: the fix
+# is a lockfile bump. Warn, and let the reviewer decide.
+yanked = "warn"
+ignore = []
+
+[licenses]
+# stx and stx-napi are MIT. Everything below comes from dependencies.
+allow = [
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "Unicode-3.0",      # unicode-ident, pulled in by regex
+    "Unicode-DFS-2016", # older unicode crates
+    "BSL-1.0",          # Boost; harmless, appears in small no_std dependencies
+]
+# oxc uses 0.8 for the same reason: license detection reads the actual LICENSE
+# file, and scruffy-but-valid texts should not fail a build.
+confidence-threshold = 0.8
+exceptions = []
+
+# Nothing here should be needed. If the first run complains, add the *minimum*
+# that fixes it, with a comment saying which crate forced it:
+#
+#   "Unlicense"            -> a crate is Unlicense-only. Usually not needed:
+#                             memchr, ignore, and globset are "MIT OR Unlicense".
+#   "Zlib"                 -> prefer a per-crate exception, as oxc does for foldhash:
+#                             exceptions = [{ allow = ["Zlib"], name = "crate", version = "*" }]
+#   "BSD-2-Clause"         -> per-crate exception for the same reason.
+#   "MPL-2.0"              -> weak copyleft. oxc allows it globally; we would rather
+#                             see it appear once, in an exception, than turn a blind eye.
+#   "OpenSSL"              -> oxc needs it for `ring`. Nothing in stx should.
+#   "CC0-1.0"              -> data crates (root certificates and the like).
+#   "CDLA-Permissive-2.0"  -> data crates, same story.
+#   "Apache-2.0 WITH LLVM-exception" -> only if some dependency declares it literally;
+#                             `Apache-2.0` alone does not cover the exception form.
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# napi declares `stx = { path = ".." }` with no version requirement, which reads
+# as a wildcard. Path dependencies are fine; a wildcard from crates.io is not.
+allow-wildcard-paths = true
+deny = []
+skip = []
+skip-tree = []
+
+# Cargo features are additive: one dependency can silently re-enable a feature
+# we turned off. oxc uses this to keep `seize/fast-barrier` out; nothing in stx
+# needs it today, but this is where it goes when something does:
+#
+#   [[bans.features]]
+#   crate = "..."
+#   deny = ["..."]
+
+[sources]
+# stx has no git dependencies now, and if one ever
+# appears it should be an explicit, reviewed decision rather than a warning
+# that nobody reads.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
