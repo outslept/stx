@@ -1,0 +1,45 @@
+{
+  "name": "@outslept/stx",
+  "version": "0.1.0",
+  "description": "CSS, SCSS, Sass, and Less linter",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/outslept/stx.git",
+    "directory": "napi"
+  },
+  "type": "commonjs",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "exports": {
+    "types": "./index.d.ts",
+    "default": "./index.js"
+  },
+  "bin": {
+    "stx": "cli.cjs"
+  },
+  "files": ["index.js", "index.d.ts", "cli.cjs"],
+  "engines": {
+    "node": ">=22.14.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test test.mjs"
+  },
+  "napi": {
+    "binaryName": "stx",
+    "targets": [
+      "aarch64-apple-darwin",
+      "aarch64-unknown-linux-gnu",
+      "x86_64-apple-darwin",
+      "x86_64-pc-windows-msvc",
+      "x86_64-unknown-linux-gnu"
+    ]
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "3.11.1"
+  }
+}
