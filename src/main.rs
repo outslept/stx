@@ -1,286 +1,167 @@
-mod config;
-mod context;
-mod diagnostic;
-mod disable;
-mod fix;
-mod line_index;
-pub mod rules;
-#[cfg(test)]
-pub mod tester;
-pub mod utils;
-mod visitor;
+use oxc_css_parser::{Allocator, ParserBuilder, Syntax, ast::Stylesheet};
+use std::{ffi::OsStr, process::ExitCode};
+use stx::{config::Config, lint_and_fix, lint_once, rules::build_rules};
 
-use clap::Parser as ClapParser;
-use config::Config;
-use context::LintContext;
-use diagnostic::StylelintWarning;
-use disable::DisableDirectives;
-use ignore::WalkBuilder;
-use line_index::LineIndex;
-use oxc_css_parser::{Allocator, ParserBuilder, Syntax, ast::Stylesheet, token::Comment};
-use rayon::prelude::*;
-use rules::{ConfiguredRule, build_rules};
-use serde::Serialize;
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    process::ExitCode,
-    time::Instant,
-};
-use visitor::SinglePassVisitor;
+fn audit_fixtures() -> ExitCode {
+    use serde_json::{Value, json};
+    use std::io::{BufRead, Write};
 
-#[derive(ClapParser, Debug)]
-#[command(
-    name = "stx",
-    version,
-    about = "Ultra-fast CSS/SCSS/Less linter written in Rust"
-)]
-struct Cli {
-    #[arg(default_value = ".")]
-    paths: Vec<PathBuf>,
-    #[arg(short, long)]
-    config: Option<PathBuf>,
-    #[arg(long)]
-    fix: bool,
-    #[arg(short, long, default_value = "text")]
-    formatter: String,
-    #[arg(short, long)]
-    quiet: bool,
-}
-
-#[derive(Serialize)]
-struct FileReport {
-    source: String,
-    errored: bool,
-    warnings: Vec<StylelintWarning>,
-}
-
-fn syntax_for_path(path: &Path) -> Option<Syntax> {
-    match path.extension()?.to_str()? {
-        "css" | "pcss" | "postcss" => Some(Syntax::Css),
-        "scss" => Some(Syntax::Scss),
-        "sass" | "sss" | "sugarss" => Some(Syntax::Sass),
-        "less" => Some(Syntax::Less),
-        _ => None,
-    }
-}
-
-fn collect_files(paths: &[PathBuf]) -> Vec<PathBuf> {
-    let mut files = Vec::new();
-    for root in paths {
-        if root.is_file() {
-            if syntax_for_path(root).is_some() {
-                files.push(root.clone());
-            }
-            continue;
-        }
-        let walker = WalkBuilder::new(root)
-            .hidden(true)
-            .git_ignore(true)
-            .filter_entry(|entry| {
-                let name = entry.file_name().to_str().unwrap_or("");
-                name != "node_modules" && name != "target" && name != "dist" && name != "build"
-            })
-            .build();
-        for entry in walker.flatten() {
-            let p = entry.path();
-            if p.is_file() && syntax_for_path(p).is_some() {
-                files.push(p.to_path_buf());
-            }
-        }
-    }
-    files
-}
-
-fn run_pass<'a>(
-    source: &'a str,
-    stylesheet: &'a Stylesheet<'a>,
-    comments: &'a [Comment<'a>],
-    active_rules: &[ConfiguredRule],
-    quiet: bool,
-) -> (Vec<StylelintWarning>, Vec<fix::Fix>) {
-    let line_index = LineIndex::new(source);
-    let disables = DisableDirectives::parse(comments, source, &line_index);
-    let mut ctx = LintContext::new(source, stylesheet, comments, &line_index, &disables);
-    SinglePassVisitor::new(&mut ctx, active_rules).visit_stylesheet(stylesheet);
-    let fixes = ctx.take_fixes();
-    (ctx.into_warnings(quiet), fixes)
-}
-
-fn lint_once(
-    source: &str,
-    syntax: Syntax,
-    active_rules: &[ConfiguredRule],
-    quiet: bool,
-) -> (Vec<StylelintWarning>, Vec<fix::Fix>) {
-    let allocator = Allocator::default();
-    let mut parser = ParserBuilder::new(&allocator, source)
-        .syntax(syntax)
-        .comments()
-        .build();
-    if let Ok(stylesheet) = parser.parse::<Stylesheet>() {
-        let comments = parser.comments();
-        return run_pass(source, &stylesheet, &comments, active_rules, quiet);
-    }
-
-    if source.chars().any(|c| !c.is_ascii() && c.is_whitespace()) {
-        let mut sanitized = String::with_capacity(source.len());
-        for ch in source.chars() {
-            if !ch.is_ascii() && ch.is_whitespace() {
-                sanitized.push_str(&"    "[..ch.len_utf8()]);
-            } else {
-                sanitized.push(ch);
-            }
-        }
-        let alloc2 = Allocator::default();
-        let mut parser2 = ParserBuilder::new(&alloc2, &sanitized)
-            .syntax(syntax)
-            .comments()
-            .build();
-        if let Ok(stylesheet) = parser2.parse::<Stylesheet>() {
-            let comments = parser2.comments();
-            return run_pass(source, &stylesheet, &comments, active_rules, quiet);
-        }
-    }
-
-    let empty_alloc = Allocator::default();
-    let mut empty_parser = ParserBuilder::new(&empty_alloc, "")
-        .syntax(syntax)
-        .comments()
-        .build();
-    if let Ok(stylesheet) = empty_parser.parse::<Stylesheet>() {
-        let comments = empty_parser.comments();
-        return run_pass(source, &stylesheet, &comments, active_rules, quiet);
-    }
-
-    (Vec::new(), Vec::new())
-}
-
-fn process_file(
-    path: &Path,
-    active_rules: &[ConfiguredRule],
-    do_fix: bool,
-    quiet: bool,
-) -> Option<FileReport> {
-    let syntax = syntax_for_path(path)?;
-    let mut source = fs::read_to_string(path).ok()?;
-    let mut warnings = if do_fix {
-        let mut modified = false;
-        for _ in 0..10 {
-            let (_, fixes) = lint_once(&source, syntax, active_rules, quiet);
-            if fixes.is_empty() {
-                break;
-            }
-            let (new_source, applied) = fix::apply_fixes(&source, fixes);
-            if !applied || new_source == source {
-                break;
-            }
-            source = new_source;
-            modified = true;
-        }
-        if modified {
-            let _ = fs::write(path, &source);
-        }
-        lint_once(&source, syntax, active_rules, quiet).0
-    } else {
-        lint_once(&source, syntax, active_rules, quiet).0
-    };
-    warnings.sort_by(|a, b| a.line.cmp(&b.line).then(a.column.cmp(&b.column)));
-    let errored = warnings.iter().any(|w| w.severity == "error");
-    Some(FileReport {
-        source: path.to_string_lossy().into_owned(),
-        errored,
-        warnings,
-    })
-}
-
-fn print_text_report(reports: &[FileReport], elapsed_ms: u128, total_files: usize) {
-    let mut total_errors = 0usize;
-    let mut total_warnings = 0usize;
-    for rep in reports {
-        if rep.warnings.is_empty() {
-            continue;
-        }
-        println!("\n\x1b[4m{}\x1b[0m", rep.source);
-        for w in &rep.warnings {
-            let sev_symbol = if w.severity == "error" {
-                total_errors += 1;
-                "\x1b[31m✖\x1b[0m"
-            } else {
-                total_warnings += 1;
-                "\x1b[33m⚠\x1b[0m"
+    std::panic::set_hook(Box::new(|_| {}));
+    let mut stdout = std::io::BufWriter::new(std::io::stdout().lock());
+    for line in std::io::stdin().lock().lines() {
+        let req: Value = serde_json::from_str(&line.unwrap()).unwrap();
+        let result = std::panic::catch_unwind(|| {
+            let source = req["code"].as_str().unwrap();
+            let syntax = match req["syntax"].as_str().unwrap() {
+                "css" => Syntax::Css,
+                "postcss-scss" => Syntax::Scss,
+                "postcss-less" => Syntax::Less,
+                "postcss-sass" => Syntax::Sass,
+                _ => unreachable!(),
             };
-            let pos_width = w.line.max(1).ilog10() as usize + w.column.max(1).ilog10() as usize + 3;
-            let pad = 8usize.saturating_sub(pos_width);
-            println!(
-                "  \x1b[2m{}:{}\x1b[0m{:pad$}  {}  {}",
-                w.line,
-                w.column,
-                "",
-                sev_symbol,
-                w.text,
-                pad = pad
-            );
-        }
+            let config = Config::from_json_str(&req["config"].to_string()).unwrap();
+            let rules = build_rules(&config);
+            let allocator = Allocator::default();
+            let parsed = ParserBuilder::new(&allocator, source)
+                .syntax(syntax)
+                .comments()
+                .build()
+                .parse::<Stylesheet>()
+                .is_ok();
+            let mut pass = lint_once(source, syntax, &rules, false);
+            pass.warnings
+                .sort_by_key(|warning| (warning.line, warning.column));
+            let edits: Vec<_> = pass
+                .fixes
+                .iter()
+                .map(|fix| {
+                    fix.edits
+                        .iter()
+                        .map(|edit| {
+                            let offset = |position: u32| {
+                                source
+                                    .get(..position as usize)
+                                    .map(|prefix| prefix.encode_utf16().count())
+                            };
+                            json!({
+                                "range": [offset(edit.span.start), offset(edit.span.end)],
+                                "text": edit.replacement
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect();
+            let fixed = if req["checkFix"] == true || req["hasFixed"] == true {
+                Some(lint_and_fix(source, syntax, &rules, false).0)
+            } else {
+                None
+            };
+            json!({
+                "id": req["id"],
+                "registered": !rules.is_empty(),
+                "parsed": parsed,
+                "warnings": pass.warnings,
+                "fixed": fixed,
+                "edits": edits
+            })
+        });
+        let result = result.unwrap_or_else(|error| {
+            let message = error
+                .downcast_ref::<String>()
+                .map(String::as_str)
+                .or_else(|| error.downcast_ref::<&str>().copied())
+                .unwrap_or("unknown panic");
+            json!({ "id": req["id"], "panic": message })
+        });
+        writeln!(stdout, "{result}").unwrap();
     }
-    let total_problems = total_errors + total_warnings;
-    if total_problems > 0 {
-        println!(
-            "\n\x1b[31m✖ {} problem{} ({} error{}, {} warning{})\x1b[0m \x1b[2m[{} files in {}ms]\x1b[0m",
-            total_problems,
-            if total_problems == 1 { "" } else { "s" },
-            total_errors,
-            if total_errors == 1 { "" } else { "s" },
-            total_warnings,
-            if total_warnings == 1 { "" } else { "s" },
-            total_files,
-            elapsed_ms
-        );
-    } else {
-        println!(
-            "\x1b[32m✔ 0 problems\x1b[0m \x1b[2m[{} files linted in {}ms]\x1b[0m",
-            total_files, elapsed_ms
-        );
-    }
+    ExitCode::SUCCESS
 }
 
 fn main() -> ExitCode {
-    let start_time = Instant::now();
-    let cli = Cli::parse();
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let config = if let Some(ref cfg_path) = cli.config {
-        match Config::from_file(cfg_path) {
-            Ok(cfg) => cfg,
-            Err(err) => {
-                eprintln!("{err}");
-                return ExitCode::from(2);
-            }
-        }
-    } else if let Some(discovered) = Config::discover(&cwd) {
-        Config::from_file(&discovered).unwrap_or_else(|_| Config::standard_preset())
-    } else {
-        Config::standard_preset()
-    };
-    let active_rules = build_rules(&config);
-    let files = collect_files(&cli.paths);
-    let total_files = files.len();
-    let mut reports: Vec<FileReport> = files
-        .par_iter()
-        .filter_map(|path| process_file(path, &active_rules, cli.fix, cli.quiet))
-        .collect();
-    reports.sort_by(|a, b| a.source.cmp(&b.source));
-    let has_errors = reports.iter().any(|r| r.errored);
-    let elapsed_ms = start_time.elapsed().as_millis();
-    if cli.formatter == "json" {
-        if let Ok(json) = serde_json::to_string(&reports) {
-            println!("{json}");
-        }
-    } else {
-        print_text_report(&reports, elapsed_ms, total_files);
+    if std::env::args_os().nth(1).as_deref() == Some(OsStr::new("--audit-fixtures")) {
+        return audit_fixtures();
     }
-    if has_errors {
-        ExitCode::from(2)
-    } else {
-        ExitCode::SUCCESS
+    ExitCode::from(stx::cli::run(std::env::args_os()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Config, Syntax, build_rules, lint_once};
+
+    fn lines_with_warnings(source: &str, syntax: Syntax) -> Vec<usize> {
+        let config = Config::from_json_str(r#"{"rules":{"color-hex-length":"short"}}"#).unwrap();
+        let pass = lint_once(source, syntax, &build_rules(&config), false);
+        pass.warnings.iter().map(|w| w.line).collect()
+    }
+
+    #[test]
+    fn disable_comments_suppress_warnings() {
+        let scss = "// stylelint-disable-next-line color-hex-length\na { color: #FFFFFF; }\nb { color: #FFFFFF; }\n";
+        assert_eq!(lines_with_warnings(scss, Syntax::Scss), [3]);
+        let less = "a { color: #FFFFFF; } // stylelint-disable-line color-hex-length\nb { color: #FFFFFF; }\n";
+        assert_eq!(lines_with_warnings(less, Syntax::Less), [2]);
+        let reenabled = "/* stylelint-disable */\na { color: #FFFFFF; }\n/* stylelint-enable color-hex-length */\nb { color: #FFFFFF; }\n";
+        assert_eq!(lines_with_warnings(reenabled, Syntax::Css), [4]);
+    }
+
+    #[test]
+    fn prioritized_secondary_options_are_applied() {
+        for (source, config) in [
+            (
+                "a { unknown-property: 0; }",
+                r#"{"rules":{"property-no-unknown":[true,{"ignoreProperties":["unknown-property"]}]}}"#,
+            ),
+            (
+                "a { width: calc(0px); }",
+                r#"{"rules":{"length-zero-no-unit":[true,{"ignoreFunctions":["calc"]}]}}"#,
+            ),
+            (
+                "a { opacity: round(0.12345); }",
+                r#"{"rules":{"number-max-precision":[2,{"insideFunctions":{"round":5}}]}}"#,
+            ),
+            (
+                "a {}",
+                r#"{"rules":{"selector-max-type":[0,{"ignoreTypes":["a"]}]}}"#,
+            ),
+            (
+                "a { &:hover { a { color: red; } } }",
+                r#"{"rules":{"max-nesting-depth":[1,{"ignorePseudoClasses":["hover"]}]}}"#,
+            ),
+            (
+                "a { width: custom(1xyz); }",
+                r#"{"rules":{"unit-no-unknown":[true,{"ignoreFunctions":["custom"]}]}}"#,
+            ),
+        ] {
+            let config = Config::from_json_str(config).unwrap();
+            let pass = lint_once(source, Syntax::Css, &build_rules(&config), false);
+            assert!(pass.warnings.is_empty(), "{source}: {:?}", pass.warnings);
+        }
+    }
+
+    #[test]
+    fn default_severity_and_custom_message_are_applied() {
+        let config = Config::from_json_str(
+            r#"{"defaultSeverity":"warning","rules":{"block-no-empty":[true,{"message":"Custom text"}]}}"#,
+        )
+        .unwrap();
+        let pass = lint_once("a {}", Syntax::Css, &build_rules(&config), false);
+        assert_eq!(pass.warnings.len(), 1);
+        assert_eq!(pass.warnings[0].severity, "warning");
+        assert_eq!(pass.warnings[0].text, "Custom text (block-no-empty)");
+    }
+
+    #[test]
+    fn fatal_parse_failure_reports_syntax_error() {
+        let pass = lint_once(", a {}", Syntax::Css, &[], true);
+        let warning = pass.parse_error.expect("expected a syntax error");
+        assert_eq!(warning.rule, "CssSyntaxError");
+        assert_eq!((warning.line, warning.column), (1, 1));
+        assert_eq!(warning.severity, "error");
+        assert!(
+            lint_once("a {}", Syntax::Css, &[], false)
+                .parse_error
+                .is_none()
+        );
     }
 }
