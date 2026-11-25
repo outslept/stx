@@ -1,15 +1,86 @@
-use crate::{
-    context::LintContext,
-    rules::Rule,
-    utils::{OptionMatcher, options_matches, parse_option_matchers},
+use std::collections::HashMap;
+
+use oxc_css_parser::{
+    Allocator, ParserBuilder,
+    ast::{
+        ComplexSelector, ComplexSelectorChild, QualifiedRule, SelectorList, SimpleSelector,
+        Statement, Stylesheet,
+    },
 };
-use oxc_css_parser::ast::{SimpleBlock, Statement, Stylesheet};
 use serde_json::{Map, Value};
+
+use super::{
+    selector_max_specificity::{Specificity, is_nested, specificity},
+    selector_no_qualifying_type::resolve_nested_selectors,
+};
+use crate::{
+    context::{AstParent, LintContext},
+    rules::Rule,
+    utils::{
+        LEVEL_ONE_AND_TWO_PSEUDO_ELEMENTS, OptionMatcher, ident_name, in_set_ignore_case,
+        is_standard_syntax_rule, options_matches, parse_option_matchers,
+    },
+};
 
 pub struct NoDescendingSpecificity {
     ignore: Vec<OptionMatcher>,
     ignore_selectors_within_list: bool,
 }
+
+fn has_declarations(statements: &[Statement<'_>]) -> bool {
+    statements.iter().any(|stmt| match stmt {
+        Statement::Declaration(_) => true,
+        Statement::AtRule(rule) => rule
+            .block
+            .as_ref()
+            .is_some_and(|block| has_declarations(&block.statements)),
+        _ => false,
+    })
+}
+
+fn comparison_key(selector: &ComplexSelector<'_>, source: &str) -> Option<String> {
+    let ComplexSelectorChild::CompoundSelector(compound) = selector.children.last()? else {
+        return None;
+    };
+    let mut parts: Vec<_> = compound
+        .children
+        .iter()
+        .filter_map(|node| {
+            let pseudo_element = match node {
+                SimpleSelector::PseudoClass(pseudo) => {
+                    if !ident_name(&pseudo.name).is_some_and(|name| {
+                        in_set_ignore_case(LEVEL_ONE_AND_TWO_PSEUDO_ELEMENTS, name)
+                    }) {
+                        return None;
+                    }
+                    true
+                }
+                SimpleSelector::PseudoElement(_) => true,
+                _ => false,
+            };
+            let span = node.span();
+            Some((
+                pseudo_element,
+                &source[span.start as usize..span.end as usize],
+            ))
+        })
+        .collect();
+    if parts.is_empty() {
+        return None;
+    }
+    for segment in parts.split_mut(|(pseudo_element, _)| *pseudo_element) {
+        segment.sort_unstable();
+    }
+    Some(parts.into_iter().map(|(_, raw)| raw).collect())
+}
+
+struct Entry {
+    label: String,
+    specificity: Specificity,
+    line: usize,
+}
+
+type Seen = HashMap<String, Vec<Entry>>;
 
 impl NoDescendingSpecificity {
     pub fn from_config(secondary: Option<&Map<String, Value>>) -> Self {
@@ -19,192 +90,90 @@ impl NoDescendingSpecificity {
             ignore,
         }
     }
-}
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct Specificity(usize, usize, usize);
-
-fn compute_specificity_and_tail(selector: &str) -> Option<(Specificity, String)> {
-    let trimmed = selector.trim();
-    if trimmed.is_empty() || trimmed.contains('(') {
-        return None;
-    }
-
-    let bytes = trimmed.as_bytes();
-    let len = bytes.len();
-    let mut i = 0usize;
-    let mut a = 0usize;
-    let mut b = 0usize;
-    let mut c = 0usize;
-    let mut at_compound_start = true;
-
-    while i < len {
-        if bytes[i].is_ascii_whitespace() || matches!(bytes[i], b'>' | b'+' | b'~') {
-            at_compound_start = true;
-            i += 1;
-            continue;
+    fn check_rule<'a>(&self, rule: &QualifiedRule<'a>, seen: &mut Seen, ctx: &mut LintContext<'a>) {
+        if (self.ignore_selectors_within_list && rule.selector.selectors.len() > 1)
+            || !is_standard_syntax_rule(ctx.source, rule)
+            || !has_declarations(&rule.block.statements)
+        {
+            return;
         }
-        if bytes[i] == b'[' {
-            at_compound_start = false;
-            b += 1;
-            i += 1;
-            while i < len && bytes[i] != b']' {
-                i += 1;
-            }
-            i += 1;
-            continue;
-        }
-        if bytes[i] == b'#' {
-            at_compound_start = false;
-            a += 1;
-            i += 1;
-            while i < len
-                && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-' || bytes[i] == b'_')
-            {
-                i += 1;
-            }
-            continue;
-        }
-        if bytes[i] == b'.' {
-            at_compound_start = false;
-            b += 1;
-            i += 1;
-            while i < len
-                && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-' || bytes[i] == b'_')
-            {
-                i += 1;
-            }
-            continue;
-        }
-        if bytes[i] == b':' {
-            at_compound_start = false;
-            if i + 1 < len && bytes[i + 1] == b':' {
-                c += 1;
-                i += 2;
-            } else {
-                let name_start = i + 1;
-                let mut j = name_start;
-                while j < len
-                    && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'-' || bytes[j] == b'_')
-                {
-                    j += 1;
-                }
-                let pname = &trimmed[name_start..j];
-                if pname.eq_ignore_ascii_case("before")
-                    || pname.eq_ignore_ascii_case("after")
-                    || pname.eq_ignore_ascii_case("first-line")
-                    || pname.eq_ignore_ascii_case("first-letter")
-                {
-                    c += 1;
-                } else {
-                    b += 1;
-                }
-                i = j;
+        let line = ctx.line_index.line_col(ctx.source, rule.span.start).0;
+        let resolved = is_nested(ctx).then(|| resolve_nested_selectors(rule, ctx));
+        for (i, sel) in rule.selector.selectors.iter().enumerate() {
+            let raw = ctx.slice(sel.span).trim();
+            if options_matches(&self.ignore, raw) {
                 continue;
             }
-            while i < len
-                && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-' || bytes[i] == b'_')
-            {
-                i += 1;
-            }
-            continue;
-        }
-        if at_compound_start && bytes[i].is_ascii_alphabetic() {
-            c += 1;
-            at_compound_start = false;
-            while i < len
-                && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-' || bytes[i] == b'_')
-            {
-                i += 1;
-            }
-            continue;
-        }
-        at_compound_start = false;
-        i += 1;
-    }
-
-    let last_compound = trimmed
-        .rsplit(|ch: char| ch.is_ascii_whitespace() || matches!(ch, '>' | '+' | '~'))
-        .find(|s| !s.is_empty())?;
-    let bytes = last_compound.as_bytes();
-    let mut tail = String::with_capacity(last_compound.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b':' {
-            let double = bytes.get(i + 1) == Some(&b':');
-            let name_start = i + if double { 2 } else { 1 };
-            let mut name_end = name_start;
-            while name_end < bytes.len()
-                && (bytes[name_end].is_ascii_alphanumeric()
-                    || bytes[name_end] == b'-'
-                    || bytes[name_end] == b'_')
-            {
-                name_end += 1;
-            }
-            let name = &last_compound[name_start..name_end];
-            let pseudo_element = double
-                || (!double
-                    && ["before", "after", "first-line", "first-letter"]
-                        .iter()
-                        .any(|candidate| name.eq_ignore_ascii_case(candidate)));
-            if !pseudo_element {
-                i = name_end;
-                continue;
-            }
-        }
-        let ch = last_compound[i..].chars().next()?;
-        tail.push(ch);
-        i += ch.len_utf8();
-    }
-    let tail_key = tail.to_ascii_lowercase();
-    if tail_key.is_empty() {
-        return None;
-    }
-
-    Some((Specificity(a, b, c), tail_key))
-}
-
-fn check_statements_specificity<'a>(
-    statements: &'a [Statement<'a>],
-    rule_name: &'static str,
-    ignore: &[OptionMatcher],
-    ignore_selectors_within_list: bool,
-    ctx: &mut LintContext<'a>,
-) {
-    let mut seen: Vec<(String, String, Specificity, usize, u32)> = Vec::new();
-
-    for stmt in statements {
-        if let Statement::QualifiedRule(qrule) = stmt {
-            let selector_list_start = qrule.selector.span.start;
-            for complex in &qrule.selector.selectors {
-                let raw = ctx.slice(complex.span).trim();
-                if options_matches(ignore, raw) {
-                    continue;
-                }
-                let Some((spec, tail_key)) = compute_specificity_and_tail(raw) else {
-                    continue;
+            let resolved = resolved
+                .as_ref()
+                .map_or(raw, |selectors| selectors[i].trim());
+            let source = ctx.source;
+            let mut compare = |selector: &ComplexSelector<'_>, source: &str| {
+                let Some(key) = comparison_key(selector, source) else {
+                    return;
                 };
-
-                if let Some((_, prev_raw, _, prev_line, _)) =
-                    seen.iter()
-                        .find(|(prev_tail, _, prev_spec, _, prev_list_start)| {
-                            prev_tail == &tail_key
-                                && *prev_spec > spec
-                                && (!ignore_selectors_within_list
-                                    || *prev_list_start != selector_list_start)
-                        })
-                {
+                let spec = specificity(selector);
+                let entries = seen.entry(key).or_default();
+                let label = if raw == resolved {
+                    format!("\"{raw}\"")
+                } else {
+                    format!("\"{raw}\" (\"{resolved}\")")
+                };
+                if let Some(prev) = entries.iter().find(|prev| prev.specificity > spec) {
                     ctx.report(
-                        rule_name,
-                        complex.span,
+                        self.name(),
+                        sel.span,
                         format!(
-                            "Expected selector \"{raw}\" to come before selector \"{prev_raw}\", at line {prev_line}"
+                            "Expected selector {label} to come before selector {}, at line {}",
+                            prev.label, prev.line
                         ),
                     );
                 }
+                entries.push(Entry {
+                    label,
+                    specificity: spec,
+                    line,
+                });
+            };
+            if raw == resolved {
+                compare(sel, source);
+            } else {
+                let allocator = Allocator::default();
+                if let Ok(list) = ParserBuilder::new(&allocator, resolved)
+                    .build()
+                    .parse::<SelectorList>()
+                {
+                    for selector in &list.selectors {
+                        compare(selector, resolved);
+                    }
+                }
+            }
+        }
+    }
 
-                let line = ctx.line_index.line_col(ctx.source, complex.span.start).0;
-                seen.push((tail_key, raw.to_string(), spec, line, selector_list_start));
+    fn check_statements<'a>(
+        &self,
+        statements: &'a [Statement<'a>],
+        seen: &mut Seen,
+        ctx: &mut LintContext<'a>,
+    ) {
+        for stmt in statements {
+            match stmt {
+                Statement::QualifiedRule(rule) => {
+                    self.check_rule(rule, seen, ctx);
+                    ctx.ancestors.push(AstParent::QualifiedRule(rule));
+                    self.check_statements(&rule.block.statements, seen, ctx);
+                    ctx.ancestors.pop();
+                }
+                Statement::AtRule(rule) => {
+                    if let Some(block) = &rule.block {
+                        ctx.ancestors.push(AstParent::AtRule(rule));
+                        self.check_statements(&block.statements, &mut Seen::new(), ctx);
+                        ctx.ancestors.pop();
+                    }
+                }
+                _ => {}
             }
         }
     }
@@ -216,23 +185,7 @@ impl Rule for NoDescendingSpecificity {
     }
 
     fn check_stylesheet<'a>(&self, stylesheet: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {
-        check_statements_specificity(
-            &stylesheet.statements,
-            self.name(),
-            &self.ignore,
-            self.ignore_selectors_within_list,
-            ctx,
-        );
-    }
-
-    fn check_simple_block<'a>(&self, block: &'a SimpleBlock<'a>, ctx: &mut LintContext<'a>) {
-        check_statements_specificity(
-            &block.statements,
-            self.name(),
-            &self.ignore,
-            self.ignore_selectors_within_list,
-            ctx,
-        );
+        self.check_statements(&stylesheet.statements, &mut Seen::new(), ctx);
     }
 }
 
@@ -244,7 +197,7 @@ mod tests {
     #[test]
     fn includes_previous_selector_line() {
         let fail = [reject_message(
-            "#a .bar {}\n.foo .bar {}",
+            "#a .bar { color: red; }\n.foo .bar { color: blue; }",
             None,
             "Expected selector \".foo .bar\" to come before selector \"#a .bar\", at line 1",
         )];
@@ -256,20 +209,42 @@ mod tests {
         Tester::new(
             "no-descending-specificity",
             json!(true),
+            ["a:hover::before { color: red; } a:hover { color: red; }"],
             [
-                "a:focus::before {} a:hover {}",
-                "a:hover::before { color: red; } a:hover { color: red; }",
+                reject(
+                    "a:hover::before { color: red; } a::before { color: red; } a { color: red; }",
+                    None,
+                    "Expected selector \"a::before\" to come before selector \"a:hover::before\", at line 1",
+                    (1, 33, 1, 42),
+                ),
+                reject_message(
+                    "#a .foo.bar { color: red; } .bar.foo { color: blue; }",
+                    None,
+                    "Expected selector \".bar.foo\" to come before selector \"#a .foo.bar\", at line 1",
+                ),
             ],
-            &[],
-        )
-        .test();
-        let fail = [reject(
-            "a:hover::before { color: red; } a::before { color: red; } a { color: red; }",
-            None,
-            "Expected selector \"a::before\" to come before selector \"a:hover::before\", at line 1",
-            (1, 33, 1, 42),
-        )];
-        Tester::new("no-descending-specificity", json!(true), [], &fail).test();
+        ).test();
+    }
+
+    #[test]
+    fn compares_resolved_selectors_within_the_same_at_rule_context() {
+        Tester::new(
+            "no-descending-specificity",
+            json!(true),
+            ["b a {} a {}", "@media print { b a { color: red; } } a { color: blue; }"],
+            [
+                reject_message(
+                    "a { & > b { color: red; } } b { color: blue; }",
+                    None,
+                    "Expected selector \"b\" to come before selector \"& > b\" (\"a > b\"), at line 1",
+                ),
+                reject_message(
+                    ".foo { & h2 { @media { color: red; } } } h1 { & h2 { @media { color: blue; } } }",
+                    None,
+                    "Expected selector \"& h2\" (\"h1 h2\") to come before selector \"& h2\" (\".foo h2\"), at line 1",
+                ),
+            ],
+        ).test();
     }
 
     #[test]
@@ -277,14 +252,17 @@ mod tests {
         Tester::new(
             "no-descending-specificity",
             json!([true, {"ignore": ["#a .bar", "/^\\.foo/"]}]),
-            ["#a .bar {} .foo .bar {}"],
+            ["#a .bar { color: red; } .foo .bar { color: blue; }"],
             &[],
         )
         .test();
         Tester::new(
             "no-descending-specificity",
             json!([true, {"ignore": ["selectors-within-list"]}]),
-            ["#a .bar, .foo .bar {}"],
+            [
+                "#a .bar, .foo .bar { color: red; } .bar { color: blue; }",
+                "b a { color: red; } a, b { color: blue; }",
+            ],
             &[],
         )
         .test();

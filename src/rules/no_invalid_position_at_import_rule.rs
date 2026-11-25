@@ -1,7 +1,22 @@
-use crate::{context::LintContext, rules::Rule};
+use crate::{
+    context::LintContext,
+    rules::Rule,
+    utils::{OptionMatcher, options_matches, parse_option_matchers},
+};
 use oxc_css_parser::ast::{Statement, Stylesheet};
+use serde_json::{Map, Value};
 
-pub struct NoInvalidPositionAtImportRule;
+pub struct NoInvalidPositionAtImportRule {
+    ignore_at_rules: Vec<OptionMatcher>,
+}
+
+impl NoInvalidPositionAtImportRule {
+    pub fn from_config(secondary: Option<&Map<String, Value>>) -> Self {
+        Self {
+            ignore_at_rules: parse_option_matchers(secondary, "ignoreAtRules"),
+        }
+    }
+}
 
 impl Rule for NoInvalidPositionAtImportRule {
     fn name(&self) -> &'static str {
@@ -23,19 +38,67 @@ impl Rule for NoInvalidPositionAtImportRule {
                                 "Invalid position for @import rule".to_string(),
                             );
                         }
-                    } else if name.eq_ignore_ascii_case("charset")
+                    } else if !(name.eq_ignore_ascii_case("charset")
                         || name.eq_ignore_ascii_case("use")
                         || name.eq_ignore_ascii_case("forward")
                         || (name.eq_ignore_ascii_case("layer") && at_rule.block.is_none())
+                        || options_matches(&self.ignore_at_rules, name))
                     {
-                    } else {
                         seen_disallowed = true;
                     }
                 }
+                Statement::SassVariableDeclaration(_) | Statement::Declaration(_) => {}
                 _ => {
                     seen_disallowed = true;
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tester::{Tester, reject};
+    use serde_json::json;
+
+    #[test]
+    fn ignored_at_rules_do_not_block_or_unblock_imports() {
+        Tester::new(
+            "no-invalid-position-at-import-rule",
+            json!([true, {"ignoreAtRules": ["bar", "/^my-/i"]}]),
+            ["@bar 'bar.css';\n@MY-custom {}\n@import 'foo.css';"],
+            [
+                reject(
+                    "@BAR 'bar.css';\n@import 'foo.css';",
+                    None,
+                    "Invalid position for @import rule",
+                    (2, 1, 2, 18),
+                ),
+                reject(
+                    "@baz 'bar.css';\n@my-custom {}\n@import 'foo.css';",
+                    None,
+                    "Invalid position for @import rule",
+                    (3, 1, 3, 18),
+                ),
+            ],
+        )
+        .test();
+    }
+
+    #[test]
+    fn sass_variables_do_not_change_import_position() {
+        Tester::new(
+            "no-invalid-position-at-import-rule",
+            json!(true),
+            ["$theme: 1;\n@import 'foo.css';"],
+            [reject(
+                "a {}\n$theme: 1;\n@import 'foo.css';",
+                None,
+                "Invalid position for @import rule",
+                (3, 1, 3, 18),
+            )],
+        )
+        .with_custom_syntax("postcss-scss")
+        .test();
     }
 }

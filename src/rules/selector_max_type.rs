@@ -1,5 +1,12 @@
+use oxc_css_parser::ast::{
+    CombinatorKind, ComplexSelector, ComplexSelectorChild, CompoundSelector,
+    PseudoClassSelectorArgKind as Arg, PseudoElementSelectorArgKind as ElementArg, QualifiedRule,
+    SimpleSelector, TypeSelector,
+};
+
+use super::selector_max_specificity::is_nested;
 use crate::{context::LintContext, rules::Rule, utils::*};
-use oxc_css_parser::ast::QualifiedRule;
+
 pub struct R {
     max: u64,
     ignore_types: Vec<OptionMatcher>,
@@ -24,172 +31,144 @@ impl R {
             ignore_custom_elements: secondary_has_flag(secondary, "ignore", "custom-elements"),
         })
     }
-}
-fn in_anb_argument(raw: &str, position: usize) -> bool {
-    let bytes = raw.as_bytes();
-    for (open, _) in raw[..position].match_indices('(') {
-        let prefix = &raw[..open];
-        let name_start = prefix
-            .bytes()
-            .rposition(|b| !(b.is_ascii_alphanumeric() || b == b'-' || b == b'_'))
-            .map_or(0, |i| i + 1);
-        if !prefix[..name_start].ends_with(':')
-            || !matches!(
-                prefix[name_start..].to_ascii_lowercase().as_str(),
-                "nth-child" | "nth-last-child" | "nth-of-type" | "nth-last-of-type"
-            )
-        {
-            continue;
-        }
-        let mut depth = 0usize;
-        let mut i = open + 1;
-        while i <= position {
-            if depth == 0
-                && bytes[i..]
-                    .get(..2)
-                    .is_some_and(|word| word.eq_ignore_ascii_case(b"of"))
-                && i > open + 1
-                && bytes[i - 1].is_ascii_whitespace()
-                && bytes.get(i + 2).is_some_and(u8::is_ascii_whitespace)
-            {
-                return position < i + 2;
+
+    fn count_types(
+        &self,
+        selector: &ComplexSelector<'_>,
+        leading: Option<&CombinatorKind>,
+        implicit_descendant: bool,
+        has_nesting: &mut bool,
+    ) -> usize {
+        let mut direct = 0;
+        let mut in_pseudos = 0;
+        let mut previous = leading;
+        let mut after_descendant = leading == Some(&CombinatorKind::Descendant);
+        let mut after_child = leading == Some(&CombinatorKind::Child);
+        for child in &selector.children {
+            match child {
+                ComplexSelectorChild::Combinator(combinator) => {
+                    previous = Some(&combinator.kind);
+                    after_descendant |= combinator.kind == CombinatorKind::Descendant;
+                    after_child |= combinator.kind == CombinatorKind::Child;
+                }
+                ComplexSelectorChild::CompoundSelector(compound) => {
+                    let ignore_tag = (self.ignore_descendant && after_descendant)
+                        || (self.ignore_child && after_child)
+                        || (self.ignore_next_sibling
+                            && previous == Some(&CombinatorKind::NextSibling));
+                    direct += self.count_tags(compound, ignore_tag);
+                    in_pseudos += self.count_arguments(compound, has_nesting);
+                    previous = None;
+                }
             }
-            match bytes[i] {
-                b'(' => depth += 1,
-                b')' if depth == 0 => break,
-                b')' => depth -= 1,
-                _ => {}
+        }
+        in_pseudos
+            + if implicit_descendant && !*has_nesting {
+                0
+            } else {
+                direct
             }
-            i += 1;
-        }
-        if i > position {
-            return true;
-        }
     }
-    false
-}
-fn count_types(raw: &str, rule: &R) -> usize {
-    let bytes = raw.as_bytes();
-    let mut count = 0;
-    let mut prev_sig = 0;
-    let mut combinator = 0;
-    let mut descendant = false;
-    let mut i = 0;
-    let mut attr = 0;
-    let mut quote = 0;
-    while i < bytes.len() {
-        let b = bytes[i];
-        if quote != 0 {
-            if b == b'\\' {
-                i += 2;
-                continue;
-            }
-            if b == quote {
-                quote = 0;
-            }
-            i += 1;
-            continue;
+
+    fn count_tags(&self, compound: &CompoundSelector<'_>, ignore_tag: bool) -> usize {
+        if ignore_tag || (self.ignore_compounded && compound.children.len() > 1) {
+            return 0;
         }
-        if attr > 0 {
-            if b == b'\'' || b == b'"' {
-                quote = b;
-            } else if b == b'[' {
-                attr += 1;
-            } else if b == b']' {
-                attr -= 1;
-            }
-            i += 1;
-            continue;
-        }
-        if b == b'[' {
-            attr = 1;
-            prev_sig = b;
-            i += 1;
-            continue;
-        }
-        if b == b'/' && bytes.get(i + 1) == Some(&b'*') {
-            i += 2;
-            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
-                i += 1;
-            }
-            i = (i + 2).min(bytes.len());
-            continue;
-        }
-        if b.is_ascii_whitespace() {
-            let next = bytes[i..]
-                .iter()
-                .copied()
-                .find(|byte| !byte.is_ascii_whitespace());
-            if prev_sig != 0 && !matches!(next, Some(b'>' | b'+' | b'~' | b',')) {
-                descendant = true;
-            }
-            i += 1;
-            continue;
-        }
-        if b.is_ascii_alphabetic() || b == b'_' || b == b'-' || b >= 0x80 {
-            let start = i;
-            i += 1;
-            while i < bytes.len()
-                && (bytes[i].is_ascii_alphanumeric()
-                    || bytes[i] == b'-'
-                    || bytes[i] == b'_'
-                    || bytes[i] >= 0x80)
-            {
-                i += 1;
-            }
-            let name = &raw[start..i];
-            let starts_type =
-                matches!(prev_sig, 0 | b'>' | b'+' | b'~' | b',' | b'(' | b'|') || descendant;
-            let compounded = !descendant && matches!(prev_sig, b'a' | b'.' | b'#' | b':');
-            let after = bytes[i..]
-                .iter()
-                .copied()
-                .find(|byte| !byte.is_ascii_whitespace());
-            let compound_after = matches!(after, Some(b'.' | b'#' | b':'));
-            let ignored = options_matches(&rule.ignore_types, name)
-                || (rule.ignore_descendant && descendant)
-                || (rule.ignore_child && combinator == b'>')
-                || (rule.ignore_next_sibling && combinator == b'+')
-                || (rule.ignore_compounded && (compounded || compound_after))
-                || (rule.ignore_custom_elements && is_custom_element(name));
-            if starts_type
-                && bytes.get(i) != Some(&b'(')
-                && bytes.get(i) != Some(&b'|')
-                && !ignored
-                && !in_anb_argument(raw, start)
-            {
-                count += 1;
-            }
-            prev_sig = b'a';
-            combinator = 0;
-            descendant = false;
-        } else {
-            if matches!(b, b'>' | b'+' | b'~') {
-                combinator = b;
-                descendant = false;
-            } else if b == b',' {
-                combinator = 0;
-                descendant = false;
-            }
-            prev_sig = b;
-            i += 1;
-        }
+        compound
+            .children
+            .iter()
+            .filter(|node| {
+                let SimpleSelector::Type(TypeSelector::TagName(tag)) = node else {
+                    return false;
+                };
+                ident_name(&tag.name.name).is_some_and(|name| {
+                    !options_matches(&self.ignore_types, name)
+                        && !(self.ignore_custom_elements && is_custom_element(name))
+                })
+            })
+            .count()
     }
-    count
+
+    fn count_arguments(&self, compound: &CompoundSelector<'_>, has_nesting: &mut bool) -> usize {
+        compound
+            .children
+            .iter()
+            .map(|node| match node {
+                SimpleSelector::Nesting(_) => {
+                    *has_nesting = true;
+                    0
+                }
+                SimpleSelector::PseudoClass(pseudo) => {
+                    match pseudo.arg.as_ref().map(|arg| &arg.kind) {
+                        Some(Arg::SelectorList(list)) => list
+                            .selectors
+                            .iter()
+                            .map(|sel| self.count_types(sel, None, false, has_nesting))
+                            .sum(),
+                        Some(Arg::RelativeSelectorList(list)) => list
+                            .selectors
+                            .iter()
+                            .map(|rel| {
+                                self.count_types(
+                                    &rel.complex_selector,
+                                    rel.combinator.as_ref().map(|c| &c.kind),
+                                    false,
+                                    has_nesting,
+                                )
+                            })
+                            .sum(),
+                        Some(Arg::CompoundSelectorList(list)) => list
+                            .selectors
+                            .iter()
+                            .map(|sel| {
+                                self.count_tags(sel, false) + self.count_arguments(sel, has_nesting)
+                            })
+                            .sum(),
+                        Some(Arg::Nth(nth)) => nth
+                            .matcher
+                            .as_ref()
+                            .and_then(|m| m.selector.as_ref())
+                            .map_or(0, |list| {
+                                list.selectors
+                                    .iter()
+                                    .map(|sel| self.count_types(sel, None, false, has_nesting))
+                                    .sum()
+                            }),
+                        _ => 0,
+                    }
+                }
+                SimpleSelector::PseudoElement(pseudo) => {
+                    match pseudo.arg.as_ref().map(|arg| &arg.kind) {
+                        Some(ElementArg::CompoundSelector(sel)) => {
+                            self.count_tags(sel, false) + self.count_arguments(sel, has_nesting)
+                        }
+                        Some(ElementArg::CompoundSelectorList(list)) => list
+                            .selectors
+                            .iter()
+                            .map(|sel| {
+                                self.count_tags(sel, false) + self.count_arguments(sel, has_nesting)
+                            })
+                            .sum(),
+                        _ => 0,
+                    }
+                }
+                _ => 0,
+            })
+            .sum()
+    }
 }
 impl Rule for R {
     fn name(&self) -> &'static str {
         "selector-max-type"
     }
     fn check_qualified_rule<'a>(&self, rule: &'a QualifiedRule<'a>, ctx: &mut LintContext<'a>) {
+        if !is_standard_syntax_rule(ctx.source, rule) || ctx.in_keyframes() {
+            return;
+        }
+        let implicit_descendant = self.ignore_descendant && is_nested(ctx);
         for sel in &rule.selector.selectors {
-            let raw = ctx.slice(sel.span);
-            let s = raw.trim();
-            if has_interpolation(s) {
-                continue;
-            }
-            let c = count_types(s, self);
-            if c as u64 > self.max {
+            if self.count_types(sel, None, implicit_descendant, &mut false) as u64 > self.max {
+                let s = ctx.slice(sel.span).trim();
                 ctx.report(
                     self.name(),
                     sel.span,
@@ -201,38 +180,19 @@ impl Rule for R {
 }
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::tester::{Tester, reject_message};
     use serde_json::json;
-    #[test]
-    fn default_config() {
-        let pass = vec![".a {}"];
-        let fail = vec![reject_message(
-            "a {}",
-            None,
-            "Too many type selectors in \"a\", maximum 0",
-        )];
-        Tester::new("selector-max-type", json!([0]), &pass, &fail).test();
-    }
 
     #[test]
-    fn ignores_interpolation_and_anb_keywords() {
+    fn ignores_anb_and_non_selector_arguments() {
         Tester::new(
             "selector-max-type",
-            json!([0]),
+            json!([0, {"ignore": ["custom-elements"]}]),
             [
                 ":nth-child(odd) {}",
                 ":nth-child(2n + 1) {}",
-                "#{$selector} {}",
+                "custom-element::part(foo) {}",
             ],
-            &[],
-        )
-        .with_custom_syntax("postcss-scss")
-        .test();
-        Tester::new(
-            "selector-max-type",
-            json!([0]),
-            &[],
             [reject_message(
                 ":nth-child(2n of div) {}",
                 None,
@@ -243,26 +203,70 @@ mod tests {
     }
 
     #[test]
-    fn ignores_configured_selector_categories() {
+    fn ignores_explicit_and_implicit_descendants() {
         Tester::new(
             "selector-max-type",
-            json!([1, {"ignore": ["descendant", "child"]}]),
-            ["a b {}", "a > b {}"],
+            json!([0, {"ignore": ["descendant"]}]),
+            [
+                ".a div {}",
+                ".a { div, a {} }",
+                "@scope (.a) { div {} }",
+                ".a .b > div {}",
+            ],
+            [
+                reject_message(
+                    ".a > div {}",
+                    None,
+                    "Too many type selectors in \".a > div\", maximum 0",
+                ),
+                reject_message(
+                    ".a { div:is(&) {} }",
+                    None,
+                    "Too many type selectors in \"div:is(&)\", maximum 0",
+                ),
+                reject_message(
+                    ".a { :is(div) {} }",
+                    None,
+                    "Too many type selectors in \":is(div)\", maximum 0",
+                ),
+            ],
+        )
+        .test();
+    }
+
+    #[test]
+    fn distinguishes_child_and_next_sibling() {
+        Tester::new(
+            "selector-max-type",
+            json!([0, {"ignore": ["child"]}]),
+            [".a > .b + div {}"],
             &[],
         )
         .test();
+        Tester::new(
+            "selector-max-type",
+            json!([0, {"ignore": ["next-sibling"]}]),
+            [".a { & .b + div {} }"],
+            [reject_message(
+                ".a + .b div {}",
+                None,
+                "Too many type selectors in \".a + .b div\", maximum 0",
+            )],
+        )
+        .test();
+    }
+
+    #[test]
+    fn ignores_compounded_types() {
         Tester::new(
             "selector-max-type",
             json!([0, {"ignore": ["compounded"]}]),
-            ["a.foo {}"],
-            &[],
-        )
-        .test();
-        Tester::new(
-            "selector-max-type",
-            json!([0, {"ignore": ["custom-elements"]}]),
-            ["my-element {}"],
-            &[],
+            ["a.foo {}", "div[data-foo] {}"],
+            [reject_message(
+                ".a div {}",
+                None,
+                "Too many type selectors in \".a div\", maximum 0",
+            )],
         )
         .test();
     }

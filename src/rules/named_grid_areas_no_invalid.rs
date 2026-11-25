@@ -1,4 +1,8 @@
-use crate::{context::LintContext, rules::Rule};
+use crate::{
+    context::LintContext,
+    rules::Rule,
+    utils::{ValueTokenKind, tokenize_value},
+};
 use oxc_css_parser::{
     Span,
     ast::{Declaration, InterpolableIdent},
@@ -20,63 +24,56 @@ impl Rule for NamedGridAreasNoInvalid {
             {
                 return;
             }
-            ident.span.end as usize
+            ident.span.end
         } else {
             return;
         };
 
-        let end = decl.span.end as usize;
-        let src = ctx.source;
-        if prop_end >= end || end > src.len() {
+        let value_tokens = tokenize_value(
+            ctx.source,
+            Span {
+                start: prop_end,
+                end: decl
+                    .important
+                    .as_ref()
+                    .map_or(decl.span.end, |important| important.span.start),
+            },
+        );
+        if value_tokens.windows(3).any(|tokens| {
+            tokens[0].raw == ")"
+                && tokens[1].raw == "="
+                && tokens[2].raw == ">"
+                && tokens[1].span.end == tokens[2].span.start
+        }) {
             return;
         }
 
-        let bytes = src.as_bytes();
-        let mut i = prop_end;
-        let mut rows: Vec<(Vec<String>, Span)> = Vec::new();
-
-        while i < end {
-            if bytes[i] == b'"' || bytes[i] == b'\'' {
-                let quote = bytes[i];
-                let start = i;
-                i += 1;
-                while i < end && bytes[i] != quote {
-                    if bytes[i] == b'\\' {
-                        i += 2;
-                        continue;
-                    }
-                    i += 1;
-                }
-                let content = &src[start + 1..i.min(end)];
-                if i < end {
-                    i += 1;
-                }
-                let span = Span {
-                    start: start as u32,
-                    end: i as u32,
-                };
-                let tokens: Vec<String> =
-                    content.split_whitespace().map(|s| s.to_string()).collect();
-                rows.push((tokens, span));
+        let mut rows: Vec<(Vec<&str>, Span)> = Vec::new();
+        let mut empty_row = false;
+        for token in value_tokens {
+            if token.kind != ValueTokenKind::String {
                 continue;
             }
-            i += 1;
+            let quote = token.raw.as_bytes()[0] as char;
+            let content = &token.raw[1..];
+            let cells: Vec<_> = content
+                .strip_suffix(quote)
+                .unwrap_or(content)
+                .split_whitespace()
+                .collect();
+            if cells.is_empty() {
+                ctx.report(self.name(), token.span, "Expected cell token within string");
+                empty_row = true;
+            } else {
+                rows.push((cells, token.span));
+            }
         }
-
-        if rows.is_empty() {
+        if empty_row {
             return;
         }
 
         let mut expected_cols: Option<usize> = None;
         for (tokens, span) in &rows {
-            if tokens.is_empty() {
-                ctx.report(
-                    self.name(),
-                    *span,
-                    "Expected cell token within string".to_string(),
-                );
-                return;
-            }
             if let Some(cols) = expected_cols {
                 if tokens.len() != cols {
                     ctx.report(
@@ -93,13 +90,13 @@ impl Rule for NamedGridAreasNoInvalid {
 
         let mut areas: Vec<(&str, Vec<(usize, usize)>)> = Vec::new();
         for (r_idx, (tokens, _)) in rows.iter().enumerate() {
-            for (c_idx, token) in tokens.iter().enumerate() {
+            for (c_idx, &token) in tokens.iter().enumerate() {
                 if token.chars().all(|c| c == '.') {
                     continue;
                 }
                 match areas.iter_mut().find(|(name, _)| *name == token) {
                     Some((_, coords)) => coords.push((r_idx, c_idx)),
-                    None => areas.push((token.as_str(), vec![(r_idx, c_idx)])),
+                    None => areas.push((token, vec![(r_idx, c_idx)])),
                 }
             }
         }
@@ -130,6 +127,28 @@ mod tests {
 
     fn rect(name: &str) -> String {
         format!("Expected single filled-in rectangle for \"{name}\"")
+    }
+
+    #[test]
+    fn checks_grid_strings_but_not_comments_or_arrow_functions() {
+        Tester::new(
+            "named-grid-areas-no-invalid",
+            json!(true),
+            [
+                r#"a { grid-template-areas: /* "" */ "head head" /* "a b c" */ "nav main"; }"#,
+                r#"a { grid-template-areas /* : "" */: /* "" */ none; }"#,
+                r#"a { grid-template-areas: ({ $foo }) => ($foo ? 'a' : 'b b'); }"#,
+            ],
+            [reject_warnings(
+                r#"a { grid-template-areas: "a" "b b" "" ''; }"#,
+                None,
+                vec![
+                    ("Expected cell token within string".into(), (1, 36, 1, 38)),
+                    ("Expected cell token within string".into(), (1, 39, 1, 41)),
+                ],
+            )],
+        )
+        .test();
     }
 
     #[test]

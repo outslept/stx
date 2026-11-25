@@ -1,13 +1,17 @@
+use super::selector_type_no_unknown::walk_selectors;
 use crate::{
     context::LintContext,
     fix::Fix,
     rules::Rule,
     utils::{
-        DEPRECATED_PSEUDO_CLASSES, DEPRECATED_PSEUDO_ELEMENTS, OptionMatcher, options_matches,
+        DEPRECATED_HTML_TYPE_SELECTORS, DEPRECATED_PSEUDO_CLASSES, DEPRECATED_PSEUDO_ELEMENTS,
+        DEPRECATED_SVG_TYPE_SELECTORS, OptionMatcher, in_set_ignore_case, options_matches,
         parse_option_matchers, selector_pseudos_nested,
     },
 };
-use oxc_css_parser::ast::{QualifiedRule, UnknownQualifiedRule};
+use oxc_css_parser::ast::{
+    InterpolableIdent, QualifiedRule, SimpleSelector, TypeSelector, UnknownQualifiedRule,
+};
 fn class_remap(name: &str) -> Option<&'static str> {
     match name {
         "focus-ring" => Some("focus-visible"),
@@ -39,6 +43,25 @@ impl Rule for SelectorNoDeprecated {
     }
     fn check_qualified_rule<'a>(&self, rule: &'a QualifiedRule<'a>, ctx: &mut LintContext<'a>) {
         self.check_selector(rule.selector.span, ctx);
+        walk_selectors(ctx.source, &rule.selector, |node, at| {
+            let SimpleSelector::Type(TypeSelector::TagName(tag)) = node else {
+                return;
+            };
+            let InterpolableIdent::Literal(ident) = &tag.name.name else {
+                return;
+            };
+            let name = ident.name;
+            if (in_set_ignore_case(DEPRECATED_HTML_TYPE_SELECTORS, name)
+                || DEPRECATED_SVG_TYPE_SELECTORS.contains(&name))
+                && !options_matches(&self.ignore, name)
+            {
+                ctx.report(
+                    Rule::name(self),
+                    at.span(ident.span.start, ident.span.end),
+                    format!("Deprecated selector \"{}\"", ident.raw),
+                );
+            }
+        });
     }
 
     fn check_unknown_qualified_rule<'a>(
@@ -108,8 +131,7 @@ impl SelectorNoDeprecated {
 }
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::tester::{Tester, reject, reject_message};
+    use crate::tester::{Tester, reject};
     use serde_json::json;
     #[test]
     fn default_config() {
@@ -155,6 +177,44 @@ mod tests {
         Tester::new("selector-no-deprecated", json!(true), &pass, &fail)
             .with_fix(true)
             .test();
+    }
+
+    #[test]
+    fn deprecated_type_selectors() {
+        let pass = [
+            "svg hatchpath {}",
+            "::part(acronym) {}",
+            ".popup, [popup] {}",
+            "svg hkern {}",
+        ];
+        let fail = [
+            reject(
+                "abbr, POPUP {}",
+                None,
+                "Deprecated selector \"POPUP\"",
+                (1, 7, 1, 12),
+            ),
+            reject(
+                "svg hatchPath {}",
+                None,
+                "Deprecated selector \"hatchPath\"",
+                (1, 5, 1, 14),
+            ),
+            reject(
+                "a:is(acronym) {}",
+                None,
+                "Deprecated selector \"acronym\"",
+                (1, 6, 1, 13),
+            ),
+        ];
+        Tester::new(
+            "selector-no-deprecated",
+            json!([true, {"ignoreSelectors": ["/kern$/"]}]),
+            pass,
+            fail,
+        )
+        .with_fix(true)
+        .test();
     }
 
     #[test]

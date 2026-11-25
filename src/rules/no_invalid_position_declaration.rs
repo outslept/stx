@@ -1,7 +1,12 @@
 use crate::{
     context::{AstParent, LintContext},
     rules::Rule,
-    utils::{OptionMatcher, options_matches, parse_option_matchers},
+    utils::{
+        OptionMatcher, options_matches, parse_option_matchers,
+        reference::{
+            DECLARATION_CONTAINING_AT_KEYWORDS, NESTING_SUPPORTED_AT_KEYWORDS, in_set_ignore_case,
+        },
+    },
 };
 use oxc_css_parser::ast::{AtRule, Declaration};
 use serde_json::{Map, Value};
@@ -57,15 +62,13 @@ impl Rule for NoInvalidPositionDeclaration {
         }) {
             return;
         }
-        if ctx
-            .ancestors
-            .iter()
-            .rev()
-            .find_map(|ancestor| match ancestor {
-                AstParent::AtRule(at_rule) => Some(allows_declarations(at_rule)),
-                _ => None,
-            })
-            .unwrap_or(false)
+        if let Some(AstParent::AtRule(parent)) = ctx.ancestors.last()
+            && (allows_declarations(parent)
+                || in_set_ignore_case(DECLARATION_CONTAINING_AT_KEYWORDS, parent.name.name)
+                || (in_set_ignore_case(NESTING_SUPPORTED_AT_KEYWORDS, parent.name.name)
+                    && ctx.ancestors.iter().any(|ancestor| {
+                        matches!(ancestor, AstParent::AtRule(at_rule) if in_set_ignore_case(DECLARATION_CONTAINING_AT_KEYWORDS, at_rule.name.name))
+                    })))
         {
             return;
         }
@@ -113,6 +116,26 @@ mod tests {
                 "@property --x { initial-value: 1px; }",
             ],
             &fail,
+        )
+        .test();
+    }
+
+    #[test]
+    fn mixin_and_scope_allow_direct_and_nested_declarations() {
+        Tester::new(
+            "no-invalid-position-declaration",
+            json!(true),
+            [
+                "@mixin --foo() { color: red; }",
+                "@scope (.foo) { color: red; }",
+                "@mixin --foo() { @supports (text-wrap: pretty) { text-wrap: pretty; } }",
+                "@scope (.foo) { @media all { color: red; } }",
+            ],
+            [reject_warnings(
+                "@media all { color: red; }",
+                None,
+                vec![("Invalid position for declaration".into(), (1, 14, 1, 25))],
+            )],
         )
         .test();
     }

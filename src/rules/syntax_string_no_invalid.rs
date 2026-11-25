@@ -3,7 +3,10 @@ use crate::{
     rules::Rule,
     utils::{ValueTokenKind, decl_value_span, ident_name, tokenize_value},
 };
-use oxc_css_parser::ast::{AtRule, Statement};
+use oxc_css_parser::{
+    Allocator, ParserBuilder, Span, Syntax,
+    ast::{AtRule, SimpleBlock, Statement, Stylesheet},
+};
 
 const TYPES: &[&str] = &[
     "angle",
@@ -87,17 +90,9 @@ fn valid_component(component: &str) -> bool {
 #[derive(Debug, Default)]
 pub struct SyntaxStringNoInvalid;
 
-impl Rule for SyntaxStringNoInvalid {
-    fn name(&self) -> &'static str {
-        "syntax-string-no-invalid"
-    }
-    fn check_at_rule<'a>(&self, at_rule: &'a AtRule<'a>, ctx: &mut LintContext<'a>) {
-        if !at_rule.name.name.eq_ignore_ascii_case("property") {
-            return;
-        }
-        let Some(block) = &at_rule.block else {
-            return;
-        };
+impl SyntaxStringNoInvalid {
+    fn check_block(&self, block: &SimpleBlock<'_>, offset: u32, ctx: &mut LintContext<'_>) {
+        let source = &ctx.source[offset as usize..];
         for st in &block.statements {
             let Statement::Declaration(decl) = st else {
                 continue;
@@ -108,10 +103,10 @@ impl Rule for SyntaxStringNoInvalid {
             if !prop.eq_ignore_ascii_case("syntax") {
                 continue;
             }
-            let Some(vspan) = decl_value_span(ctx.source, decl) else {
+            let Some(vspan) = decl_value_span(source, decl) else {
                 continue;
             };
-            for token in tokenize_value(ctx.source, vspan) {
+            for token in tokenize_value(source, vspan) {
                 if token.kind != ValueTokenKind::String {
                     continue;
                 }
@@ -125,9 +120,58 @@ impl Rule for SyntaxStringNoInvalid {
                 }
                 ctx.report(
                     self.name(),
-                    token.span,
+                    Span {
+                        start: offset + token.span.start,
+                        end: offset + token.span.end,
+                    },
                     format!("Invalid syntax string \"{inner}\""),
                 );
+            }
+        }
+    }
+}
+
+impl Rule for SyntaxStringNoInvalid {
+    fn name(&self) -> &'static str {
+        "syntax-string-no-invalid"
+    }
+
+    fn check_at_rule<'a>(&self, at_rule: &'a AtRule<'a>, ctx: &mut LintContext<'a>) {
+        if at_rule.name.name.eq_ignore_ascii_case("property")
+            && let Some(block) = &at_rule.block
+        {
+            self.check_block(block, 0, ctx);
+        }
+    }
+
+    fn check_stylesheet<'a>(&self, ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {
+        let source = ctx.source;
+        if !ast.statements.is_empty() || ctx.syntax != Syntax::Css || !source.contains('@') {
+            return;
+        }
+        let tokens = tokenize_value(
+            source,
+            Span {
+                start: 0,
+                end: source.len() as u32,
+            },
+        );
+        let mut i = 0;
+        while let Some(pair) = tokens.get(i..i + 2) {
+            if pair[0].raw.eq_ignore_ascii_case("@property")
+                && pair[1].raw == "{"
+                && (i == 0 || matches!(tokens[i - 1].raw, "{" | "}" | ";"))
+            {
+                let start = pair[1].span.start;
+                let allocator = Allocator::default();
+                let mut parser = ParserBuilder::new(&allocator, &source[start as usize..]).build();
+                let Ok(block) = parser.parse::<SimpleBlock>() else {
+                    break;
+                };
+                self.check_block(&block, start, ctx);
+                i += tokens[i..].partition_point(|token| token.span.start < start + block.span.end);
+            } else {
+                i += 1;
             }
         }
     }
@@ -136,8 +180,39 @@ impl Rule for SyntaxStringNoInvalid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tester::{Tester, reject_message};
+    use crate::{
+        config::Config,
+        lint_once,
+        rules::build_rules,
+        tester::{Tester, reject_message},
+    };
     use serde_json::json;
+
+    #[test]
+    fn checks_the_block_when_the_property_name_is_missing() {
+        let config =
+            Config::from_json_str(r#"{"rules":{"syntax-string-no-invalid":true}}"#).unwrap();
+        let code = "/* @property { syntax: '<foo>'; } */\na { content: '@property { syntax: x }'; }\n@PROPERTY /* name missing */ { syntax: '<length> | <foo>'; }\n@property { syntax: '<color>'; }";
+        let pass = lint_once(code, Syntax::Css, &build_rules(&config), false);
+        assert!(pass.parse_error.is_some());
+        let [warning] = pass.warnings.as_slice() else {
+            panic!("Expected one warning, got {:?}", pass.warnings);
+        };
+        assert_eq!(
+            warning.text,
+            "Invalid syntax string \"<length> | <foo>\" (syntax-string-no-invalid)"
+        );
+        assert_eq!(
+            (
+                warning.line,
+                warning.column,
+                warning.end_line,
+                warning.end_column
+            ),
+            (3, 40, 3, 58)
+        );
+    }
+
     #[test]
     fn default_config() {
         let pass = vec![

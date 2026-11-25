@@ -158,7 +158,8 @@ use crate::{config::Config, context::LintContext, diagnostic::Severity, utils::P
 use oxc_css_parser::{
     ast::{
         AtRule, ComplexSelector, ComponentValue, CompoundSelector, Declaration, KeyframeBlock,
-        QualifiedRule, SelectorList, SimpleBlock, SassVariableDeclaration, SimpleSelector, Stylesheet, UnknownQualifiedRule,
+        QualifiedRule, SassVariableDeclaration, SelectorList, SimpleBlock, SimpleSelector,
+        Stylesheet, UnknownQualifiedRule,
     },
     token::Comment,
 };
@@ -687,7 +688,9 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                 .map(|r| Box::new(r) as Box<dyn Rule>)
             }
             "media-feature-name-no-unknown" => Some(Box::new(
-                media_feature_name_no_unknown::MediaFeatureNameNoUnknown,
+                media_feature_name_no_unknown::MediaFeatureNameNoUnknown::new(
+                    setting.secondary.as_ref(),
+                ),
             )),
             "media-feature-name-allowed-list" => Some(Box::new(
                 media_feature_name_allowed_list::MediaFeatureNameAllowedList::from_config(
@@ -749,7 +752,9 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                 no_invalid_double_slash_comments::NoInvalidDoubleSlashComments,
             )),
             "no-invalid-position-at-import-rule" => Some(Box::new(
-                no_invalid_position_at_import_rule::NoInvalidPositionAtImportRule,
+                no_invalid_position_at_import_rule::NoInvalidPositionAtImportRule::from_config(
+                    setting.secondary.as_ref(),
+                ),
             )),
             "no-invalid-position-declaration" => Some(Box::new(
                 no_invalid_position_declaration::NoInvalidPositionDeclaration::from_config(
@@ -847,8 +852,11 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                 .map(|r| Box::new(r) as Box<dyn Rule>),
             "selector-max-combinators" => selector_max_combinators::R::from_config(&setting.primary)
                 .map(|r| Box::new(r) as Box<dyn Rule>),
-            "selector-max-compound-selectors" => selector_max_compound_selectors::R::from_config(&setting.primary)
-                .map(|r| Box::new(r) as Box<dyn Rule>),
+            "selector-max-compound-selectors" => selector_max_compound_selectors::R::from_config(
+                &setting.primary,
+                setting.secondary.as_ref(),
+            )
+            .map(|r| Box::new(r) as Box<dyn Rule>),
             "selector-max-pseudo-class" => selector_max_pseudo_class::R::from_config(&setting.primary)
                 .map(|r| Box::new(r) as Box<dyn Rule>),
             "selector-max-specificity" => selector_max_specificity::SelectorMaxSpecificity::from_config(&setting.primary)
@@ -858,8 +866,11 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                 setting.secondary.as_ref(),
             )
             .map(|r| Box::new(r) as Box<dyn Rule>),
-            "selector-max-universal" => selector_max_universal::R::from_config(&setting.primary)
-                .map(|r| Box::new(r) as Box<dyn Rule>),
+            "selector-max-universal" => selector_max_universal::R::from_config(
+                &setting.primary,
+                setting.secondary.as_ref(),
+            )
+            .map(|r| Box::new(r) as Box<dyn Rule>),
             "selector-max-id" => Some(Box::new(selector_max_id::SelectorMaxId::from_config(
                 &setting.primary,
                 setting.secondary.as_ref(),
@@ -964,7 +975,9 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                     setting.secondary.as_ref(),
                 ),
             )),
-            "string-no-newline" => Some(Box::new(string_no_newline::StringNoNewline)),
+            "string-no-newline" => Some(Box::new(string_no_newline::StringNoNewline::from_config(
+                setting.secondary.as_ref(),
+            ))),
             "time-min-milliseconds" => {
                 time_min_milliseconds::TimeMinMilliseconds::from_config(
                     &setting.primary,
@@ -1028,7 +1041,9 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                 selector_no_qualifying_type::SelectorNoQualifyingType::new(setting.secondary.as_ref()),
             )),
             "media-feature-name-value-no-unknown" => Some(Box::new(
-                media_feature_name_value_no_unknown::MediaFeatureNameValueNoUnknown,
+                media_feature_name_value_no_unknown::MediaFeatureNameValueNoUnknown::new(
+                    setting.secondary.as_ref(),
+                ),
             )),
             "property-layout-mappings" => {
                 property_layout_mappings::PropertyLayoutMappings::from_config(&setting.primary, setting.secondary.as_ref())
@@ -1044,7 +1059,9 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                 ),
             )),
             "declaration-property-value-no-unknown" => Some(Box::new(
-                declaration_property_value_no_unknown::DeclarationPropertyValueNoUnknown,
+                declaration_property_value_no_unknown::DeclarationPropertyValueNoUnknown::from_config(
+                    setting.secondary.as_ref(),
+                ),
             )),
             "value-no-vendor-prefix" => Some(Box::new(
                 value_no_vendor_prefix::ValueNoVendorPrefix::from_secondary(

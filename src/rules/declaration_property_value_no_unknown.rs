@@ -2,14 +2,40 @@ use crate::{
     context::LintContext,
     rules::Rule,
     utils::{
-        NAMED_COLORS_KEYWORDS, SYSTEM_COLORS_KEYWORDS, UNITS, ValueToken, ValueTokenKind,
-        decl_value_span, ident_name, in_set_ignore_case, is_custom_property, is_valid_hex,
+        COLOR_PROPERTIES, FONT_FAMILY_KEYWORDS, NAMED_COLORS_KEYWORDS, OptionMatcher,
+        SYSTEM_COLORS_KEYWORDS, UNITS, ValueToken, ValueTokenKind, decl_value_span, function_ident,
+        ident_name, in_set_ignore_case, is_custom_property, is_math_function,
+        is_standard_syntax_value, is_valid_hex, options_matches, parse_primary_option_matchers,
         tokenize_value,
     },
 };
-use oxc_css_parser::{Span, ast::Declaration};
+use oxc_css_parser::{
+    Span, Syntax,
+    ast::{CalcOperatorKind, ComponentValue, Declaration, DelimiterKind, Function},
+};
+use serde_json::{Map, Value};
 
-pub struct DeclarationPropertyValueNoUnknown;
+pub struct DeclarationPropertyValueNoUnknown {
+    ignore_properties: Vec<(OptionMatcher, Vec<OptionMatcher>)>,
+}
+
+impl DeclarationPropertyValueNoUnknown {
+    pub fn from_config(secondary: Option<&Map<String, Value>>) -> Self {
+        let ignore_properties = secondary
+            .and_then(|options| options.get("ignoreProperties"))
+            .and_then(Value::as_object)
+            .into_iter()
+            .flatten()
+            .map(|(name, values)| {
+                (
+                    OptionMatcher::parse(name),
+                    parse_primary_option_matchers(values),
+                )
+            })
+            .collect();
+        Self { ignore_properties }
+    }
+}
 
 fn allowed_keywords(prop: &str) -> Option<&'static [&'static str]> {
     match prop {
@@ -130,6 +156,7 @@ fn known_length_property(prop: &str, value: &str, tokens: &[ValueToken<'_>]) -> 
                             "xxx-large",
                             "larger",
                             "smaller",
+                            "math",
                         ]
                         .iter()
                         .any(|keyword| keyword.eq_ignore_ascii_case(tokens[0].raw))),
@@ -159,6 +186,114 @@ fn known_length_property(prop: &str, value: &str, tokens: &[ValueToken<'_>]) -> 
                     || prop == "max-height"))
             || is_length(token, true)
     }))
+}
+
+fn is_number_calc(value: &ComponentValue<'_>) -> bool {
+    match value {
+        ComponentValue::Number(_) => true,
+        ComponentValue::Calc(calc) => {
+            !matches!(calc.op.kind, CalcOperatorKind::Modulo)
+                && is_number_calc(&calc.left)
+                && is_number_calc(&calc.right)
+        }
+        ComponentValue::CalcParenthesized(group) => is_number_calc(&group.expr),
+        _ => false,
+    }
+}
+
+fn is_comma(value: &ComponentValue<'_>) -> bool {
+    matches!(value, ComponentValue::Delimiter(delim) if matches!(delim.kind, DelimiterKind::Comma))
+}
+
+fn ident<'a>(value: &'a ComponentValue<'a>) -> Option<&'a str> {
+    match value {
+        ComponentValue::InterpolableIdent(name) => ident_name(name),
+        _ => None,
+    }
+}
+
+fn invalid_color_call(name: &str, func: &Function<'_>) -> bool {
+    if !matches!(name, "rgb" | "rgba" | "hsl" | "hsla") {
+        return false;
+    }
+    let args = func.args.as_slice();
+    if args.iter().any(|arg| {
+        matches!(arg, ComponentValue::Function(f) if function_ident(f).is_some_and(|id|
+            ["var", "env", "attr"].iter().any(|name| id.name.eq_ignore_ascii_case(name))
+        ))
+    }) {
+        return false;
+    }
+    let relative = args
+        .first()
+        .and_then(ident)
+        .is_some_and(|id| id.eq_ignore_ascii_case("from"));
+    if args.iter().any(is_comma) {
+        let groups = args.split(is_comma);
+        return relative || !matches!(groups.clone().count(), 3 | 4) || !groups.clone().all(|group| {
+            matches!(group, [arg] if !matches!(arg, ComponentValue::HexColor(_) | ComponentValue::Delimiter(_)))
+        });
+    }
+    let channels = if relative {
+        let Some(channels) = args.get(2..) else {
+            return true;
+        };
+        channels
+    } else {
+        args
+    };
+    match channels {
+        [_, _, _] => {}
+        [_, _, _, ComponentValue::Delimiter(delim), _]
+            if matches!(delim.kind, DelimiterKind::Solidus) => {}
+        _ => return true,
+    }
+    channels[..3].iter().any(|channel| {
+        matches!(
+            channel,
+            ComponentValue::HexColor(_) | ComponentValue::Delimiter(_)
+        ) || (relative
+            && matches!(name, "rgb" | "rgba")
+            && ident(channel).is_some_and(|id| {
+                !["r", "g", "b", "alpha", "none"]
+                    .iter()
+                    .any(|keyword| id.eq_ignore_ascii_case(keyword))
+            }))
+    })
+}
+
+fn typed_mismatch(prop: &str, decl: &Declaration<'_>) -> Option<Span> {
+    let color = COLOR_PROPERTIES.contains(&prop);
+    let length = known_length_property(prop, "", &[]).is_some();
+    for value in &decl.value {
+        if prop == "transition" && matches!(value, ComponentValue::Number(_)) {
+            return Some(value.span());
+        }
+        let ComponentValue::Function(func) = value else {
+            continue;
+        };
+        let Some(name) = function_ident(func) else {
+            continue;
+        };
+        let name = name.name.to_ascii_lowercase();
+        let invalid = if length && name == "calc" {
+            matches!(func.args.as_slice(), [arg] if is_number_calc(arg))
+        } else if length && name == "calc-size" {
+            matches!(func.args.as_slice(), [basis, comma, ..] if is_comma(comma)
+                && ident(basis).is_some_and(|id| !is_sizing_keyword(id) && ![
+                    "auto", "any", "contain", "e", "pi", "infinity", "-infinity", "nan",
+                ].iter().any(|keyword| id.eq_ignore_ascii_case(keyword))))
+        } else if color && is_math_function(&name) {
+            true
+        } else {
+            (color || matches!(prop, "background" | "box-shadow"))
+                && invalid_color_call(&name, func)
+        };
+        if invalid {
+            return Some(func.span);
+        }
+    }
+    None
 }
 
 fn color_count(tokens: &[ValueToken<'_>]) -> Option<usize> {
@@ -217,7 +352,7 @@ fn known_value(prop: &str, value: &str, tokens: &[ValueToken<'_>]) -> Option<boo
     if is_global_keyword(value.trim()) {
         return Some(true);
     }
-    if crate::utils::COLOR_PROPERTIES.contains(&prop) {
+    if COLOR_PROPERTIES.contains(&prop) {
         let Some(count) = color_count(tokens) else {
             return Some(false);
         };
@@ -308,6 +443,41 @@ fn known_value(prop: &str, value: &str, tokens: &[ValueToken<'_>]) -> Option<boo
     }
 }
 
+fn font_mismatch(prop: &str, tokens: &[ValueToken<'_>]) -> Option<Span> {
+    match (prop, tokens) {
+        ("font", [token]) if in_set_ignore_case(FONT_FAMILY_KEYWORDS, token.raw) => {
+            if is_global_keyword(token.raw) {
+                None
+            } else if token.raw.eq_ignore_ascii_case("math") {
+                let end = token.span.end;
+                Some(Span { start: end, end })
+            } else {
+                Some(token.span)
+            }
+        }
+        ("font-family", _)
+            if !tokens
+                .iter()
+                .any(|token| token.kind == ValueTokenKind::Function) =>
+        {
+            tokens
+                .split(|token| token.kind == ValueTokenKind::Comma)
+                .find_map(|family| match family {
+                    [first, next, ..]
+                        if matches!(next.kind, ValueTokenKind::Ident | ValueTokenKind::String)
+                            && (first.kind == ValueTokenKind::String
+                                || (in_set_ignore_case(FONT_FAMILY_KEYWORDS, first.raw)
+                                    && in_set_ignore_case(FONT_FAMILY_KEYWORDS, next.raw))) =>
+                    {
+                        Some(next.span)
+                    }
+                    _ => None,
+                })
+        }
+        _ => None,
+    }
+}
+
 impl Rule for DeclarationPropertyValueNoUnknown {
     fn name(&self) -> &'static str {
         "declaration-property-value-no-unknown"
@@ -324,25 +494,38 @@ impl Rule for DeclarationPropertyValueNoUnknown {
             return;
         };
         let value = ctx.slice(span);
-        let tokens = tokenize_value(ctx.source, span);
-        let Some(valid) = known_value(&prop.to_ascii_lowercase(), value, &tokens) else {
-            return;
-        };
-        if valid {
+        if !is_standard_syntax_value(value)
+            || value.eq_ignore_ascii_case("-moz-initial")
+            || self
+                .ignore_properties
+                .iter()
+                .any(|(name, values)| name.is_match(prop) && options_matches(values, value))
+        {
             return;
         }
-        // css-tree points at the first mismatching node, skipping leading comments.
         let lower = prop.to_ascii_lowercase();
-        let bad = tokens.iter().position(|token| {
-            known_length_property(&lower, token.raw, std::slice::from_ref(token)) == Some(false)
-        });
-        let report_span = match (bad, tokens.first()) {
-            (Some(i), _) => tokens[i].span,
-            (None, Some(first)) => Span {
-                start: first.span.start,
-                end: span.end,
-            },
-            (None, None) => {
+        let tokens = tokenize_value(ctx.source, span);
+        let typed = if ctx.syntax == Syntax::Css && !decl.value_is_raw {
+            typed_mismatch(&lower, decl)
+        } else {
+            None
+        };
+        let report_span = if let Some(mismatch) = typed.or_else(|| font_mismatch(&lower, &tokens)) {
+            mismatch
+        } else {
+            if known_value(&lower, value, &tokens) != Some(false) {
+                return;
+            }
+            if let Some(bad) = tokens.iter().find(|token| {
+                known_length_property(&lower, token.raw, std::slice::from_ref(token)) == Some(false)
+            }) {
+                bad.span
+            } else if let Some(first) = tokens.first() {
+                Span {
+                    start: first.span.start,
+                    end: span.end,
+                }
+            } else {
                 let rest = &ctx.source[span.start as usize..];
                 let start = span.start + (rest.len() - rest.trim_start().len()) as u32;
                 Span { start, end: start }
@@ -361,7 +544,6 @@ impl Rule for DeclarationPropertyValueNoUnknown {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::tester::{Tester, reject, reject_message};
     use serde_json::json;
 
@@ -433,6 +615,125 @@ mod tests {
             &pass,
             &fail,
         )
+        .test();
+    }
+
+    #[test]
+    fn ignores_only_matching_property_value_pairs() {
+        Tester::new(
+            "declaration-property-value-no-unknown",
+            json!([true, {"ignoreProperties": {
+                "top": "/.+/",
+                "padding": ["auto"],
+                "/^margin/": "/^10px --foo$/"
+            }}]),
+            ["a { top: red; padding: auto !important; margin: 10px --foo; }"],
+            [
+                reject_message(
+                    "a { padding-left: auto; }",
+                    None,
+                    "Unknown value \"auto\" for property \"padding-left\"",
+                ),
+                reject_message(
+                    "a { padding: auto 1px; }",
+                    None,
+                    "Unknown value \"auto\" for property \"padding\"",
+                ),
+                reject_message(
+                    "a { TOP: red; }",
+                    None,
+                    "Unknown value \"red\" for property \"TOP\"",
+                ),
+            ],
+        )
+        .test();
+    }
+
+    #[test]
+    fn checks_function_types_and_argument_structure() {
+        let pass = [
+            "a { height: calc(2px * 2); width: calc-size(auto, size); }",
+            "a { height: calc(var(--factor) * 2px); color: rgb(var(--channels)); }",
+            "a { color: rgb(from red r g b / alpha); background: rgba(0, 0, 0, .5); }",
+            "a { transition: opacity 1s ease 0s; }",
+        ];
+        let fail = [
+            reject(
+                "a { margin-inline: calc(3px - 1px) calc(3 - 1); }",
+                None,
+                "Unknown value \"calc(3 - 1)\" for property \"margin-inline\"",
+                (1, 36, 1, 47),
+            ),
+            reject_message(
+                "a { height: calc-size(foo, 10px * 1.5); }",
+                None,
+                "Unknown value \"calc-size(foo, 10px * 1.5)\" for property \"height\"",
+            ),
+            reject_message(
+                "a { color: min(1px, 2%); }",
+                None,
+                "Unknown value \"min(1px, 2%)\" for property \"color\"",
+            ),
+            reject(
+                "a { color: rgb(67 67 67 70%); }",
+                None,
+                "Unknown value \"rgb(67 67 67 70%)\" for property \"color\"",
+                (1, 12, 1, 29),
+            ),
+            reject_message(
+                "a { color: rgb(from red l c h); }",
+                None,
+                "Unknown value \"rgb(from red l c h)\" for property \"color\"",
+            ),
+            reject_message(
+                "a { transition: opacity 1s ease 0; }",
+                None,
+                "Unknown value \"0\" for property \"transition\"",
+            ),
+        ];
+        Tester::new(
+            "declaration-property-value-no-unknown",
+            json!(true),
+            pass,
+            fail,
+        )
+        .test();
+    }
+
+    #[test]
+    fn checks_font_boundaries_and_skips_legacy_keywords() {
+        let pass = [
+            "a { color: -moz-initial; font-size: math; }",
+            "a { font-family: Fancy Serif Black, \"Foo\", serif; font: math math; }",
+        ];
+        let fail = [
+            reject(
+                "a { font-family: \"Foo\" serif; }",
+                None,
+                "Unknown value \"serif\" for property \"font-family\"",
+                (1, 24, 1, 29),
+            ),
+            reject(
+                "a { font: math; }",
+                None,
+                "Unknown value \"\" for property \"font\"",
+                (1, 15, 1, 16),
+            ),
+        ];
+        Tester::new(
+            "declaration-property-value-no-unknown",
+            json!(true),
+            pass,
+            fail,
+        )
+        .test();
+        Tester::new(
+            "declaration-property-value-no-unknown",
+            json!(true),
+            ["a { top: #{foo}; }"],
+            [],
+        )
+        .with_custom_syntax("postcss-scss")
         .test();
     }
 

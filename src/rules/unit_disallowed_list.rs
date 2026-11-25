@@ -3,7 +3,8 @@ use crate::{
     rules::Rule,
     utils::{
         OptionMatcher, ValueTokenKind, at_rule_prelude_span, decl_value_span, ident_name,
-        media_feature_groups, options_matches, parse_option_matchers, tokenize_value,
+        is_unicode_range_descriptor, media_feature_groups, options_matches, parse_option_matchers,
+        tokenize_value,
     },
 };
 use oxc_css_parser::{
@@ -153,7 +154,7 @@ impl Rule for UnitDisallowedList {
         let Some(prop) = ident_name(&decl.name) else {
             return;
         };
-        if prop.eq_ignore_ascii_case("unicode-range") {
+        if is_unicode_range_descriptor(prop, &ctx.ancestors) {
             return;
         }
         let Some(sp) = decl_value_span(ctx.source, decl) else {
@@ -171,10 +172,18 @@ impl Rule for UnitDisallowedList {
         };
         let params = ctx.slice(sp);
         for group in media_feature_groups(params) {
-            let name = &params[group.name_start..group.name_end];
-            for (_, end, unit_start) in group.dimensions {
+            let name = params[group.name_start..group.name_end].to_ascii_lowercase();
+            let mut dimensions = group.dimensions.into_iter().peekable();
+            for (start, end) in group.values {
+                let unit_start = if dimensions.peek().is_some_and(|d| d.0 == start) {
+                    dimensions.next().unwrap().2
+                } else if params.as_bytes()[end - 1] == b'%' {
+                    end - 1
+                } else {
+                    continue;
+                };
                 let unit = &params[unit_start..end];
-                if !self.is_disallowed(unit) || self.media_ignores(unit, name) {
+                if !self.is_disallowed(unit) || self.media_ignores(unit, &name) {
                     continue;
                 }
                 ctx.report(
@@ -233,6 +242,38 @@ mod tests {
         )
         .test();
     }
+    #[test]
+    fn unicode_range_is_ignored_only_as_a_font_face_descriptor() {
+        Tester::new(
+            "unit-disallowed-list",
+            json!(["f"]),
+            ["@font-face { unicode-range: U+0100-024F; }"],
+            [reject(
+                "a { unicode-range: U+0100-024F; }",
+                None,
+                "Disallowed unit \"F\"",
+                (1, 30, 1, 31),
+            )],
+        )
+        .test();
+    }
+
+    #[test]
+    fn media_percentages_and_case_insensitive_feature_names() {
+        Tester::new(
+            "unit-disallowed-list",
+            json!([["px", "%"], {"ignoreMediaFeatureNames": {"px": ["min-width"], "%": ["width"]}}]),
+            ["@media (MIN-WIDTH: 960px), (WIDTH > 20%) {}"],
+            [reject(
+                "@media only speech and (max-device-width > 20%) { }",
+                None,
+                "Disallowed unit \"%\"",
+                (1, 46, 1, 47),
+            )],
+        )
+        .test();
+    }
+
     #[test]
     fn with_ignore_properties() {
         let fail = vec![reject(

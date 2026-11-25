@@ -1,115 +1,133 @@
-use oxc_css_parser::ast::QualifiedRule;
+use oxc_css_parser::{
+    Allocator, ParserBuilder,
+    ast::{
+        ComplexSelector, ComplexSelectorChild, CompoundSelector, PseudoClassSelectorArgKind as Arg,
+        PseudoElementSelectorArgKind, QualifiedRule, SelectorList, SimpleSelector, TypeSelector,
+    },
+};
 
 use super::selector_no_qualifying_type::resolve_nested_selectors;
-use crate::{context::LintContext, rules::Rule};
+use crate::{
+    context::{AstParent, LintContext},
+    rules::Rule,
+    utils::{
+        LEVEL_ONE_AND_TWO_PSEUDO_ELEMENTS, ident_name, in_set_ignore_case, is_standard_syntax_rule,
+    },
+};
 
-fn specificity(raw: &str) -> (u64, u64, u64) {
-    let bytes = raw.as_bytes();
-    let len = bytes.len();
-    let mut a = 0;
-    let mut b = 0;
-    let mut c = 0;
-    let mut i = 0usize;
-    let mut quote = 0u8;
-    let mut attr = 0usize;
-    while i < len {
-        let ch = bytes[i];
-        if quote != 0 {
-            if ch == b'\\' {
-                i += 2;
-                continue;
+pub(super) fn is_nested(ctx: &LintContext<'_>) -> bool {
+    ctx.ancestors.iter().any(|parent| {
+        matches!(parent, AstParent::QualifiedRule(_))
+            || matches!(parent, AstParent::AtRule(rule) if rule.name.name.eq_ignore_ascii_case("scope"))
+    })
+}
+
+pub(super) type Specificity = (u64, u64, u64);
+
+fn add((a, b, c): Specificity, (x, y, z): Specificity) -> Specificity {
+    (a + x, b + y, c + z)
+}
+
+fn max_specificity(list: &SelectorList<'_>) -> Specificity {
+    list.selectors
+        .iter()
+        .map(specificity)
+        .max()
+        .unwrap_or_default()
+}
+
+pub(super) fn specificity(selector: &ComplexSelector<'_>) -> Specificity {
+    selector
+        .children
+        .iter()
+        .filter_map(|child| match child {
+            ComplexSelectorChild::CompoundSelector(compound) => {
+                Some(compound_specificity(compound))
             }
-            if ch == quote {
-                quote = 0;
-            }
-            i += 1;
-            continue;
-        }
-        if attr > 0 {
-            if ch == b'"' || ch == b'\'' {
-                quote = ch;
-            } else if ch == b'[' {
-                attr += 1;
-            } else if ch == b']' {
-                attr -= 1;
-                if attr == 0 {
-                    b += 1;
+            ComplexSelectorChild::Combinator(_) => None,
+        })
+        .fold(Specificity::default(), add)
+}
+
+fn compound_specificity(compound: &CompoundSelector<'_>) -> Specificity {
+    compound
+        .children
+        .iter()
+        .map(simple_specificity)
+        .fold(Specificity::default(), add)
+}
+
+fn simple_specificity(node: &SimpleSelector<'_>) -> Specificity {
+    match node {
+        SimpleSelector::Id(_) => (1, 0, 0),
+        SimpleSelector::Class(_) | SimpleSelector::Attribute(_) => (0, 1, 0),
+        SimpleSelector::Type(TypeSelector::TagName(_)) => (0, 0, 1),
+        SimpleSelector::PseudoElement(pseudo) => {
+            if let Some(arg) = &pseudo.arg {
+                match &arg.kind {
+                    PseudoElementSelectorArgKind::CompoundSelector(compound)
+                        if ident_name(&pseudo.name)
+                            .is_some_and(|name| name.eq_ignore_ascii_case("slotted")) =>
+                    {
+                        return add((0, 0, 1), compound_specificity(compound));
+                    }
+                    _ => {}
                 }
             }
-            i += 1;
-            continue;
+            (0, 0, 1)
         }
-        if ch == b'[' {
-            attr += 1;
-            i += 1;
-            continue;
+        SimpleSelector::PseudoClass(pseudo) => {
+            let Some(name) = ident_name(&pseudo.name) else {
+                return (0, 0, 0);
+            };
+            if in_set_ignore_case(LEVEL_ONE_AND_TWO_PSEUDO_ELEMENTS, name) {
+                return (0, 0, 1);
+            }
+            let arg = pseudo.arg.as_ref().map(|arg| &arg.kind);
+            match name.to_ascii_lowercase().as_str() {
+                "where" => (0, 0, 0),
+                "is" | "not" | "matches" | "-moz-any" | "has" | "host" | "host-context" => {
+                    let argument = match arg {
+                        Some(Arg::SelectorList(list)) => max_specificity(list),
+                        Some(Arg::RelativeSelectorList(list)) => list
+                            .selectors
+                            .iter()
+                            .map(|relative| specificity(&relative.complex_selector))
+                            .max()
+                            .unwrap_or_default(),
+                        Some(Arg::CompoundSelectorList(list)) => list
+                            .selectors
+                            .iter()
+                            .map(compound_specificity)
+                            .max()
+                            .unwrap_or_default(),
+                        _ => (0, 0, 0),
+                    };
+                    let host = name.eq_ignore_ascii_case("host")
+                        || name.eq_ignore_ascii_case("host-context");
+                    add((0, u64::from(host), 0), argument)
+                }
+                "nth-child" | "nth-last-child" => {
+                    let argument = match arg {
+                        Some(Arg::Nth(nth)) => nth
+                            .matcher
+                            .as_ref()
+                            .and_then(|m| m.selector.as_ref())
+                            .map(max_specificity)
+                            .unwrap_or_default(),
+                        _ => (0, 0, 0),
+                    };
+                    add((0, 1, 0), argument)
+                }
+                _ => (0, 1, 0),
+            }
         }
-        if ch == b'#' {
-            a += 1;
-            i += 1;
-            while i < len
-                && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-' || bytes[i] == b'_')
-            {
-                i += 1;
-            }
-            continue;
-        }
-        if ch == b'.' {
-            b += 1;
-            i += 1;
-            while i < len
-                && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-' || bytes[i] == b'_')
-            {
-                i += 1;
-            }
-            continue;
-        }
-        if ch == b':' {
-            let elem = i + 1 < len && bytes[i + 1] == b':';
-            i += if elem { 2 } else { 1 };
-            let ns = i;
-            while i < len
-                && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-' || bytes[i] == b'_')
-            {
-                i += 1;
-            }
-            let name = raw[ns..i].to_ascii_lowercase();
-            if elem
-                || matches!(
-                    name.as_str(),
-                    "before" | "after" | "first-line" | "first-letter"
-                )
-            {
-                c += 1;
-            } else {
-                b += 1;
-            }
-            continue;
-        }
-        if ch.is_ascii_alphabetic() || ch == b'_' || ch == b'-' || ch >= 0x80 {
-            let ns = i;
-            i += 1;
-            while i < len
-                && (bytes[i].is_ascii_alphanumeric()
-                    || bytes[i] == b'-'
-                    || bytes[i] == b'_'
-                    || bytes[i] >= 0x80)
-            {
-                i += 1;
-            }
-            if i >= len || bytes[i] != b'(' {
-                let _ = ns;
-                c += 1;
-            }
-            continue;
-        }
-        i += 1;
+        _ => (0, 0, 0),
     }
-    (a, b, c)
 }
 
 pub struct SelectorMaxSpecificity {
-    max: (u64, u64, u64),
+    max: Specificity,
     raw: String,
 }
 impl SelectorMaxSpecificity {
@@ -133,22 +151,32 @@ impl Rule for SelectorMaxSpecificity {
         "selector-max-specificity"
     }
     fn check_qualified_rule<'a>(&self, rule: &'a QualifiedRule<'a>, ctx: &mut LintContext<'a>) {
-        let nested = ctx.ancestors.iter().any(|parent| {
-            matches!(parent, crate::context::AstParent::QualifiedRule(_))
-                || matches!(parent, crate::context::AstParent::AtRule(at_rule) if at_rule.name.name.eq_ignore_ascii_case("scope"))
-        });
-        for (sel, resolved) in rule
-            .selector
-            .selectors
-            .iter()
-            .zip(resolve_nested_selectors(rule, ctx))
-        {
-            let s = ctx.slice(sel.span).trim();
-            if specificity(s) > self.max {
-                let selector = if nested {
-                    format!("\"{}\" (\"{}\")", s, resolved.trim())
+        if !is_standard_syntax_rule(ctx.source, rule) {
+            return;
+        }
+        let resolved = is_nested(ctx).then(|| resolve_nested_selectors(rule, ctx));
+        for (i, sel) in rule.selector.selectors.iter().enumerate() {
+            let raw = ctx.slice(sel.span).trim();
+            let resolved = resolved
+                .as_ref()
+                .map_or(raw, |selectors| selectors[i].trim());
+            let spec = if raw == resolved {
+                specificity(sel)
+            } else {
+                let allocator = Allocator::default();
+                let Ok(list) = ParserBuilder::new(&allocator, resolved)
+                    .build()
+                    .parse::<SelectorList>()
+                else {
+                    continue;
+                };
+                max_specificity(&list)
+            };
+            if spec > self.max {
+                let selector = if raw != resolved {
+                    format!("\"{raw}\" (\"{resolved}\")")
                 } else {
-                    format!("\"{s}\"")
+                    format!("\"{raw}\"")
                 };
                 ctx.report(
                     self.name(),
@@ -162,44 +190,70 @@ impl Rule for SelectorMaxSpecificity {
         }
     }
 }
+
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::tester::{Tester, reject_message};
+    use crate::tester::{Tester, reject, reject_message};
     use serde_json::json;
+
     #[test]
-    fn default_config() {
-        Tester::new(
-            "selector-max-specificity",
-            json!(["0,0,2"]),
-            ["a {}", "a::before {}"],
-            [],
-        )
-        .test();
-        let fail = vec![
-            reject_message(
-                "#a {}",
-                None,
-                "Too high specificity in \"#a\", maximum \"0,0,2\"",
-            ),
-            reject_message(
-                "article { & #a {} }",
-                None,
-                "Too high specificity in \"& #a\" (\"article #a\"), maximum \"0,0,2\"",
-            ),
-        ];
-        Tester::new("selector-max-specificity", json!(["0,0,2"]), [], &fail).test();
-        let comma_fail = [reject_message(
-            ".a:not(.b, .c) {}",
-            None,
-            "Too high specificity in \".a:not(.b, .c)\", maximum \"0,1,0\"",
-        )];
+    fn counts_functional_pseudos() {
         Tester::new(
             "selector-max-specificity",
             json!(["0,1,0"]),
-            [],
-            &comma_fail,
+            [
+                ":not(.a, .b) {}",
+                ":matches(.a, .b) {}",
+                ":is(.a) {}",
+                ":where(#a p) {}",
+                ":nth-child(2n + 1) {}",
+            ],
+            [
+                reject_message(
+                    ".a:not(.b, .c) {}",
+                    None,
+                    "Too high specificity in \".a:not(.b, .c)\", maximum \"0,1,0\"",
+                ),
+                reject_message(
+                    ":has(> .a.b) {}",
+                    None,
+                    "Too high specificity in \":has(> .a.b)\", maximum \"0,1,0\"",
+                ),
+                reject_message(
+                    ":nth-child(2n of .a) {}",
+                    None,
+                    "Too high specificity in \":nth-child(2n of .a)\", maximum \"0,1,0\"",
+                ),
+            ],
         )
         .test();
+    }
+
+    #[test]
+    fn checks_resolved_specificity_at_the_original_selector() {
+        Tester::new(
+            "selector-max-specificity",
+            json!(["0,2,0"]),
+            [".a, .b { & .c {} }", "@scope (#id) { .a {} }"],
+            [reject(
+                ".a { .b { & > .c {} } }",
+                None,
+                "Too high specificity in \"& > .c\" (\":is(.a .b) > .c\"), maximum \"0,2,0\"",
+                (1, 11, 1, 17),
+            )],
+        )
+        .test();
+    }
+
+    #[test]
+    fn skips_interpolated_selectors() {
+        for (syntax, code) in [
+            ("postcss-scss", "#id #{$name} {}"),
+            ("postcss-less", "#id @{name} {}"),
+        ] {
+            Tester::new("selector-max-specificity", json!(["0,1,0"]), [code], &[])
+                .with_custom_syntax(syntax)
+                .test();
+        }
     }
 }

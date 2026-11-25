@@ -5,9 +5,10 @@ use crate::{
     context::{AstParent, LintContext},
     rules::Rule,
     utils::{
-        COLOR_FUNCTIONS, OptionMatcher, ValueTokenKind, decl_value_span, ident_name,
-        is_custom_property, is_standard_syntax_property, options_matches, parse_option_matchers,
-        tokenize_value,
+        COLOR_FUNCTIONS, COLOR_PROPERTIES, LENGTH_UNITS, NAMED_COLORS_KEYWORDS, OptionMatcher,
+        ValueTokenKind, decl_value_span, ident_name, in_set_ignore_case, is_custom_property,
+        is_standard_syntax_property, is_standard_syntax_value, options_matches,
+        parse_option_matchers, parse_primary_option_matchers, tokenize_value,
     },
 };
 
@@ -22,45 +23,41 @@ fn strings(value: &Value) -> Vec<String> {
     }
 }
 
-fn is_length_unit(unit: &str) -> bool {
-    matches!(
-        unit,
-        "px" | "em"
-            | "rem"
-            | "ex"
-            | "ch"
-            | "vh"
-            | "vw"
-            | "vmin"
-            | "vmax"
-            | "vi"
-            | "vb"
-            | "cm"
-            | "mm"
-            | "in"
-            | "pt"
-            | "pc"
-            | "q"
-    )
+struct TypedIgnores {
+    all: Vec<OptionMatcher>,
+    by_type: Vec<(OptionMatcher, Vec<OptionMatcher>)>,
 }
 
-fn is_color_keyword(value: &str) -> bool {
-    matches!(
-        value,
-        "red"
-            | "green"
-            | "blue"
-            | "black"
-            | "white"
-            | "pink"
-            | "gray"
-            | "grey"
-            | "yellow"
-            | "orange"
-            | "purple"
-            | "transparent"
-            | "currentcolor"
-    )
+impl TypedIgnores {
+    fn parse(secondary: Option<&Map<String, Value>>, option: &str) -> Self {
+        Self {
+            all: parse_option_matchers(secondary, option),
+            by_type: secondary
+                .and_then(|options| options.get(option))
+                .and_then(Value::as_object)
+                .into_iter()
+                .flatten()
+                .map(|(key, values)| {
+                    (
+                        OptionMatcher::parse(key),
+                        parse_primary_option_matchers(values),
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    fn matches(&self, value_type: &str, name: &str) -> bool {
+        options_matches(&self.all, name)
+            || self
+                .by_type
+                .iter()
+                .any(|(key, values)| key.is_match(value_type) && options_matches(values, name))
+    }
+}
+
+fn contains(outer: Span, inner: Span) -> bool {
+    outer.start <= inner.start && inner.end <= outer.end
 }
 
 fn function_end(source: &str, open_paren: usize, end: usize) -> usize {
@@ -70,6 +67,12 @@ fn function_end(source: &str, open_paren: usize, end: usize) -> usize {
     while i < end {
         match bytes[i] {
             b'\\' => i = (i + 2).min(end),
+            b'/' if i + 1 < end && bytes[i + 1] == b'*' => {
+                i = bytes[i + 2..end]
+                    .windows(2)
+                    .position(|pair| pair == b"*/")
+                    .map_or(end, |offset| i + offset + 4);
+            }
             b'\'' | b'"' => {
                 let quote = bytes[i];
                 i += 1;
@@ -103,8 +106,8 @@ fn function_end(source: &str, open_paren: usize, end: usize) -> usize {
 
 pub struct ValueTypeCustomPropertyRequiredList {
     types: Vec<String>,
-    ignore_functions: Vec<OptionMatcher>,
-    ignore_properties: Vec<OptionMatcher>,
+    ignore_functions: TypedIgnores,
+    ignore_properties: TypedIgnores,
     ignore_values: Vec<OptionMatcher>,
 }
 
@@ -115,8 +118,8 @@ impl ValueTypeCustomPropertyRequiredList {
                 .into_iter()
                 .map(|value| value.to_ascii_lowercase())
                 .collect(),
-            ignore_functions: parse_option_matchers(secondary, "ignoreFunctions"),
-            ignore_properties: parse_option_matchers(secondary, "ignoreProperties"),
+            ignore_functions: TypedIgnores::parse(secondary, "ignoreFunctions"),
+            ignore_properties: TypedIgnores::parse(secondary, "ignoreProperties"),
             ignore_values: parse_option_matchers(secondary, "ignoreValues"),
         }
     }
@@ -134,7 +137,7 @@ impl Rule for ValueTypeCustomPropertyRequiredList {
         if is_custom_property(property)
             || !ctx.is_standard_declaration(decl)
             || !is_standard_syntax_property(property)
-            || options_matches(&self.ignore_properties, property)
+            || self.types.iter().all(|kind| self.ignore_properties.matches(kind, property))
             || ctx.ancestors.iter().any(
                 |ancestor| matches!(ancestor, AstParent::AtRule(at_rule) if at_rule.name.name.eq_ignore_ascii_case("property")),
             )
@@ -144,65 +147,90 @@ impl Rule for ValueTypeCustomPropertyRequiredList {
         let Some(value_span) = decl_value_span(ctx.source, decl) else {
             return;
         };
-        let mut skip_until = 0usize;
+        if !is_standard_syntax_value(ctx.slice(value_span)) {
+            return;
+        }
+        let color_only = in_set_ignore_case(COLOR_PROPERTIES, property);
+        let mut functions = Vec::new();
+        let mut fragments = Vec::new();
+        let mut variables = Vec::new();
+        let mut skip_until = 0;
         for token in tokenize_value(ctx.source, value_span) {
-            if (token.span.start as usize) < skip_until {
+            if token.span.start < skip_until {
                 continue;
             }
-            let (value_type, span) = match token.kind {
-                ValueTokenKind::Dimension { num_len }
-                    if self.types.iter().any(|value| value == "length")
-                        && is_length_unit(&token.raw[num_len..].to_ascii_lowercase()) =>
-                {
-                    ("length", token.span)
-                }
-                ValueTokenKind::Number if self.types.iter().any(|value| value == "number") => {
-                    ("number", token.span)
-                }
-                ValueTokenKind::Percentage
-                    if self.types.iter().any(|value| value == "percentage") =>
-                {
-                    ("percentage", token.span)
-                }
-                ValueTokenKind::Function => {
-                    let function = token.raw.strip_suffix('(').unwrap_or(token.raw);
-                    let end = function_end(
-                        ctx.source,
-                        token.span.end as usize - 1,
-                        value_span.end as usize,
-                    );
-                    if options_matches(&self.ignore_functions, function) {
-                        skip_until = end;
-                        continue;
-                    }
-                    if self.types.iter().any(|value| value == "color")
-                        && COLOR_FUNCTIONS
-                            .iter()
-                            .any(|candidate| function.eq_ignore_ascii_case(candidate))
+            while functions
+                .last()
+                .is_some_and(|&(_, end)| token.span.start >= end)
+            {
+                functions.pop();
+            }
+            let mut span = token.span;
+            let value_type = match token.kind {
+                ValueTokenKind::Dimension { num_len } => {
+                    let unit = &token.raw[num_len..];
+                    if in_set_ignore_case(&["deg", "grad", "rad", "turn"], unit) {
+                        "angle"
+                    } else if !unit.eq_ignore_ascii_case("fr")
+                        && in_set_ignore_case(LENGTH_UNITS, unit)
                     {
-                        (
-                            "color",
-                            Span {
-                                start: token.span.start,
-                                end: end as u32,
-                            },
-                        )
+                        "length"
                     } else {
                         continue;
                     }
                 }
+                ValueTokenKind::Number => "number",
+                ValueTokenKind::Percentage => "percentage",
+                ValueTokenKind::Function => {
+                    let function = token.raw.strip_suffix('(').unwrap();
+                    span.end =
+                        function_end(ctx.source, span.end as usize - 1, value_span.end as usize)
+                            as u32;
+                    if function.eq_ignore_ascii_case("var") {
+                        variables.push(span);
+                        skip_until = span.end;
+                        continue;
+                    }
+                    if function.eq_ignore_ascii_case("url") {
+                        skip_until = span.end;
+                        continue;
+                    }
+                    functions.push((function, span.end));
+                    if !in_set_ignore_case(COLOR_FUNCTIONS, function) {
+                        continue;
+                    }
+                    "color"
+                }
                 ValueTokenKind::Ident
-                    if self.types.iter().any(|value| value == "color")
-                        && is_color_keyword(&token.raw.to_ascii_lowercase()) =>
+                    if in_set_ignore_case(NAMED_COLORS_KEYWORDS, token.raw)
+                        || in_set_ignore_case(&["transparent", "currentcolor"], token.raw) =>
                 {
-                    ("color", token.span)
+                    "color"
                 }
                 _ => continue,
             };
-            let display = ctx.slice(span);
-            if options_matches(&self.ignore_values, display) {
+            if !self.types.iter().any(|kind| kind == value_type)
+                || (color_only && functions.is_empty() && value_type != "color")
+            {
                 continue;
             }
+            let ignored = self.ignore_properties.matches(value_type, property)
+                || options_matches(&self.ignore_values, ctx.slice(span))
+                || functions
+                    .iter()
+                    .any(|&(name, _)| self.ignore_functions.matches(value_type, name));
+            fragments.push((value_type, span, ignored));
+        }
+        let ignored: Vec<_> = fragments.iter().copied().filter(|entry| entry.2).collect();
+        for (value_type, span, _) in fragments {
+            if variables.iter().any(|&var| contains(span, var))
+                || ignored.iter().any(|&(kind, other, _)| {
+                    contains(other, span) || (kind == value_type && contains(span, other))
+                })
+            {
+                continue;
+            }
+            let display = ctx.slice(span);
             ctx.report(
                 self.name(),
                 span,
@@ -216,8 +244,89 @@ impl Rule for ValueTypeCustomPropertyRequiredList {
 
 #[cfg(test)]
 mod tests {
-    use crate::tester::{Tester, reject_message};
+    use crate::tester::{Tester, reject, reject_message, reject_warnings};
     use serde_json::json;
+
+    fn expected(value: &str, kind: &str) -> String {
+        format!("Expected \"{value}\" to be a custom property, as of type \"<{kind}>\"")
+    }
+
+    #[test]
+    fn ignores_types_by_property_and_enclosing_function() {
+        Tester::new(
+            "value-type-custom-property-required-list",
+            json!([["color", "length", "number", "angle", "percentage"], {
+                "ignoreFunctions": {
+                    "number": ["/.+/"], "color": ["color-mix"], "length": ["calc"],
+                    "/^(angle|percentage)$/": ["/-gradient$/"]
+                },
+                "ignoreProperties": {"/.+/": ["transform"], "length": ["/^border/"]}
+            }]),
+            [
+                "a { transform: translateX(1px); }",
+                "a { border-width: 1px; }",
+                "a { color: color-mix(in srgb, red, blue); }",
+                "a { --foo: 0; color: rgb(var(--foo) 0 0); }",
+                "a { color: 1px; }",
+                "a { width: calc(1px /* ) */ + 2px); }",
+            ],
+            [
+                reject(
+                    "a { border: 1px solid red; }",
+                    None,
+                    expected("red", "color"),
+                    (1, 23, 1, 26),
+                ),
+                reject(
+                    "a { color: rgb(0 0 0); }",
+                    None,
+                    expected("rgb(0 0 0)", "color"),
+                    (1, 12, 1, 22),
+                ),
+                reject_warnings(
+                    "a { background: linear-gradient(45deg, red 0%, blue 100%); }",
+                    None,
+                    vec![
+                        (expected("red", "color"), (1, 40, 1, 43)),
+                        (expected("blue", "color"), (1, 48, 1, 52)),
+                    ],
+                ),
+            ],
+        )
+        .test();
+    }
+
+    #[test]
+    fn ignored_and_variable_fragments_do_not_hide_unrelated_values() {
+        Tester::new(
+            "value-type-custom-property-required-list",
+            json!([["color", "number", "length", "angle"], {
+                "ignoreValues": ["0", "transparent", "/^oklch\\(/"]
+            }]),
+            ["a { color: oklch(20% 0.1 0deg); }"],
+            [
+                reject(
+                    "a { color: color-mix(in srgb, transparent, red); }",
+                    None,
+                    expected("red", "color"),
+                    (1, 44, 1, 47),
+                ),
+                reject(
+                    "a { --foo: 1px; width: calc(var(--foo) + 2rem); }",
+                    None,
+                    expected("2rem", "length"),
+                    (1, 42, 1, 46),
+                ),
+                reject(
+                    "a { transform: rotate(45deg); }",
+                    None,
+                    expected("45deg", "angle"),
+                    (1, 23, 1, 28),
+                ),
+            ],
+        )
+        .test();
+    }
 
     #[test]
     fn reports_configured_types() {

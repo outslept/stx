@@ -3,9 +3,18 @@ use std::collections::HashMap;
 use crate::{
     context::LintContext,
     rules::Rule,
-    utils::{OptionMatcher, options_matches, parse_option_matchers, secondary_bool},
+    utils::{
+        LEVEL_ONE_AND_TWO_PSEUDO_ELEMENTS, OptionMatcher, ident_name, in_set_ignore_case,
+        options_matches, parse_option_matchers, secondary_bool,
+    },
 };
-use oxc_css_parser::ast::{SelectorList, Statement, Stylesheet};
+use oxc_css_parser::{
+    Allocator, ParserBuilder, Span,
+    ast::{
+        CombinatorKind, ComplexSelector, ComplexSelectorChild, PseudoClassSelectorArgKind,
+        SelectorList, SimpleSelector, Statement, Stylesheet,
+    },
+};
 use serde_json::{Map, Value};
 
 pub struct NoDuplicateSelectors {
@@ -22,7 +31,7 @@ impl NoDuplicateSelectors {
     }
 }
 
-fn normalize_selector(raw: &str) -> String {
+fn normalize_raw(raw: &str) -> String {
     let bytes = raw.as_bytes();
     let mut out = String::with_capacity(raw.len());
     let mut i = 0;
@@ -48,13 +57,24 @@ fn normalize_selector(raw: &str) -> String {
                 if i < bytes.len() && bytes[i].is_ascii_whitespace() {
                     i += 1;
                 }
-                if let Some(ch) = char::from_u32(codepoint) {
-                    out.push(ch);
-                }
+            }
+            let ch = if i > start {
+                char::from_u32(codepoint)
+                    .filter(|&ch| ch != '\0')
+                    .unwrap_or('\u{fffd}')
             } else {
                 let ch = raw[i..].chars().next().unwrap();
-                out.push(ch);
                 i += ch.len_utf8();
+                ch
+            };
+            if ch.is_ascii()
+                && !ch.is_ascii_alphanumeric()
+                && !matches!(ch, '_' | '-')
+                && (quote == 0 || ch == quote as char || ch == '\\')
+            {
+                out.push_str(&format!("\\{:06x}", u32::from(ch)));
+            } else {
+                out.push(ch);
             }
             continue;
         }
@@ -101,6 +121,92 @@ fn normalize_selector(raw: &str) -> String {
     out.trim().to_string()
 }
 
+fn normalize_selector(raw: &str) -> String {
+    let allocator = Allocator::default();
+    if let Ok(list) = ParserBuilder::new(&allocator, raw)
+        .build()
+        .parse::<SelectorList>()
+        && let [selector] = list.selectors.as_slice()
+        && raw[selector.span.end as usize..].trim().is_empty()
+    {
+        return normalize_complex(raw, selector);
+    }
+    normalize_raw(raw)
+}
+
+fn text(raw: &str, span: Span) -> &str {
+    &raw[span.start as usize..span.end as usize]
+}
+
+fn normalize_complex(raw: &str, selector: &ComplexSelector<'_>) -> String {
+    let mut out = String::new();
+    let mut group = Vec::new();
+    for child in &selector.children {
+        match child {
+            ComplexSelectorChild::Combinator(combinator) => {
+                out.push_str(if combinator.kind == CombinatorKind::Descendant {
+                    " "
+                } else {
+                    text(raw, combinator.span).trim()
+                });
+            }
+            ComplexSelectorChild::CompoundSelector(compound) => {
+                for node in &compound.children {
+                    let value = text(raw, node.span());
+                    if matches!(node, SimpleSelector::PseudoElement(_))
+                        || matches!(node, SimpleSelector::PseudoClass(pseudo) if ident_name(&pseudo.name).is_some_and(|name| in_set_ignore_case(LEVEL_ONE_AND_TWO_PSEUDO_ELEMENTS, name)))
+                    {
+                        append_group(&mut out, &mut group);
+                        out.push_str(&normalize_raw(value));
+                        continue;
+                    }
+                    let normalized = match node {
+                        SimpleSelector::PseudoClass(pseudo) => {
+                            if let Some(arg) = &pseudo.arg
+                                && let PseudoClassSelectorArgKind::SelectorList(list) = &arg.kind
+                            {
+                                let mut args: Vec<_> = list
+                                    .selectors
+                                    .iter()
+                                    .map(|s| normalize_complex(raw, s))
+                                    .collect();
+                                args.sort_unstable();
+                                args.dedup();
+                                let prefix =
+                                    &raw[pseudo.span.start as usize..arg.l_paren.end as usize];
+                                format!("{prefix}{})", args.join(","))
+                            } else {
+                                normalize_raw(value)
+                            }
+                        }
+                        SimpleSelector::Attribute(attribute) => {
+                            if let Some(modifier) = &attribute.modifier {
+                                let start = attribute.span.start as usize;
+                                let end = modifier.span.start as usize;
+                                let base = normalize_raw(raw[start..end].trim_end());
+                                format!("{base} {}]", text(raw, modifier.span))
+                            } else {
+                                normalize_raw(value)
+                            }
+                        }
+                        _ => normalize_raw(value),
+                    };
+                    group.push(normalized);
+                }
+                append_group(&mut out, &mut group);
+            }
+        }
+    }
+    out
+}
+
+fn append_group(out: &mut String, group: &mut Vec<String>) {
+    group.sort_unstable();
+    for node in group.drain(..) {
+        out.push_str(&node);
+    }
+}
+
 fn replace_nesting(selector: &str, parent: &str) -> Option<String> {
     let mut out = String::with_capacity(selector.len() + parent.len());
     let mut in_attribute = false;
@@ -142,12 +248,17 @@ fn expand_nested(parents: &[String], selectors: &[String]) -> Vec<String> {
     if parents.is_empty() {
         return selectors.to_vec();
     }
-    parents
+    let wrapped;
+    let parent = if let [parent] = parents {
+        parent
+    } else {
+        wrapped = format!(":is({})", parents.join(","));
+        &wrapped
+    };
+    selectors
         .iter()
-        .flat_map(|parent| {
-            selectors.iter().map(move |selector| {
-                replace_nesting(selector, parent).unwrap_or_else(|| format!("{parent} {selector}"))
-            })
+        .map(|selector| {
+            replace_nesting(selector, parent).unwrap_or_else(|| format!("{parent} {selector}"))
         })
         .collect()
 }
@@ -163,7 +274,6 @@ fn check_selector_list(
         .selectors
         .iter()
         .map(|selector| ctx.slice(selector.span).trim().to_string())
-        .filter(|selector| !selector.is_empty())
         .collect();
     if selectors.is_empty() {
         return Vec::new();
@@ -173,14 +283,14 @@ fn check_selector_list(
     if rule.disallow_in_list {
         let mut new_selectors = HashMap::new();
         for (index, selector) in expanded.iter().enumerate() {
-            let selector_span = list.selectors[index % list.selectors.len()].span;
+            let selector_span = list.selectors[index].span;
             let normalized = normalize_selector(selector);
             if options_matches(&rule.ignore_selectors, selector) {
                 continue;
             }
             let line = ctx.line_index.line_col(ctx.source, selector_span.start).0;
             if let Some(first_line) = seen.get(&normalized).copied() {
-                let raw = selectors[index % selectors.len()].as_str();
+                let raw = &selectors[index];
                 ctx.report(
                     rule.name(),
                     selector_span,
@@ -195,8 +305,8 @@ fn check_selector_list(
     }
 
     let mut in_list = HashMap::new();
-    for (index, selector) in expanded.iter().enumerate() {
-        let selector_span = list.selectors[index % list.selectors.len()].span;
+    for (index, selector) in selectors.iter().enumerate() {
+        let selector_span = list.selectors[index].span;
         let normalized = normalize_selector(selector);
         if options_matches(&rule.ignore_selectors, selector) {
             continue;
@@ -205,10 +315,7 @@ fn check_selector_list(
             ctx.report(
                 rule.name(),
                 selector_span,
-                format!(
-                    "Duplicate selector \"{}\", first used at line {first_line}",
-                    selectors[index % selectors.len()]
-                ),
+                format!("Duplicate selector \"{selector}\", first used at line {first_line}"),
             );
         } else {
             let line = ctx.line_index.line_col(ctx.source, selector_span.start).0;
@@ -226,7 +333,8 @@ fn check_selector_list(
         .iter()
         .map(|selector| normalize_selector(selector))
         .collect();
-    normalized.sort();
+    normalized.sort_unstable();
+    normalized.dedup();
     let key = normalized.join(",");
     let first = list.selectors.first().unwrap().span;
     let last = list.selectors.last().unwrap().span;
@@ -294,7 +402,7 @@ impl Rule for NoDuplicateSelectors {
 
 #[cfg(test)]
 mod tests {
-    use crate::tester::{Tester, reject, reject_message};
+    use crate::tester::{Tester, reject, reject_message, reject_messages};
     use serde_json::json;
 
     #[test]
@@ -328,6 +436,39 @@ mod tests {
             &[],
         )
         .test();
+    }
+
+    #[test]
+    fn canonicalizes_selector_lists_without_changing_compound_boundaries() {
+        let pass = [
+            ".foo .bar {} .bar .foo {}",
+            "a:hover::before {} a::before:hover {}",
+            r".a\.b {} .a.b {}",
+            "[a=bi] {} [a=b i] {}",
+        ];
+        let fail = [
+            reject_message(
+                ".foo > #bar.baz {} .foo > .baz#bar {}",
+                None,
+                "Duplicate selector \".foo > .baz#bar\", first used at line 1",
+            ),
+            reject_message(
+                ":is(a, b) c {} b, a { & c {} }",
+                None,
+                "Duplicate selector \"& c\", first used at line 1",
+            ),
+            reject_message(
+                r#"[a="b"i], [ a = "b" i ] {}"#,
+                None,
+                r#"Duplicate selector "[ a = "b" i ]", first used at line 1"#,
+            ),
+            reject_messages(
+                ".a, .a {}\n.a {}",
+                None,
+                vec!["Duplicate selector \".a\", first used at line 1".into(); 2],
+            ),
+        ];
+        Tester::new("no-duplicate-selectors", json!(true), pass, fail).test();
     }
 
     #[test]

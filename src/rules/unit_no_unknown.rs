@@ -2,8 +2,8 @@ use crate::{
     context::LintContext,
     rules::Rule,
     utils::{
-        OptionMatcher, at_rule_prelude_span, media_feature_groups, options_matches,
-        parse_option_matchers,
+        OptionMatcher, at_rule_prelude_span, is_unicode_range_descriptor, media_feature_groups,
+        options_matches, parse_option_matchers,
     },
 };
 use oxc_css_parser::{
@@ -66,7 +66,7 @@ impl Rule for UnitNoUnknown {
             return;
         };
         let prop: &str = ident.name;
-        if prop.eq_ignore_ascii_case("unicode-range") {
+        if is_unicode_range_descriptor(prop, &ctx.ancestors) {
             return;
         }
         let prop_end = ident.span.end as usize;
@@ -121,7 +121,7 @@ impl Rule for UnitNoUnknown {
                 continue;
             }
 
-            if i + 4 <= end && src[i..i + 4].eq_ignore_ascii_case("url(") {
+            if i + 4 <= end && bytes[i..i + 4].eq_ignore_ascii_case(b"url(") {
                 i += 4;
                 let mut depth = 1usize;
                 while i < end && depth > 0 {
@@ -143,7 +143,10 @@ impl Rule for UnitNoUnknown {
                 continue;
             }
 
-            if bytes[i].is_ascii_alphabetic() || bytes[i] == b'_' || bytes[i] == b'-' {
+            if bytes[i].is_ascii_alphabetic()
+                || bytes[i] == b'_'
+                || (bytes[i] == b'-' && !bytes.get(i + 1).is_some_and(u8::is_ascii_digit))
+            {
                 let start = i;
                 while i < end
                     && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_' || bytes[i] == b'-')
@@ -287,18 +290,38 @@ mod tests {
 
     #[test]
     fn checks_media_units_and_skips_comments_and_unicode_ranges() {
-        let fail = [reject(
-            "@media (min-width: 13pix) {}",
-            None,
-            "Unknown unit \"pix\"",
-            (1, 22, 1, 25),
-        )];
+        let fail = [
+            reject(
+                "@media (min-width: 13pix) {}",
+                None,
+                "Unknown unit \"pix\"",
+                (1, 22, 1, 25),
+            ),
+            reject(
+                "@font-face { color: U+0100-024F; }",
+                None,
+                "Unknown unit \"F\"",
+                (1, 31, 1, 32),
+            ),
+            reject(
+                "a { unicode-range: U+0100-024F; }",
+                None,
+                "Unknown unit \"F\"",
+                (1, 30, 1, 31),
+            ),
+            reject(
+                "a { width: -1pix; }",
+                None,
+                "Unknown unit \"pix\"",
+                (1, 14, 1, 17),
+            ),
+        ];
         Tester::new(
             "unit-no-unknown",
             json!(true),
             [
                 "a { width: /* 100pix */ 1em; }",
-                "a { unicode-range: U+0100-024F; }",
+                "@font-face { unicode-range: U+0100-024F; }",
                 "@media (resolution: 2x) {}",
             ],
             &fail,
