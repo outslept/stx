@@ -12,10 +12,6 @@ pub fn in_set_ignore_case(set: &[&str], value: &str) -> bool {
     set.iter().any(|item| item.eq_ignore_ascii_case(value))
 }
 
-// ============================================================================
-// lib/reference/units.mjs
-// ============================================================================
-
 pub const LENGTH_UNITS: &[&str] = &[
     // Font-relative length units
     "cap", "ch", "em", "ex", "ic", "lh", "rcap", "rch", "rem", "rex", "ric", "rlh",
@@ -67,10 +63,6 @@ pub const UNITS: &[&str] = &[
     "deg", "grad", "turn", "rad", // Frequency
     "Hz", "kHz",
 ];
-
-// ============================================================================
-// lib/reference/atKeywords.mjs
-// ============================================================================
 
 pub const DEPRECATED_AT_KEYWORDS: &[&str] = &["document", "nest", "viewport"];
 
@@ -171,10 +163,6 @@ pub const AT_KEYWORDS: &[&str] = &[
     "view-transition",
 ];
 
-// ============================================================================
-// lib/reference/functions.mjs
-// ============================================================================
-
 pub const CAMEL_CASE_FUNCTIONS: &[&str] = &[
     "translateX",
     "translateY",
@@ -253,10 +241,6 @@ pub fn is_math_function(name: &str) -> bool {
     in_set_ignore_case(MATH_FUNCTIONS, name)
 }
 
-// ============================================================================
-// lib/reference/mediaTypes.mjs
-// ============================================================================
-
 pub const DEPRECATED_MEDIA_TYPES_NAMES: &[&str] = &[
     "aural",
     "braille",
@@ -268,17 +252,9 @@ pub const DEPRECATED_MEDIA_TYPES_NAMES: &[&str] = &[
     "tv",
 ];
 
-// ============================================================================
-// lib/reference/prefixes.mjs
-// ============================================================================
-
 pub const PREFIXES: &[&str] = &[
     "-webkit-", "-moz-", "-ms-", "-o-", "-xv-", "-apple-", "-wap-", "-khtml-",
 ];
-
-// ============================================================================
-// lib/reference/mediaFeatures.mjs
-// ============================================================================
 
 pub const DEPRECATED_MEDIA_FEATURE_NAMES: &[&str] =
     &["device-aspect-ratio", "device-height", "device-width"];
@@ -481,10 +457,6 @@ pub fn media_feature_name_allowed_value_types(
         _ => None,
     }
 }
-
-// ============================================================================
-// lib/reference/keywords.mjs
-// ============================================================================
 
 pub const BASIC_KEYWORDS: &[&str] = &["initial", "inherit", "revert", "revert-layer", "unset"];
 pub const CSS_WIDE_KEYWORDS: &[&str] = BASIC_KEYWORDS;
@@ -1472,10 +1444,6 @@ pub fn flow_relative_value_keywords_for_property(
         _ => None,
     }
 }
-
-// ============================================================================
-// lib/reference/properties.mjs
-// ============================================================================
 
 pub const ACCEPT_CUSTOM_IDENTS_PROPERTIES: &[&str] = &[
     "animation",
@@ -2593,10 +2561,6 @@ pub const FLOW_RELATIVE_PROPERTIES: &[&str] = &[
     "scroll-padding-inline",
     "scroll-padding-block",
 ];
-
-// ============================================================================
-// lib/reference/selectors.mjs
-// ============================================================================
 
 pub const DEPRECATED_HTML_TYPE_SELECTORS: &[&str] = &[
     "acronym",
@@ -3993,5 +3957,2369 @@ pub fn at_rule_descriptors(at_rule_name: &str) -> Option<&'static [&'static str]
         "view-transition" => Some(VIEW_TRANSITION_DESCRIPTORS),
         "viewport" | "-ms-viewport" | "-o-viewport" => Some(VIEWPORT_DESCRIPTORS),
         _ => None,
+    }
+}
+
+/// Vendor-prefixed at-rules that can be automatically managed by Autoprefixer.
+pub const AUTOPREFIXABLE_AT_RULES: &[&str] = &[
+    "@-moz-document",
+    "@-moz-keyframes",
+    "@-ms-keyframes",
+    "@-ms-viewport",
+    "@-o-keyframes",
+    "@-o-viewport",
+    "@-webkit-keyframes",
+    "@-webkit-viewport",
+];
+
+/// Vendor-prefixed pseudo-classes and pseudo-elements managed by Autoprefixer.
+pub const AUTOPREFIXABLE_SELECTORS: &[&str] = &[
+    "::-moz-placeholder",
+    "::-moz-selection",
+    "::-ms-input-placeholder",
+    "::-webkit-backdrop",
+    "::-webkit-input-placeholder",
+    ":-moz-any-link",
+    ":-moz-full-screen",
+    ":-moz-placeholder",
+    ":-moz-placeholder-shown",
+    ":-moz-read-only",
+    ":-moz-read-write",
+    ":-ms-fullscreen",
+    ":-ms-input-placeholder",
+    ":-webkit-any-link",
+    ":-webkit-full-screen",
+];
+
+/// Unprefixed standard CSS property names whose vendor prefixes are managed by Autoprefixer.
+pub const AUTOPREFIXABLE_PROPERTIES: &[&str] = &[
+    "align-content",
+    "align-items",
+    "align-self",
+    "animation",
+    "animation-delay",
+    "animation-direction",
+    "animation-duration",
+    "animation-fill-mode",
+    "animation-iteration-count",
+    "animation-name",
+    "animation-play-state",
+    "animation-timing-function",
+    "appearance",
+    "backdrop-filter",
+    "backface-visibility",
+    "background-clip",
+    "background-origin",
+    "background-size",
+    "border-block-end",
+    "border-block-start",
+    "border-bottom-left-radius",
+    "border-bottom-right-radius",
+    "border-image",
+    "border-inline-end",
+    "border-inline-start",
+    "border-radius",
+    "border-top-left-radius",
+    "border-top-right-radius",
+    "box-decoration-break",
+    "box-shadow",
+    "box-sizing",
+    "break-after",
+    "break-before",
+    "break-inside",
+    "clip-path",
+    "color-adjust",
+    "column-count",
+    "column-fill",
+    "column-gap",
+    "column-rule",
+    "column-rule-color",
+    "column-rule-style",
+    "column-rule-width",
+    "column-span",
+    "column-width",
+    "columns",
+    "filter",
+    "flex",
+    "flex-basis",
+    "flex-direction",
+    "flex-flow",
+    "flex-grow",
+    "flex-shrink",
+    "flex-wrap",
+    "flow-from",
+    "flow-into",
+    "font-feature-settings",
+    "font-kerning",
+    "font-language-override",
+    "font-variant-ligatures",
+    "grid-area",
+    "grid-column",
+    "grid-column-align",
+    "grid-column-end",
+    "grid-column-start",
+    "grid-row",
+    "grid-row-align",
+    "grid-row-end",
+    "grid-row-start",
+    "grid-template",
+    "grid-template-areas",
+    "grid-template-columns",
+    "grid-template-rows",
+    "hyphens",
+    "image-rendering",
+    "justify-content",
+    "margin-block-end",
+    "margin-block-start",
+    "margin-inline-end",
+    "margin-inline-start",
+    "mask",
+    "mask-border",
+    "mask-border-outset",
+    "mask-border-repeat",
+    "mask-border-slice",
+    "mask-border-source",
+    "mask-border-width",
+    "mask-clip",
+    "mask-composite",
+    "mask-image",
+    "mask-origin",
+    "mask-position",
+    "mask-repeat",
+    "mask-size",
+    "object-fit",
+    "object-position",
+    "order",
+    "overscroll-behavior",
+    "padding-block-end",
+    "padding-block-start",
+    "padding-inline-end",
+    "padding-inline-start",
+    "perspective",
+    "perspective-origin",
+    "place-self",
+    "region-fragment",
+    "scroll-snap-coordinate",
+    "scroll-snap-destination",
+    "scroll-snap-points-x",
+    "scroll-snap-points-y",
+    "scroll-snap-type",
+    "shape-image-threshold",
+    "shape-margin",
+    "shape-outside",
+    "tab-size",
+    "text-align-last",
+    "text-decoration",
+    "text-decoration-color",
+    "text-decoration-line",
+    "text-decoration-skip",
+    "text-decoration-skip-ink",
+    "text-decoration-style",
+    "text-emphasis",
+    "text-emphasis-color",
+    "text-emphasis-position",
+    "text-emphasis-style",
+    "text-orientation",
+    "text-overflow",
+    "text-size-adjust",
+    "text-spacing",
+    "touch-action",
+    "transform",
+    "transform-origin",
+    "transform-style",
+    "transition",
+    "transition-delay",
+    "transition-duration",
+    "transition-property",
+    "transition-timing-function",
+    "user-select",
+    "writing-mode",
+];
+
+/// Vendor-prefixed property values and functions that can be safely unprefixed.
+pub const AUTOPREFIXABLE_PROPERTY_VALUES: &[&str] = &[
+    "-moz-all",
+    "-moz-arabic-indic",
+    "-moz-bengali",
+    "-moz-calc",
+    "-moz-cjk-earthly-branch",
+    "-moz-cjk-heavenly-stem",
+    "-moz-crisp-edges",
+    "-moz-devanagari",
+    "-moz-element",
+    "-moz-ethiopic-numeric",
+    "-moz-fit-content",
+    "-moz-grab",
+    "-moz-grabbing",
+    "-moz-gujarati",
+    "-moz-gurmukhi",
+    "-moz-hangul",
+    "-moz-hangul-consonant",
+    "-moz-initial",
+    "-moz-isolate",
+    "-moz-isolate-override",
+    "-moz-japanese-formal",
+    "-moz-japanese-informal",
+    "-moz-kannada",
+    "-moz-khmer",
+    "-moz-lao",
+    "-moz-linear-gradient",
+    "-moz-malayalam",
+    "-moz-max-content",
+    "-moz-min-content",
+    "-moz-myanmar",
+    "-moz-oriya",
+    "-moz-persian",
+    "-moz-plaintext",
+    "-moz-pre-wrap",
+    "-moz-radial-gradient",
+    "-moz-repeating-linear-gradient",
+    "-moz-repeating-radial-gradient",
+    "-moz-simp-chinese-formal",
+    "-moz-simp-chinese-informal",
+    "-moz-tamil",
+    "-moz-telugu",
+    "-moz-thai",
+    "-moz-trad-chinese-formal",
+    "-moz-trad-chinese-informal",
+    "-moz-zoom-in",
+    "-moz-zoom-out",
+    "-ms-flexbox",
+    "-ms-grid",
+    "-ms-inline-grid",
+    "-ms-linear-gradient",
+    "-ms-radial-gradient",
+    "-ms-repeating-linear-gradient",
+    "-ms-repeating-radial-gradient",
+    "-o-crisp-edges",
+    "-o-linear-gradient",
+    "-o-pre-wrap",
+    "-o-radial-gradient",
+    "-o-repeating-linear-gradient",
+    "-o-repeating-radial-gradient",
+    "-webkit-calc",
+    "-webkit-cross-fade",
+    "-webkit-filter",
+    "-webkit-fit-content",
+    "-webkit-flex",
+    "-webkit-grab",
+    "-webkit-grabbing",
+    "-webkit-image-set",
+    "-webkit-inline-flex",
+    "-webkit-isolate",
+    "-webkit-linear-gradient",
+    "-webkit-max-content",
+    "-webkit-min-content",
+    "-webkit-plaintext",
+    "-webkit-radial-gradient",
+    "-webkit-repeating-linear-gradient",
+    "-webkit-repeating-radial-gradient",
+    "-webkit-sticky",
+    "-webkit-zoom-in",
+    "-webkit-zoom-out",
+    "-xv-digits",
+    "-xv-literal-punctuation",
+    "-xv-no-punctuation",
+];
+
+/// Returns `true` if `name` is a vendor-prefixed at-rule name supported by Autoprefixer.
+pub fn is_autoprefixable_at_rule_name(name: &str) -> bool {
+    if name.starts_with('@') {
+        return false;
+    }
+    let mut buf = String::with_capacity(name.len() + 1);
+    buf.push('@');
+    buf.push_str(&name.to_ascii_lowercase());
+    in_set_ignore_case(AUTOPREFIXABLE_AT_RULES, &buf)
+}
+
+/// Returns `true` if `identifier` is a vendor-prefixed pseudo-class or pseudo-element
+/// supported by Autoprefixer.
+pub fn is_autoprefixable_selector(identifier: &str) -> bool {
+    in_set_ignore_case(AUTOPREFIXABLE_SELECTORS, identifier)
+}
+
+/// Returns `true` if `media_feature` is a vendor-prefixed media feature name
+/// (`-webkit-min-device-pixel-ratio`, `-moz-max-device-pixel-ratio`, etc.) supported by Autoprefixer.
+pub fn is_autoprefixable_media_feature_name(media_feature: &str) -> bool {
+    media_feature
+        .to_ascii_lowercase()
+        .contains("device-pixel-ratio")
+}
+
+/// Returns `true` if `identifier` is a vendor-prefixed CSS property name supported by Autoprefixer.
+pub fn is_autoprefixable_property(identifier: &str) -> bool {
+    let Some(prefix) = crate::utils::text::vendor_prefix(identifier) else {
+        return false;
+    };
+    in_set_ignore_case(AUTOPREFIXABLE_PROPERTIES, &identifier[prefix.len()..])
+}
+
+/// Returns `true` if `value` is a vendor-prefixed CSS property value keyword supported by Autoprefixer.
+pub fn is_autoprefixable_property_value(value: &str) -> bool {
+    in_set_ignore_case(AUTOPREFIXABLE_PROPERTY_VALUES, value)
+}
+
+/// Maps a `flex-flow` / `grid-auto-flow` direction keyword to its `(start, end)` physical sides.
+pub fn direction_flow_to_sides(flow: &str) -> Option<(&'static str, &'static str)> {
+    match flow {
+        "row" => Some(("left", "right")),
+        "row-reverse" => Some(("right", "left")),
+        "column" => Some(("top", "bottom")),
+        "column-reverse" => Some(("bottom", "top")),
+        _ => None,
+    }
+}
+
+/// Returns `true` if `selector` is a valid HTML custom element tag name according to the
+/// WHATWG HTML specification.
+pub fn is_custom_element(selector: &str) -> bool {
+    if selector.bytes().any(|b| b.is_ascii_uppercase())
+        || !selector.contains('-')
+        || !selector.chars().next().is_some_and(|c| c.is_ascii_lowercase())
+        || !selector.chars().all(is_pcen_char)
+    {
+        return false;
+    }
+    !in_set(HYPHEN_CONTAINING_TYPE_SELECTORS, selector)
+}
+
+fn is_pcen_char(c: char) -> bool {
+    matches!(c, '-' | '.' | '_' | '0'..='9' | 'a'..='z')
+        || matches!(
+            c as u32,
+            0x00B7
+                | 0x00C0..=0x00D6
+                | 0x00D8..=0x00F6
+                | 0x00F8..=0x037D
+                | 0x037F..=0x1FFF
+                | 0x200C..=0x200D
+                | 0x203F..=0x2040
+                | 0x2070..=0x218F
+                | 0x2C00..=0x2FEF
+                | 0x3001..=0xD7FF
+                | 0xF900..=0xFDCF
+                | 0xFDF0..=0xFFFD
+                | 0x10000..=0xEFFFF
+        )
+}
+
+/// Returns `true` if `value` is a custom-ident token inside `counter-increment`
+/// (i.e. not a reserved keyword or integer).
+pub fn is_counter_increment_custom_ident_value(value: &str) -> bool {
+    !in_set_ignore_case(COUNTER_INCREMENT_KEYWORDS, value) && !has_integer_prefix(value)
+}
+
+/// Returns `true` if `value` is a custom-ident token inside `counter-reset`
+/// (i.e. not a reserved keyword or integer).
+pub fn is_counter_reset_custom_ident_value(value: &str) -> bool {
+    !in_set_ignore_case(COUNTER_RESET_KEYWORDS, value) && !has_integer_prefix(value)
+}
+
+fn has_integer_prefix(value: &str) -> bool {
+    value
+        .trim_start()
+        .trim_start_matches(['+', '-'])
+        .as_bytes()
+        .first()
+        .is_some_and(u8::is_ascii_digit)
+}
+
+/// Returns `true` if `word` is a valid CSS `font-size` token (either a `font-size` keyword,
+/// a percentage, or a `<length>` dimension).
+pub fn is_valid_font_size(word: &str) -> bool {
+    if word.is_empty() {
+        return false;
+    }
+    if in_set(FONT_SIZE_KEYWORDS, word) {
+        return true;
+    }
+    let Some((_, unit)) = crate::utils::syntax::get_dimension(word) else {
+        return false;
+    };
+    unit == "%" || in_set_ignore_case(LENGTH_UNITS, &unit)
+}
+
+/// Returns `true` if `name` (with or without leading `:`) is a context-providing
+/// functional pseudo-class (`:is`, `:where`, `:not`, `:has`, `:matches`, `:-moz-any`,
+/// `:-webkit-any`, `:nth-child`, `:nth-last-child`).
+pub fn is_context_functional_pseudo_class(name: &str) -> bool {
+    let norm = crate::utils::text::normalize_pseudo_name(name);
+    in_set(LOGICAL_COMBINATIONS_PSEUDO_CLASSES, &norm)
+        || in_set(AN_PLUS_B_OF_S_NOTATION_PSEUDO_CLASSES, &norm)
+}
+
+/// Returns `true` if `name` is a functional pseudo-class whose arguments are selectors
+/// (`:is`, `:where`, `:not`, `:has`, `:matches`, `:-moz-any`, `:-webkit-any`, `:nth-child`,
+/// `:nth-last-child`, `:host`, `:host-context`, `::slotted`).
+pub fn is_selector_containing_pseudo_class(name: &str) -> bool {
+    let norm = crate::utils::text::normalize_pseudo_name(name);
+    is_context_functional_pseudo_class(&norm)
+        || matches!(norm.as_str(), "host" | "host-context" | "slotted")
+}
+
+/// Returns `true` if `word` is a generic `font-family` keyword or CSS-wide keyword.
+pub fn is_family_name_keyword(word: &str) -> bool {
+    in_set_ignore_case(FONT_FAMILY_KEYWORDS, word)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TABLES: &[(&str, &[&str])] = &[
+        ("LENGTH_UNITS", LENGTH_UNITS),
+        ("RESOLUTION_UNITS", RESOLUTION_UNITS),
+        ("FLOW_RELATIVE_UNITS", FLOW_RELATIVE_UNITS),
+        ("UNITS", UNITS),
+        ("DEPRECATED_AT_KEYWORDS", DEPRECATED_AT_KEYWORDS),
+        (
+            "NESTING_SUPPORTED_AT_KEYWORDS",
+            NESTING_SUPPORTED_AT_KEYWORDS,
+        ),
+        (
+            "DECLARATION_CONTAINING_AT_KEYWORDS",
+            DECLARATION_CONTAINING_AT_KEYWORDS,
+        ),
+        ("PAGE_MARGIN_AT_KEYWORDS", PAGE_MARGIN_AT_KEYWORDS),
+        ("FONT_FEATURE_VALUE_TYPES", FONT_FEATURE_VALUE_TYPES),
+        ("AT_KEYWORDS", AT_KEYWORDS),
+        ("CAMEL_CASE_FUNCTIONS", CAMEL_CASE_FUNCTIONS),
+        (
+            "HUE_AS_FIRST_COMPONENT_COLOR_FUNCTIONS",
+            HUE_AS_FIRST_COMPONENT_COLOR_FUNCTIONS,
+        ),
+        (
+            "HUE_AS_THIRD_COMPONENT_COLOR_FUNCTIONS",
+            HUE_AS_THIRD_COMPONENT_COLOR_FUNCTIONS,
+        ),
+        ("HUE_COLOR_FUNCTIONS", HUE_COLOR_FUNCTIONS),
+        (
+            "LIGHTNESS_ZERO_TO_ONE_COLOR_FUNCTIONS",
+            LIGHTNESS_ZERO_TO_ONE_COLOR_FUNCTIONS,
+        ),
+        (
+            "LIGHTNESS_ZERO_TO_HUNDRED_COLOR_FUNCTIONS",
+            LIGHTNESS_ZERO_TO_HUNDRED_COLOR_FUNCTIONS,
+        ),
+        ("LIGHTNESS_COLOR_FUNCTIONS", LIGHTNESS_COLOR_FUNCTIONS),
+        (
+            "WITH_ALPHA_ALIAS_COLOR_FUNCTIONS",
+            WITH_ALPHA_ALIAS_COLOR_FUNCTIONS,
+        ),
+        (
+            "WITHOUT_ALPHA_ALIAS_COLOR_FUNCTIONS",
+            WITHOUT_ALPHA_ALIAS_COLOR_FUNCTIONS,
+        ),
+        (
+            "LEGACY_NOTATION_COLOR_FUNCTIONS",
+            LEGACY_NOTATION_COLOR_FUNCTIONS,
+        ),
+        ("COLOR_FUNCTIONS", COLOR_FUNCTIONS),
+        (
+            "SINGLE_ARGUMENT_MATH_FUNCTIONS",
+            SINGLE_ARGUMENT_MATH_FUNCTIONS,
+        ),
+        ("MATH_FUNCTIONS", MATH_FUNCTIONS),
+        ("DEPRECATED_MEDIA_TYPES_NAMES", DEPRECATED_MEDIA_TYPES_NAMES),
+        ("PREFIXES", PREFIXES),
+        (
+            "DEPRECATED_MEDIA_FEATURE_NAMES",
+            DEPRECATED_MEDIA_FEATURE_NAMES,
+        ),
+        (
+            "RANGE_TYPE_MEDIA_FEATURE_NAMES",
+            RANGE_TYPE_MEDIA_FEATURE_NAMES,
+        ),
+        (
+            "RANGE_TYPE_MEDIA_FEATURE_NAMES_WITH_MIN_MAX_PREFIX",
+            RANGE_TYPE_MEDIA_FEATURE_NAMES_WITH_MIN_MAX_PREFIX,
+        ),
+        (
+            "DISCRETE_TYPE_MEDIA_FEATURE_NAMES",
+            DISCRETE_TYPE_MEDIA_FEATURE_NAMES,
+        ),
+        ("MEDIA_FEATURE_NAMES", MEDIA_FEATURE_NAMES),
+        ("BASIC_KEYWORDS", BASIC_KEYWORDS),
+        ("CSS_WIDE_KEYWORDS", CSS_WIDE_KEYWORDS),
+        ("DISPLAY_OUTSIDE_KEYWORDS", DISPLAY_OUTSIDE_KEYWORDS),
+        ("DISPLAY_INSIDE_KEYWORDS", DISPLAY_INSIDE_KEYWORDS),
+        ("DISPLAY_LEGACY_KEYWORDS", DISPLAY_LEGACY_KEYWORDS),
+        ("DISPLAY_LIST_ITEM_KEYWORD", DISPLAY_LIST_ITEM_KEYWORD),
+        ("SYSTEM_FONT_KEYWORDS", SYSTEM_FONT_KEYWORDS),
+        ("FONT_FAMILY_KEYWORDS", FONT_FAMILY_KEYWORDS),
+        ("APPLE_SYSTEM_FONTS", APPLE_SYSTEM_FONTS),
+        ("MOZILLA_SYSTEM_FONTS", MOZILLA_SYSTEM_FONTS),
+        ("WEBKIT_SYSTEM_FONTS", WEBKIT_SYSTEM_FONTS),
+        ("PREFIXED_SYSTEM_FONTS", PREFIXED_SYSTEM_FONTS),
+        (
+            "FONT_WEIGHT_RELATIVE_KEYWORDS",
+            FONT_WEIGHT_RELATIVE_KEYWORDS,
+        ),
+        (
+            "FONT_WEIGHT_ABSOLUTE_KEYWORDS",
+            FONT_WEIGHT_ABSOLUTE_KEYWORDS,
+        ),
+        (
+            "FONT_WEIGHT_NON_NUMERIC_KEYWORDS",
+            FONT_WEIGHT_NON_NUMERIC_KEYWORDS,
+        ),
+        ("FONT_WEIGHT_NUMERIC_KEYWORDS", FONT_WEIGHT_NUMERIC_KEYWORDS),
+        (
+            "FONT_WEIGHT_NUMERIC_KEYWORDS_WITH_NAMED_EQUIVALENT",
+            FONT_WEIGHT_NUMERIC_KEYWORDS_WITH_NAMED_EQUIVALENT,
+        ),
+        ("FONT_WEIGHT_KEYWORDS", FONT_WEIGHT_KEYWORDS),
+        ("FONT_STYLE_KEYWORDS", FONT_STYLE_KEYWORDS),
+        ("FONT_VARIANT_CSS2_KEYWORDS", FONT_VARIANT_CSS2_KEYWORDS),
+        ("FONT_STRETCH_KEYWORDS", FONT_STRETCH_KEYWORDS),
+        ("FONT_SIZE_KEYWORDS", FONT_SIZE_KEYWORDS),
+        ("LINE_HEIGHT_KEYWORDS", LINE_HEIGHT_KEYWORDS),
+        ("FONT_SHORTHAND_KEYWORDS", FONT_SHORTHAND_KEYWORDS),
+        ("ANIMATION_NAME_KEYWORDS", ANIMATION_NAME_KEYWORDS),
+        (
+            "ANIMATION_TIMING_FUNCTION_KEYWORDS",
+            ANIMATION_TIMING_FUNCTION_KEYWORDS,
+        ),
+        (
+            "ANIMATION_ITERATION_COUNT_KEYWORDS",
+            ANIMATION_ITERATION_COUNT_KEYWORDS,
+        ),
+        ("ANIMATION_DIRECTION_KEYWORDS", ANIMATION_DIRECTION_KEYWORDS),
+        ("ANIMATION_FILL_MODE_KEYWORDS", ANIMATION_FILL_MODE_KEYWORDS),
+        (
+            "ANIMATION_PLAY_STATE_KEYWORDS",
+            ANIMATION_PLAY_STATE_KEYWORDS,
+        ),
+        ("ANIMATION_SHORTHAND_KEYWORDS", ANIMATION_SHORTHAND_KEYWORDS),
+        ("GRID_ROW_KEYWORDS", GRID_ROW_KEYWORDS),
+        ("GRID_COLUMN_KEYWORDS", GRID_COLUMN_KEYWORDS),
+        ("GRID_AREA_KEYWORDS", GRID_AREA_KEYWORDS),
+        ("COUNTER_INCREMENT_KEYWORDS", COUNTER_INCREMENT_KEYWORDS),
+        ("COUNTER_RESET_KEYWORDS", COUNTER_RESET_KEYWORDS),
+        ("LIST_STYLE_TYPE_KEYWORDS", LIST_STYLE_TYPE_KEYWORDS),
+        ("LIST_STYLE_POSITION_KEYWORDS", LIST_STYLE_POSITION_KEYWORDS),
+        ("LIST_STYLE_IMAGE_KEYWORDS", LIST_STYLE_IMAGE_KEYWORDS),
+        (
+            "LIST_STYLE_SHORTHAND_KEYWORDS",
+            LIST_STYLE_SHORTHAND_KEYWORDS,
+        ),
+        ("CAMEL_CASE_KEYWORDS", CAMEL_CASE_KEYWORDS),
+        ("KEYFRAME_SELECTOR_KEYWORDS", KEYFRAME_SELECTOR_KEYWORDS),
+        (
+            "PREFIXED_SYSTEM_COLOR_KEYWORDS",
+            PREFIXED_SYSTEM_COLOR_KEYWORDS,
+        ),
+        (
+            "DEPRECATED_SYSTEM_COLOR_KEYWORDS",
+            DEPRECATED_SYSTEM_COLOR_KEYWORDS,
+        ),
+        ("SYSTEM_COLORS_KEYWORDS", SYSTEM_COLORS_KEYWORDS),
+        ("NAMED_COLORS_KEYWORDS", NAMED_COLORS_KEYWORDS),
+        (
+            "ACCEPT_CUSTOM_IDENTS_PROPERTIES",
+            ACCEPT_CUSTOM_IDENTS_PROPERTIES,
+        ),
+        (
+            "ACCEPT_PROPERTY_NAMES_PROPERTIES",
+            ACCEPT_PROPERTY_NAMES_PROPERTIES,
+        ),
+        ("SHORTHAND_PROPERTIES", SHORTHAND_PROPERTIES),
+        (
+            "SINGLE_VALUE_COLOR_PROPERTIES",
+            SINGLE_VALUE_COLOR_PROPERTIES,
+        ),
+        ("MULTI_VALUE_COLOR_PROPERTIES", MULTI_VALUE_COLOR_PROPERTIES),
+        ("COLOR_PROPERTIES", COLOR_PROPERTIES),
+        ("LONGHAND_TIME_PROPERTIES", LONGHAND_TIME_PROPERTIES),
+        ("SHORTHAND_TIME_PROPERTIES", SHORTHAND_TIME_PROPERTIES),
+        ("PAGE_CONTEXT_PROPERTIES", PAGE_CONTEXT_PROPERTIES),
+        ("MARGIN_CONTEXT_PROPERTIES", MARGIN_CONTEXT_PROPERTIES),
+        ("PREVIOUSLY_KNOWN_PROPERTIES", PREVIOUSLY_KNOWN_PROPERTIES),
+        (
+            "PREVIOUSLY_KNOWN_PREFIXED_PROPERTIES",
+            PREVIOUSLY_KNOWN_PREFIXED_PROPERTIES,
+        ),
+        ("FLOW_RELATIVE_PROPERTIES", FLOW_RELATIVE_PROPERTIES),
+        (
+            "DEPRECATED_HTML_TYPE_SELECTORS",
+            DEPRECATED_HTML_TYPE_SELECTORS,
+        ),
+        ("STANDARD_HTML_TYPE_SELECTORS", STANDARD_HTML_TYPE_SELECTORS),
+        (
+            "EXPERIMENTAL_HTML_TYPE_SELECTORS",
+            EXPERIMENTAL_HTML_TYPE_SELECTORS,
+        ),
+        ("HTML_TYPE_SELECTORS", HTML_TYPE_SELECTORS),
+        (
+            "DEPRECATED_SVG_TYPE_SELECTORS",
+            DEPRECATED_SVG_TYPE_SELECTORS,
+        ),
+        ("STANDARD_SVG_TYPE_SELECTORS", STANDARD_SVG_TYPE_SELECTORS),
+        (
+            "EXPERIMENTAL_SVG_TYPE_SELECTORS",
+            EXPERIMENTAL_SVG_TYPE_SELECTORS,
+        ),
+        ("SVG_TYPE_SELECTORS", SVG_TYPE_SELECTORS),
+        (
+            "MIXED_CASE_SVG_TYPE_SELECTORS",
+            MIXED_CASE_SVG_TYPE_SELECTORS,
+        ),
+        ("MATHML_TYPE_SELECTORS", MATHML_TYPE_SELECTORS),
+        (
+            "HYPHEN_CONTAINING_TYPE_SELECTORS",
+            HYPHEN_CONTAINING_TYPE_SELECTORS,
+        ),
+        (
+            "LEVEL_ONE_AND_TWO_PSEUDO_ELEMENTS",
+            LEVEL_ONE_AND_TWO_PSEUDO_ELEMENTS,
+        ),
+        ("SHADOW_TREE_PSEUDO_ELEMENTS", SHADOW_TREE_PSEUDO_ELEMENTS),
+        (
+            "ELEMENT_BACKED_PSEUDO_ELEMENTS",
+            ELEMENT_BACKED_PSEUDO_ELEMENTS,
+        ),
+        ("SUB_PSEUDO_ELEMENTS", SUB_PSEUDO_ELEMENTS),
+        (
+            "ELEMENT_REPRESENTING_PSEUDO_ELEMENTS",
+            ELEMENT_REPRESENTING_PSEUDO_ELEMENTS,
+        ),
+        (
+            "WEBKIT_SCROLLBAR_PSEUDO_ELEMENTS",
+            WEBKIT_SCROLLBAR_PSEUDO_ELEMENTS,
+        ),
+        (
+            "VENDOR_SPECIFIC_PSEUDO_ELEMENTS",
+            VENDOR_SPECIFIC_PSEUDO_ELEMENTS,
+        ),
+        ("DEPRECATED_PSEUDO_ELEMENTS", DEPRECATED_PSEUDO_ELEMENTS),
+        ("PSEUDO_ELEMENTS", PSEUDO_ELEMENTS),
+        (
+            "PERCENTAGE_KEYFRAME_WITH_NAMED_EQUIVALENT",
+            PERCENTAGE_KEYFRAME_WITH_NAMED_EQUIVALENT,
+        ),
+        (
+            "AN_PLUS_B_NOTATION_PSEUDO_CLASSES",
+            AN_PLUS_B_NOTATION_PSEUDO_CLASSES,
+        ),
+        (
+            "AN_PLUS_B_OF_S_NOTATION_PSEUDO_CLASSES",
+            AN_PLUS_B_OF_S_NOTATION_PSEUDO_CLASSES,
+        ),
+        (
+            "TREE_STRUCTURAL_PSEUDO_CLASSES",
+            TREE_STRUCTURAL_PSEUDO_CLASSES,
+        ),
+        ("AT_RULE_PAGE_PSEUDO_CLASSES", AT_RULE_PAGE_PSEUDO_CLASSES),
+        ("LINGUISTIC_PSEUDO_CLASSES", LINGUISTIC_PSEUDO_CLASSES),
+        ("DIR_IDENTIFIERS", DIR_IDENTIFIERS),
+        ("FORGIVING_PSEUDO_CLASSES", FORGIVING_PSEUDO_CLASSES),
+        (
+            "LOGICAL_COMBINATIONS_PSEUDO_CLASSES",
+            LOGICAL_COMBINATIONS_PSEUDO_CLASSES,
+        ),
+        ("DEPRECATED_PSEUDO_CLASSES", DEPRECATED_PSEUDO_CLASSES),
+        (
+            "VENDOR_SPECIFIC_PSEUDO_CLASSES",
+            VENDOR_SPECIFIC_PSEUDO_CLASSES,
+        ),
+        (
+            "WEBKIT_SCROLLBAR_PSEUDO_CLASSES",
+            WEBKIT_SCROLLBAR_PSEUDO_CLASSES,
+        ),
+        (
+            "RESOURCE_STATE_PSEUDO_CLASSES",
+            RESOURCE_STATE_PSEUDO_CLASSES,
+        ),
+        ("PSEUDO_CLASSES", PSEUDO_CLASSES),
+        ("DISABLEABLE_ELEMENTS", DISABLEABLE_ELEMENTS),
+        ("CHECKABLE_ELEMENTS", CHECKABLE_ELEMENTS),
+        ("REQUIRABLE_ELEMENTS", REQUIRABLE_ELEMENTS),
+        ("VALIDATABLE_ELEMENTS", VALIDATABLE_ELEMENTS),
+        ("RANGEABLE_ELEMENTS", RANGEABLE_ELEMENTS),
+        (
+            "PLACEHOLDER_SHOWABLE_ELEMENTS",
+            PLACEHOLDER_SHOWABLE_ELEMENTS,
+        ),
+        ("DEFAULTABLE_ELEMENTS", DEFAULTABLE_ELEMENTS),
+        ("AUTOFILLABLE_ELEMENTS", AUTOFILLABLE_ELEMENTS),
+        ("LINK_ELEMENTS", LINK_ELEMENTS),
+        ("COLOR_PROFILE_DESCRIPTORS", COLOR_PROFILE_DESCRIPTORS),
+        ("COUNTER_STYLE_DESCRIPTORS", COUNTER_STYLE_DESCRIPTORS),
+        ("FONT_FACE_DESCRIPTORS", FONT_FACE_DESCRIPTORS),
+        (
+            "FONT_FEATURE_VALUES_DESCRIPTORS",
+            FONT_FEATURE_VALUES_DESCRIPTORS,
+        ),
+        (
+            "FONT_PALETTE_VALUES_DESCRIPTORS",
+            FONT_PALETTE_VALUES_DESCRIPTORS,
+        ),
+        ("PAGE_DESCRIPTORS", PAGE_DESCRIPTORS),
+        ("POSITION_TRY_DESCRIPTORS", POSITION_TRY_DESCRIPTORS),
+        ("PROPERTY_DESCRIPTORS", PROPERTY_DESCRIPTORS),
+        ("VIEW_TRANSITION_DESCRIPTORS", VIEW_TRANSITION_DESCRIPTORS),
+        ("VIEWPORT_DESCRIPTORS", VIEWPORT_DESCRIPTORS),
+        ("AUTOPREFIXABLE_AT_RULES", AUTOPREFIXABLE_AT_RULES),
+        ("AUTOPREFIXABLE_SELECTORS", AUTOPREFIXABLE_SELECTORS),
+        ("AUTOPREFIXABLE_PROPERTIES", AUTOPREFIXABLE_PROPERTIES),
+        (
+            "AUTOPREFIXABLE_PROPERTY_VALUES",
+            AUTOPREFIXABLE_PROPERTY_VALUES,
+        ),
+    ];
+
+    const MIXED_CASE_TABLES: &[&str] = &[
+        "UNITS",
+        "CAMEL_CASE_FUNCTIONS",
+        "CAMEL_CASE_KEYWORDS",
+        "DEPRECATED_SVG_TYPE_SELECTORS",
+        "STANDARD_SVG_TYPE_SELECTORS",
+        "SVG_TYPE_SELECTORS",
+        "MIXED_CASE_SVG_TYPE_SELECTORS",
+    ];
+
+    fn assert_bool(f: fn(&str) -> bool, cases: &[(&str, bool)]) {
+        for &(input, expected) in cases {
+            assert_eq!(f(input), expected, "input: {input:?}");
+        }
+    }
+
+    fn assert_subset(name: &str, sub: &[&str], sup: &[&str]) {
+        for s in sub {
+            assert!(sup.contains(s), "{name}: {s:?} missing");
+        }
+    }
+
+    fn assert_same_set(name: &str, a: &[&str], b: &[&str]) {
+        assert_eq!(a.len(), b.len(), "{name}: length mismatch");
+        assert_subset(name, a, b);
+        assert_subset(name, b, a);
+    }
+
+    #[test]
+    fn tables_have_no_duplicates() {
+        for &(name, table) in TABLES {
+            let mut seen = std::collections::HashSet::new();
+            for entry in table {
+                assert!(seen.insert(*entry), "{name}: duplicate {entry:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn tables_have_no_empty_or_padded_entries() {
+        for &(name, table) in TABLES {
+            assert!(!table.is_empty(), "{name}: empty table");
+            for entry in table {
+                assert!(!entry.is_empty(), "{name}: empty entry");
+                assert_eq!(entry.trim(), *entry, "{name}: padded {entry:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn tables_are_lowercase_except_mixed_case_tables() {
+        for &(name, table) in TABLES {
+            let has_upper = table
+                .iter()
+                .any(|e| e.bytes().any(|b| b.is_ascii_uppercase()));
+            assert_eq!(has_upper, MIXED_CASE_TABLES.contains(&name), "{name}");
+        }
+    }
+
+    #[test]
+    fn tables_sample_upstream_entries() {
+        let cases: &[(&str, &[&str], &[&str])] = &[
+            (
+                "LENGTH_UNITS",
+                LENGTH_UNITS,
+                &["px", "rem", "cqmin", "dvh", "mozmm", "fr", "q"],
+            ),
+            (
+                "RESOLUTION_UNITS",
+                RESOLUTION_UNITS,
+                &["dpi", "dpcm", "dppx", "x"],
+            ),
+            (
+                "FLOW_RELATIVE_UNITS",
+                FLOW_RELATIVE_UNITS,
+                &["vi", "vb", "cqi", "cqb"],
+            ),
+            (
+                "UNITS",
+                UNITS,
+                &["%", "s", "ms", "deg", "turn", "Hz", "kHz", "dppx"],
+            ),
+            (
+                "DEPRECATED_AT_KEYWORDS",
+                DEPRECATED_AT_KEYWORDS,
+                &["document", "nest", "viewport"],
+            ),
+            (
+                "NESTING_SUPPORTED_AT_KEYWORDS",
+                NESTING_SUPPORTED_AT_KEYWORDS,
+                &[
+                    "container",
+                    "layer",
+                    "media",
+                    "scope",
+                    "starting-style",
+                    "supports",
+                ],
+            ),
+            (
+                "PAGE_MARGIN_AT_KEYWORDS",
+                PAGE_MARGIN_AT_KEYWORDS,
+                &["top-left-corner", "bottom-center", "right-bottom"],
+            ),
+            (
+                "FONT_FEATURE_VALUE_TYPES",
+                FONT_FEATURE_VALUE_TYPES,
+                &["annotation", "styleset", "swash"],
+            ),
+            (
+                "AT_KEYWORDS",
+                AT_KEYWORDS,
+                &[
+                    "apply",
+                    "font-face",
+                    "import",
+                    "keyframes",
+                    "namespace",
+                    "property",
+                    "position-try",
+                    "view-transition",
+                ],
+            ),
+            (
+                "CAMEL_CASE_FUNCTIONS",
+                CAMEL_CASE_FUNCTIONS,
+                &["translateX", "scaleY", "rotateZ", "skewX"],
+            ),
+            (
+                "COLOR_FUNCTIONS",
+                COLOR_FUNCTIONS,
+                &["rgb", "hsla", "oklch", "color-mix", "light-dark", "color"],
+            ),
+            (
+                "MATH_FUNCTIONS",
+                MATH_FUNCTIONS,
+                &["calc", "calc-size", "clamp", "atan2", "round", "random"],
+            ),
+            (
+                "SINGLE_ARGUMENT_MATH_FUNCTIONS",
+                SINGLE_ARGUMENT_MATH_FUNCTIONS,
+                &["abs", "sqrt", "sign"],
+            ),
+            (
+                "DEPRECATED_MEDIA_TYPES_NAMES",
+                DEPRECATED_MEDIA_TYPES_NAMES,
+                &["aural", "tty", "tv"],
+            ),
+            ("PREFIXES", PREFIXES, &["-webkit-", "-moz-", "-ms-", "-o-"]),
+            (
+                "RANGE_TYPE_MEDIA_FEATURE_NAMES",
+                RANGE_TYPE_MEDIA_FEATURE_NAMES,
+                &["width", "aspect-ratio", "resolution", "device-width"],
+            ),
+            (
+                "RANGE_TYPE_MEDIA_FEATURE_NAMES_WITH_MIN_MAX_PREFIX",
+                RANGE_TYPE_MEDIA_FEATURE_NAMES_WITH_MIN_MAX_PREFIX,
+                &["min-width", "max-resolution", "min-color-index"],
+            ),
+            (
+                "DISCRETE_TYPE_MEDIA_FEATURE_NAMES",
+                DISCRETE_TYPE_MEDIA_FEATURE_NAMES,
+                &["hover", "prefers-color-scheme", "scripting", "update"],
+            ),
+            (
+                "MEDIA_FEATURE_NAMES",
+                MEDIA_FEATURE_NAMES,
+                &["width", "min-width", "hover", "device-aspect-ratio"],
+            ),
+            (
+                "BASIC_KEYWORDS",
+                BASIC_KEYWORDS,
+                &["initial", "inherit", "revert", "revert-layer", "unset"],
+            ),
+            (
+                "SYSTEM_FONT_KEYWORDS",
+                SYSTEM_FONT_KEYWORDS,
+                &[
+                    "caption",
+                    "icon",
+                    "menu",
+                    "message-box",
+                    "small-caption",
+                    "status-bar",
+                ],
+            ),
+            (
+                "FONT_FAMILY_KEYWORDS",
+                FONT_FAMILY_KEYWORDS,
+                &[
+                    "serif",
+                    "sans-serif",
+                    "monospace",
+                    "system-ui",
+                    "math",
+                    "inherit",
+                ],
+            ),
+            (
+                "PREFIXED_SYSTEM_FONTS",
+                PREFIXED_SYSTEM_FONTS,
+                &["-apple-system", "-moz-button", "-webkit-body"],
+            ),
+            (
+                "FONT_WEIGHT_KEYWORDS",
+                FONT_WEIGHT_KEYWORDS,
+                &["normal", "bold", "bolder", "100", "900"],
+            ),
+            (
+                "FONT_SIZE_KEYWORDS",
+                FONT_SIZE_KEYWORDS,
+                &[
+                    "xx-small",
+                    "xxx-large",
+                    "smaller",
+                    "math",
+                    "-webkit-xxx-large",
+                ],
+            ),
+            (
+                "FONT_SHORTHAND_KEYWORDS",
+                FONT_SHORTHAND_KEYWORDS,
+                &["italic", "small-caps", "condensed", "large", "normal"],
+            ),
+            (
+                "ANIMATION_SHORTHAND_KEYWORDS",
+                ANIMATION_SHORTHAND_KEYWORDS,
+                &[
+                    "ease-in-out",
+                    "infinite",
+                    "alternate",
+                    "forwards",
+                    "paused",
+                    "step-start",
+                ],
+            ),
+            ("GRID_ROW_KEYWORDS", GRID_ROW_KEYWORDS, &["auto", "span"]),
+            (
+                "COUNTER_INCREMENT_KEYWORDS",
+                COUNTER_INCREMENT_KEYWORDS,
+                &["none", "unset"],
+            ),
+            (
+                "LIST_STYLE_TYPE_KEYWORDS",
+                LIST_STYLE_TYPE_KEYWORDS,
+                &["disc", "decimal", "lower-roman", "upper-alpha", "georgian"],
+            ),
+            (
+                "LIST_STYLE_SHORTHAND_KEYWORDS",
+                LIST_STYLE_SHORTHAND_KEYWORDS,
+                &["inside", "outside", "none", "square"],
+            ),
+            (
+                "CAMEL_CASE_KEYWORDS",
+                CAMEL_CASE_KEYWORDS,
+                &["currentColor", "optimizeSpeed", "geometricPrecision"],
+            ),
+            (
+                "KEYFRAME_SELECTOR_KEYWORDS",
+                KEYFRAME_SELECTOR_KEYWORDS,
+                &["from", "to"],
+            ),
+            (
+                "SYSTEM_COLORS_KEYWORDS",
+                SYSTEM_COLORS_KEYWORDS,
+                &[
+                    "canvas",
+                    "canvastext",
+                    "buttonface",
+                    "activeborder",
+                    "-moz-buttondefault",
+                ],
+            ),
+            (
+                "NAMED_COLORS_KEYWORDS",
+                NAMED_COLORS_KEYWORDS,
+                &["aliceblue", "rebeccapurple", "yellowgreen"],
+            ),
+            (
+                "ACCEPT_CUSTOM_IDENTS_PROPERTIES",
+                ACCEPT_CUSTOM_IDENTS_PROPERTIES,
+                &[
+                    "animation-name",
+                    "font-family",
+                    "counter-increment",
+                    "list-style-type",
+                ],
+            ),
+            (
+                "ACCEPT_PROPERTY_NAMES_PROPERTIES",
+                ACCEPT_PROPERTY_NAMES_PROPERTIES,
+                &["transition", "transition-property", "will-change"],
+            ),
+            (
+                "SHORTHAND_PROPERTIES",
+                SHORTHAND_PROPERTIES,
+                &[
+                    "margin",
+                    "border",
+                    "font",
+                    "grid-template",
+                    "scroll-padding-inline",
+                ],
+            ),
+            (
+                "SINGLE_VALUE_COLOR_PROPERTIES",
+                SINGLE_VALUE_COLOR_PROPERTIES,
+                &["color", "background-color", "outline-color", "caret-color"],
+            ),
+            (
+                "COLOR_PROPERTIES",
+                COLOR_PROPERTIES,
+                &["color", "border-color", "scrollbar-color"],
+            ),
+            (
+                "LONGHAND_TIME_PROPERTIES",
+                LONGHAND_TIME_PROPERTIES,
+                &["transition-duration", "animation-delay"],
+            ),
+            (
+                "PAGE_CONTEXT_PROPERTIES",
+                PAGE_CONTEXT_PROPERTIES,
+                &["margin", "direction", "font-size"],
+            ),
+            (
+                "MARGIN_CONTEXT_PROPERTIES",
+                MARGIN_CONTEXT_PROPERTIES,
+                &["content", "vertical-align", "padding"],
+            ),
+            (
+                "PREVIOUSLY_KNOWN_PROPERTIES",
+                PREVIOUSLY_KNOWN_PROPERTIES,
+                &["accelerator", "app-region"],
+            ),
+            (
+                "PREVIOUSLY_KNOWN_PREFIXED_PROPERTIES",
+                PREVIOUSLY_KNOWN_PREFIXED_PROPERTIES,
+                &["-webkit-wrap", "-epub-text-combine"],
+            ),
+            (
+                "FLOW_RELATIVE_PROPERTIES",
+                FLOW_RELATIVE_PROPERTIES,
+                &[
+                    "margin-inline-start",
+                    "inline-size",
+                    "border-start-start-radius",
+                    "inset-block",
+                ],
+            ),
+            (
+                "HTML_TYPE_SELECTORS",
+                HTML_TYPE_SELECTORS,
+                &["div", "a", "acronym", "marquee", "template", "search"],
+            ),
+            (
+                "SVG_TYPE_SELECTORS",
+                SVG_TYPE_SELECTORS,
+                &["svg", "clipPath", "feGaussianBlur", "altGlyph", "hatch"],
+            ),
+            (
+                "MIXED_CASE_SVG_TYPE_SELECTORS",
+                MIXED_CASE_SVG_TYPE_SELECTORS,
+                &["clipPath", "linearGradient", "textPath"],
+            ),
+            (
+                "MATHML_TYPE_SELECTORS",
+                MATHML_TYPE_SELECTORS,
+                &["math", "mrow", "abs", "annotation-xml"],
+            ),
+            (
+                "HYPHEN_CONTAINING_TYPE_SELECTORS",
+                HYPHEN_CONTAINING_TYPE_SELECTORS,
+                &["annotation-xml", "font-face", "missing-glyph"],
+            ),
+            (
+                "LEVEL_ONE_AND_TWO_PSEUDO_ELEMENTS",
+                LEVEL_ONE_AND_TWO_PSEUDO_ELEMENTS,
+                &["before", "after", "first-line", "first-letter"],
+            ),
+            (
+                "PSEUDO_ELEMENTS",
+                PSEUDO_ELEMENTS,
+                &[
+                    "before",
+                    "placeholder",
+                    "selection",
+                    "part",
+                    "slotted",
+                    "-webkit-scrollbar",
+                    "view-transition",
+                ],
+            ),
+            (
+                "WEBKIT_SCROLLBAR_PSEUDO_ELEMENTS",
+                WEBKIT_SCROLLBAR_PSEUDO_ELEMENTS,
+                &[
+                    "-webkit-scrollbar",
+                    "-webkit-scrollbar-thumb",
+                    "-webkit-resizer",
+                ],
+            ),
+            (
+                "AN_PLUS_B_NOTATION_PSEUDO_CLASSES",
+                AN_PLUS_B_NOTATION_PSEUDO_CLASSES,
+                &[
+                    "nth-column",
+                    "nth-last-column",
+                    "nth-last-of-type",
+                    "nth-of-type",
+                ],
+            ),
+            (
+                "TREE_STRUCTURAL_PSEUDO_CLASSES",
+                TREE_STRUCTURAL_PSEUDO_CLASSES,
+                &["root", "empty", "first-child", "only-of-type", "nth-child"],
+            ),
+            (
+                "AT_RULE_PAGE_PSEUDO_CLASSES",
+                AT_RULE_PAGE_PSEUDO_CLASSES,
+                &["first", "right", "left", "blank"],
+            ),
+            (
+                "PSEUDO_CLASSES",
+                PSEUDO_CLASSES,
+                &[
+                    "hover",
+                    "focus-visible",
+                    "has",
+                    "is",
+                    "where",
+                    "not",
+                    "nth-child",
+                    "host",
+                    "popover-open",
+                ],
+            ),
+            (
+                "DEPRECATED_PSEUDO_CLASSES",
+                DEPRECATED_PSEUDO_CLASSES,
+                &["matches"],
+            ),
+            (
+                "WEBKIT_SCROLLBAR_PSEUDO_CLASSES",
+                WEBKIT_SCROLLBAR_PSEUDO_CLASSES,
+                &["horizontal", "vertical", "decrement", "window-inactive"],
+            ),
+            (
+                "AUTOPREFIXABLE_AT_RULES",
+                AUTOPREFIXABLE_AT_RULES,
+                &["@-moz-keyframes", "@-ms-viewport", "@-moz-document"],
+            ),
+            (
+                "AUTOPREFIXABLE_SELECTORS",
+                AUTOPREFIXABLE_SELECTORS,
+                &[":-moz-any-link", "::-webkit-backdrop", "::-moz-selection"],
+            ),
+            (
+                "AUTOPREFIXABLE_PROPERTIES",
+                AUTOPREFIXABLE_PROPERTIES,
+                &["transition", "user-select", "appearance", "writing-mode"],
+            ),
+            (
+                "AUTOPREFIXABLE_PROPERTY_VALUES",
+                AUTOPREFIXABLE_PROPERTY_VALUES,
+                &[
+                    "-webkit-max-content",
+                    "-moz-calc",
+                    "-ms-flexbox",
+                    "-moz-thai",
+                ],
+            ),
+        ];
+        for &(name, table, samples) in cases {
+            assert_subset(name, samples, table);
+        }
+    }
+
+    #[test]
+    fn tables_compose_like_upstream_unions() {
+        let cat = |parts: &[&[&'static str]]| -> Vec<&'static str> {
+            let mut out: Vec<&str> = Vec::new();
+            for part in parts {
+                for s in *part {
+                    if !out.contains(s) {
+                        out.push(s);
+                    }
+                }
+            }
+            out
+        };
+        let mixed: Vec<&str> = SVG_TYPE_SELECTORS
+            .iter()
+            .copied()
+            .filter(|s| *s != s.to_lowercase())
+            .collect();
+        let flow_units: Vec<&str> = UNITS
+            .iter()
+            .filter_map(|u| physical_to_flow_relative_unit(u))
+            .flat_map(|(a, b)| [a, b])
+            .collect();
+        let cases: &[(&str, &[&str], Vec<&str>)] = &[
+            (
+                "CSS_WIDE_KEYWORDS",
+                CSS_WIDE_KEYWORDS,
+                cat(&[BASIC_KEYWORDS]),
+            ),
+            (
+                "GRID_COLUMN_KEYWORDS",
+                GRID_COLUMN_KEYWORDS,
+                cat(&[GRID_ROW_KEYWORDS]),
+            ),
+            (
+                "GRID_AREA_KEYWORDS",
+                GRID_AREA_KEYWORDS,
+                cat(&[GRID_ROW_KEYWORDS]),
+            ),
+            (
+                "COUNTER_RESET_KEYWORDS",
+                COUNTER_RESET_KEYWORDS,
+                cat(&[COUNTER_INCREMENT_KEYWORDS]),
+            ),
+            (
+                "HUE_COLOR_FUNCTIONS",
+                HUE_COLOR_FUNCTIONS,
+                cat(&[
+                    HUE_AS_FIRST_COMPONENT_COLOR_FUNCTIONS,
+                    HUE_AS_THIRD_COMPONENT_COLOR_FUNCTIONS,
+                ]),
+            ),
+            (
+                "LIGHTNESS_COLOR_FUNCTIONS",
+                LIGHTNESS_COLOR_FUNCTIONS,
+                cat(&[
+                    LIGHTNESS_ZERO_TO_ONE_COLOR_FUNCTIONS,
+                    LIGHTNESS_ZERO_TO_HUNDRED_COLOR_FUNCTIONS,
+                ]),
+            ),
+            (
+                "LEGACY_NOTATION_COLOR_FUNCTIONS",
+                LEGACY_NOTATION_COLOR_FUNCTIONS,
+                cat(&[
+                    WITH_ALPHA_ALIAS_COLOR_FUNCTIONS,
+                    WITHOUT_ALPHA_ALIAS_COLOR_FUNCTIONS,
+                ]),
+            ),
+            (
+                "MEDIA_FEATURE_NAMES",
+                MEDIA_FEATURE_NAMES,
+                cat(&[
+                    DEPRECATED_MEDIA_FEATURE_NAMES,
+                    RANGE_TYPE_MEDIA_FEATURE_NAMES,
+                    RANGE_TYPE_MEDIA_FEATURE_NAMES_WITH_MIN_MAX_PREFIX,
+                    DISCRETE_TYPE_MEDIA_FEATURE_NAMES,
+                ]),
+            ),
+            (
+                "PREFIXED_SYSTEM_FONTS",
+                PREFIXED_SYSTEM_FONTS,
+                cat(&[
+                    APPLE_SYSTEM_FONTS,
+                    MOZILLA_SYSTEM_FONTS,
+                    WEBKIT_SYSTEM_FONTS,
+                ]),
+            ),
+            (
+                "FONT_WEIGHT_NON_NUMERIC_KEYWORDS",
+                FONT_WEIGHT_NON_NUMERIC_KEYWORDS,
+                cat(&[FONT_WEIGHT_RELATIVE_KEYWORDS, FONT_WEIGHT_ABSOLUTE_KEYWORDS]),
+            ),
+            (
+                "FONT_WEIGHT_KEYWORDS",
+                FONT_WEIGHT_KEYWORDS,
+                cat(&[
+                    BASIC_KEYWORDS,
+                    FONT_WEIGHT_NON_NUMERIC_KEYWORDS,
+                    FONT_WEIGHT_NUMERIC_KEYWORDS,
+                ]),
+            ),
+            (
+                "FONT_SHORTHAND_KEYWORDS",
+                FONT_SHORTHAND_KEYWORDS,
+                cat(&[
+                    BASIC_KEYWORDS,
+                    FONT_STYLE_KEYWORDS,
+                    FONT_VARIANT_CSS2_KEYWORDS,
+                    FONT_WEIGHT_KEYWORDS,
+                    FONT_STRETCH_KEYWORDS,
+                    FONT_SIZE_KEYWORDS,
+                    LINE_HEIGHT_KEYWORDS,
+                    FONT_FAMILY_KEYWORDS,
+                ]),
+            ),
+            (
+                "ANIMATION_SHORTHAND_KEYWORDS",
+                ANIMATION_SHORTHAND_KEYWORDS,
+                cat(&[
+                    BASIC_KEYWORDS,
+                    ANIMATION_NAME_KEYWORDS,
+                    ANIMATION_TIMING_FUNCTION_KEYWORDS,
+                    ANIMATION_ITERATION_COUNT_KEYWORDS,
+                    ANIMATION_DIRECTION_KEYWORDS,
+                    ANIMATION_FILL_MODE_KEYWORDS,
+                    ANIMATION_PLAY_STATE_KEYWORDS,
+                ]),
+            ),
+            (
+                "LIST_STYLE_SHORTHAND_KEYWORDS",
+                LIST_STYLE_SHORTHAND_KEYWORDS,
+                cat(&[
+                    BASIC_KEYWORDS,
+                    LIST_STYLE_TYPE_KEYWORDS,
+                    LIST_STYLE_POSITION_KEYWORDS,
+                    LIST_STYLE_IMAGE_KEYWORDS,
+                ]),
+            ),
+            (
+                "COLOR_PROPERTIES",
+                COLOR_PROPERTIES,
+                cat(&[SINGLE_VALUE_COLOR_PROPERTIES, MULTI_VALUE_COLOR_PROPERTIES]),
+            ),
+            (
+                "HTML_TYPE_SELECTORS",
+                HTML_TYPE_SELECTORS,
+                cat(&[
+                    DEPRECATED_HTML_TYPE_SELECTORS,
+                    STANDARD_HTML_TYPE_SELECTORS,
+                    EXPERIMENTAL_HTML_TYPE_SELECTORS,
+                ]),
+            ),
+            (
+                "SVG_TYPE_SELECTORS",
+                SVG_TYPE_SELECTORS,
+                cat(&[
+                    DEPRECATED_SVG_TYPE_SELECTORS,
+                    STANDARD_SVG_TYPE_SELECTORS,
+                    EXPERIMENTAL_SVG_TYPE_SELECTORS,
+                ]),
+            ),
+            (
+                "MIXED_CASE_SVG_TYPE_SELECTORS",
+                MIXED_CASE_SVG_TYPE_SELECTORS,
+                mixed,
+            ),
+            (
+                "FLOW_RELATIVE_UNITS",
+                FLOW_RELATIVE_UNITS,
+                cat(&[&flow_units]),
+            ),
+        ];
+        for (name, actual, expected) in cases {
+            assert_same_set(name, actual, expected);
+        }
+        let subsets: &[(&str, &[&str], &[&str])] = &[
+            (
+                "BASIC_KEYWORDS in FONT_FAMILY_KEYWORDS",
+                BASIC_KEYWORDS,
+                FONT_FAMILY_KEYWORDS,
+            ),
+            (
+                "BASIC_KEYWORDS in SYSTEM_FONT_KEYWORDS",
+                BASIC_KEYWORDS,
+                SYSTEM_FONT_KEYWORDS,
+            ),
+            (
+                "BASIC_KEYWORDS in FONT_SIZE_KEYWORDS",
+                BASIC_KEYWORDS,
+                FONT_SIZE_KEYWORDS,
+            ),
+            (
+                "DEPRECATED_AT_KEYWORDS in AT_KEYWORDS",
+                DEPRECATED_AT_KEYWORDS,
+                AT_KEYWORDS,
+            ),
+            (
+                "NESTING_SUPPORTED_AT_KEYWORDS in AT_KEYWORDS",
+                NESTING_SUPPORTED_AT_KEYWORDS,
+                AT_KEYWORDS,
+            ),
+            (
+                "PAGE_MARGIN_AT_KEYWORDS in AT_KEYWORDS",
+                PAGE_MARGIN_AT_KEYWORDS,
+                AT_KEYWORDS,
+            ),
+            (
+                "FONT_FEATURE_VALUE_TYPES in AT_KEYWORDS",
+                FONT_FEATURE_VALUE_TYPES,
+                AT_KEYWORDS,
+            ),
+            ("LENGTH_UNITS in UNITS", LENGTH_UNITS, UNITS),
+            ("RESOLUTION_UNITS in UNITS", RESOLUTION_UNITS, UNITS),
+            (
+                "SINGLE_ARGUMENT_MATH_FUNCTIONS in MATH_FUNCTIONS",
+                SINGLE_ARGUMENT_MATH_FUNCTIONS,
+                MATH_FUNCTIONS,
+            ),
+            (
+                "DEPRECATED_SYSTEM_COLOR_KEYWORDS in SYSTEM_COLORS_KEYWORDS",
+                DEPRECATED_SYSTEM_COLOR_KEYWORDS,
+                SYSTEM_COLORS_KEYWORDS,
+            ),
+            (
+                "PREFIXED_SYSTEM_COLOR_KEYWORDS in SYSTEM_COLORS_KEYWORDS",
+                PREFIXED_SYSTEM_COLOR_KEYWORDS,
+                SYSTEM_COLORS_KEYWORDS,
+            ),
+            (
+                "AN_PLUS_B_OF_S in TREE_STRUCTURAL",
+                AN_PLUS_B_OF_S_NOTATION_PSEUDO_CLASSES,
+                TREE_STRUCTURAL_PSEUDO_CLASSES,
+            ),
+            (
+                "AN_PLUS_B in PSEUDO_CLASSES",
+                AN_PLUS_B_NOTATION_PSEUDO_CLASSES,
+                PSEUDO_CLASSES,
+            ),
+            (
+                "LOGICAL_COMBINATIONS in PSEUDO_CLASSES",
+                LOGICAL_COMBINATIONS_PSEUDO_CLASSES,
+                PSEUDO_CLASSES,
+            ),
+            (
+                "FORGIVING in LOGICAL_COMBINATIONS",
+                FORGIVING_PSEUDO_CLASSES,
+                LOGICAL_COMBINATIONS_PSEUDO_CLASSES,
+            ),
+            (
+                "LINGUISTIC in PSEUDO_CLASSES",
+                LINGUISTIC_PSEUDO_CLASSES,
+                PSEUDO_CLASSES,
+            ),
+            (
+                "LEVEL_ONE_AND_TWO in PSEUDO_ELEMENTS",
+                LEVEL_ONE_AND_TWO_PSEUDO_ELEMENTS,
+                PSEUDO_ELEMENTS,
+            ),
+            (
+                "ELEMENT_REPRESENTING in PSEUDO_ELEMENTS",
+                ELEMENT_REPRESENTING_PSEUDO_ELEMENTS,
+                PSEUDO_ELEMENTS,
+            ),
+            (
+                "VENDOR_SPECIFIC in PSEUDO_ELEMENTS",
+                VENDOR_SPECIFIC_PSEUDO_ELEMENTS,
+                PSEUDO_ELEMENTS,
+            ),
+            (
+                "SHADOW_TREE in ELEMENT_BACKED",
+                SHADOW_TREE_PSEUDO_ELEMENTS,
+                ELEMENT_BACKED_PSEUDO_ELEMENTS,
+            ),
+            (
+                "ELEMENT_BACKED in ELEMENT_REPRESENTING",
+                ELEMENT_BACKED_PSEUDO_ELEMENTS,
+                ELEMENT_REPRESENTING_PSEUDO_ELEMENTS,
+            ),
+        ];
+        for &(name, sub, sup) in subsets {
+            assert_subset(name, sub, sup);
+        }
+    }
+
+    #[test]
+    fn in_set_is_case_sensitive() {
+        let set = &["foo", "Bar"];
+        let cases = [
+            ("foo", true),
+            ("Bar", true),
+            ("FOO", false),
+            ("bar", false),
+            ("", false),
+            ("baz", false),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(in_set(set, input), expected, "{input:?}");
+        }
+        assert!(!in_set(&[], "foo"));
+    }
+
+    #[test]
+    fn in_set_ignore_case_ignores_ascii_case() {
+        let set = &["foo", "Bar"];
+        let cases = [
+            ("foo", true),
+            ("FOO", true),
+            ("bar", true),
+            ("bAR", true),
+            ("", false),
+            ("fo", false),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(in_set_ignore_case(set, input), expected, "{input:?}");
+        }
+        assert!(!in_set_ignore_case(&[], "foo"));
+    }
+
+    #[test]
+    fn physical_to_flow_relative_unit_maps_physical_units() {
+        let cases = [
+            ("vw", Some(("vi", "vb"))),
+            ("vh", Some(("vb", "vi"))),
+            ("svw", Some(("svi", "svb"))),
+            ("svh", Some(("svb", "svi"))),
+            ("lvw", Some(("lvi", "lvb"))),
+            ("lvh", Some(("lvb", "lvi"))),
+            ("dvw", Some(("dvi", "dvb"))),
+            ("dvh", Some(("dvb", "dvi"))),
+            ("cqw", Some(("cqi", "cqb"))),
+            ("cqh", Some(("cqb", "cqi"))),
+            ("vi", None),
+            ("px", None),
+            ("vmin", None),
+            ("VW", None),
+            ("", None),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(physical_to_flow_relative_unit(input), expected, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn is_math_function_matches_upstream() {
+        assert_bool(
+            is_math_function,
+            &[
+                ("calc", true),
+                ("cALc", true),
+                ("calc-size", true),
+                ("var", false),
+            ],
+        );
+        assert_bool(
+            is_math_function,
+            &[
+                ("CLAMP", true),
+                ("min", true),
+                ("round", true),
+                ("env", false),
+                ("", false),
+                ("calc(", false),
+            ],
+        );
+    }
+
+    #[test]
+    fn media_feature_name_allowed_value_keywords_lookup() {
+        let cases: &[(&str, Option<&[&str]>)] = &[
+            ("hover", Some(&["none", "hover"])),
+            ("any-pointer", Some(&["none", "coarse", "fine"])),
+            ("prefers-color-scheme", Some(&["light", "dark"])),
+            (
+                "prefers-contrast",
+                Some(&["no-preference", "less", "more", "custom"]),
+            ),
+            ("resolution", Some(&["infinite"])),
+            ("scripting", Some(&["none", "initial-only", "enabled"])),
+            (
+                "display-mode",
+                Some(&[
+                    "fullscreen",
+                    "standalone",
+                    "minimal-ui",
+                    "browser",
+                    "picture-in-picture",
+                ]),
+            ),
+            ("width", None),
+            ("grid", None),
+            ("HOVER", None),
+            ("", None),
+        ];
+        for &(input, expected) in cases {
+            assert_eq!(
+                media_feature_name_allowed_value_keywords(input),
+                expected,
+                "{input:?}"
+            );
+        }
+        for name in DISCRETE_TYPE_MEDIA_FEATURE_NAMES {
+            if !matches!(*name, "grid" | "light-level") {
+                assert!(
+                    media_feature_name_allowed_value_keywords(name).is_some(),
+                    "{name}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn media_feature_name_allowed_value_types_lookup() {
+        let cases: &[(&str, Option<&[&str]>)] = &[
+            ("aspect-ratio", Some(&["ratio"])),
+            ("device-aspect-ratio", Some(&["ratio"])),
+            ("color", Some(&["integer"])),
+            ("monochrome", Some(&["integer"])),
+            ("width", Some(&["length"])),
+            ("device-height", Some(&["length"])),
+            ("resolution", Some(&["resolution"])),
+            ("grid", Some(&["mq-boolean"])),
+            ("min-width", None),
+            ("hover", None),
+            ("WIDTH", None),
+            ("", None),
+        ];
+        for &(input, expected) in cases {
+            assert_eq!(
+                media_feature_name_allowed_value_types(input),
+                expected,
+                "{input:?}"
+            );
+        }
+        for name in RANGE_TYPE_MEDIA_FEATURE_NAMES {
+            assert!(
+                media_feature_name_allowed_value_types(name).is_some(),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn is_css_wide_keyword_ignores_case() {
+        assert_bool(
+            is_css_wide_keyword,
+            &[
+                ("initial", true),
+                ("inherit", true),
+                ("revert", true),
+                ("revert-layer", true),
+                ("unset", true),
+                ("INHERIT", true),
+                ("Unset", true),
+                ("auto", false),
+                ("none", false),
+                ("default", false),
+                ("", false),
+            ],
+        );
+    }
+
+    #[test]
+    fn physical_to_flow_relative_value_keyword_lookup() {
+        let cases = [
+            ("float", "left", Some("inline-start")),
+            ("float", "right", Some("inline-end")),
+            ("clear", "left", Some("inline-start")),
+            ("clear", "right", Some("inline-end")),
+            ("clear", "both", None),
+            ("offset-anchor", "top", Some("block-start")),
+            ("offset-position", "bottom", Some("block-end")),
+            ("offset-position", "left", Some("inline-start")),
+            ("offset-anchor", "right", Some("inline-end")),
+            ("resize", "horizontal", Some("inline")),
+            ("resize", "vertical", Some("block")),
+            ("resize", "both", None),
+            ("text-align", "left", Some("start")),
+            ("text-align-last", "right", Some("end")),
+            ("text-align", "center", None),
+            ("float", "top", None),
+            ("margin", "left", None),
+            ("FLOAT", "left", None),
+            ("float", "LEFT", None),
+        ];
+        for (prop, kw, expected) in cases {
+            assert_eq!(
+                physical_to_flow_relative_value_keyword(prop, kw),
+                expected,
+                "{prop}: {kw}"
+            );
+        }
+    }
+
+    #[test]
+    fn flow_relative_value_keywords_for_property_lookup() {
+        let cases: &[(&str, Option<&[&str]>)] = &[
+            ("clear", Some(&["inline-start", "inline-end"])),
+            ("float", Some(&["inline-start", "inline-end"])),
+            (
+                "offset-anchor",
+                Some(&["block-start", "block-end", "inline-start", "inline-end"]),
+            ),
+            (
+                "offset-position",
+                Some(&["block-start", "block-end", "inline-start", "inline-end"]),
+            ),
+            ("resize", Some(&["inline", "block"])),
+            ("text-align", Some(&["start", "end"])),
+            ("text-align-last", Some(&["start", "end"])),
+            ("margin", None),
+            ("Float", None),
+            ("", None),
+        ];
+        for &(input, expected) in cases {
+            assert_eq!(
+                flow_relative_value_keywords_for_property(input),
+                expected,
+                "{input:?}"
+            );
+        }
+        for (prop, kw) in [
+            ("float", "left"),
+            ("offset-anchor", "top"),
+            ("resize", "vertical"),
+            ("text-align", "right"),
+        ] {
+            let mapped = physical_to_flow_relative_value_keyword(prop, kw).unwrap();
+            assert!(
+                flow_relative_value_keywords_for_property(prop)
+                    .unwrap()
+                    .contains(&mapped)
+            );
+        }
+    }
+
+    #[test]
+    fn shorthand_to_reset_to_initial_property_lookup() {
+        let border = shorthand_to_reset_to_initial_property("border").unwrap();
+        assert_eq!(border.len(), 6);
+        assert!(border.contains(&"border-image") && border.contains(&"border-image-width"));
+        let font = shorthand_to_reset_to_initial_property("font").unwrap();
+        assert_eq!(font.len(), 13);
+        assert!(font.contains(&"font-kerning") && font.contains(&"font-variation-settings"));
+        for input in ["margin", "border-top", "BORDER", ""] {
+            assert_eq!(
+                shorthand_to_reset_to_initial_property(input),
+                None,
+                "{input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn physical_shorthand_to_flow_relative_properties_lookup() {
+        let cases: &[(&str, usize, &[&str])] = &[
+            ("border", 24, &["border-block", "border-inline-end-color"]),
+            (
+                "border-color",
+                6,
+                &["border-block-color", "border-inline-end-color"],
+            ),
+            (
+                "border-radius",
+                4,
+                &["border-start-start-radius", "border-end-end-radius"],
+            ),
+            ("border-style", 6, &["border-inline-style"]),
+            ("border-width", 6, &["border-block-start-width"]),
+            (
+                "contain-intrinsic-size",
+                2,
+                &[
+                    "contain-intrinsic-block-size",
+                    "contain-intrinsic-inline-size",
+                ],
+            ),
+            ("inset", 6, &["inset-block", "inset-inline-end"]),
+            ("margin", 6, &["margin-block", "margin-inline-start"]),
+            ("overflow", 2, &["overflow-block", "overflow-inline"]),
+            ("overscroll-behavior", 2, &["overscroll-behavior-block"]),
+            ("padding", 6, &["padding-inline"]),
+            ("scroll-margin", 6, &["scroll-margin-block-end"]),
+            ("scroll-padding", 6, &["scroll-padding-inline-start"]),
+        ];
+        for &(input, len, samples) in cases {
+            let props = physical_shorthand_to_flow_relative_properties(input).unwrap();
+            assert_eq!(props.len(), len, "{input}");
+            assert_subset(input, samples, props);
+            assert_subset(input, props, FLOW_RELATIVE_PROPERTIES);
+        }
+        for input in ["margin-left", "font", "MARGIN", ""] {
+            assert_eq!(
+                physical_shorthand_to_flow_relative_properties(input),
+                None,
+                "{input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn longhand_sub_properties_of_shorthand_lookup() {
+        let cases: &[(&str, &[&str])] = &[
+            (
+                "margin",
+                &["margin-top", "margin-right", "margin-bottom", "margin-left"],
+            ),
+            ("flex", &["flex-grow", "flex-shrink", "flex-basis"]),
+            ("flex-flow", &["flex-direction", "flex-wrap"]),
+            ("place-items", &["align-items", "justify-items"]),
+            (
+                "scroll-padding-inline",
+                &["scroll-padding-inline-start", "scroll-padding-inline-end"],
+            ),
+        ];
+        for &(input, expected) in cases {
+            assert_same_set(
+                input,
+                longhand_sub_properties_of_shorthand(input).unwrap(),
+                expected,
+            );
+        }
+        let animation = longhand_sub_properties_of_shorthand("animation").unwrap();
+        assert_eq!(animation.len(), 8);
+        assert!(animation.contains(&"animation-play-state"));
+        for shorthand in SHORTHAND_PROPERTIES {
+            assert!(
+                longhand_sub_properties_of_shorthand(shorthand).is_some(),
+                "{shorthand}"
+            );
+        }
+        for input in ["margin-top", "color", "MARGIN", ""] {
+            assert_eq!(
+                longhand_sub_properties_of_shorthand(input),
+                None,
+                "{input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn physical_to_flow_relative_property_lookup() {
+        let cases = [
+            ("margin-left", Some("margin-inline-start")),
+            ("margin-bottom", Some("margin-block-end")),
+            ("padding-right", Some("padding-inline-end")),
+            ("border-top", Some("border-block-start")),
+            ("border-left-width", Some("border-inline-start-width")),
+            ("border-bottom-style", Some("border-block-end-style")),
+            ("border-right-color", Some("border-inline-end-color")),
+            ("left", Some("inset-inline-start")),
+            ("top", Some("inset-block-start")),
+            ("width", Some("inline-size")),
+            ("max-height", Some("max-block-size")),
+            ("scroll-margin-top", Some("scroll-margin-block-start")),
+            ("scroll-padding-left", Some("scroll-padding-inline-start")),
+            ("border-top-left-radius", Some("border-start-start-radius")),
+            ("border-bottom-right-radius", Some("border-end-end-radius")),
+            ("overflow-x", Some("overflow-inline")),
+            ("overscroll-behavior-y", Some("overscroll-behavior-block")),
+            (
+                "contain-intrinsic-width",
+                Some("contain-intrinsic-inline-size"),
+            ),
+            ("margin", None),
+            ("margin-inline-start", None),
+            ("Margin-Left", None),
+            ("", None),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(
+                physical_to_flow_relative_property(input),
+                expected,
+                "{input:?}"
+            );
+        }
+        for physical in [
+            "margin-left",
+            "padding-top",
+            "border-right-style",
+            "min-width",
+            "overflow-y",
+        ] {
+            let flow = physical_to_flow_relative_property(physical).unwrap();
+            assert!(FLOW_RELATIVE_PROPERTIES.contains(&flow), "{flow}");
+        }
+    }
+
+    #[test]
+    fn physical_shorthand_to_flow_relative_by_axis_lookup() {
+        let cases = [
+            (
+                "border-color",
+                Some(("border-block-color", "border-inline-color", false)),
+            ),
+            (
+                "border-style",
+                Some(("border-block-style", "border-inline-style", false)),
+            ),
+            (
+                "border-width",
+                Some(("border-block-width", "border-inline-width", false)),
+            ),
+            ("inset", Some(("inset-block", "inset-inline", false))),
+            ("margin", Some(("margin-block", "margin-inline", false))),
+            (
+                "overflow",
+                Some(("overflow-block", "overflow-inline", true)),
+            ),
+            (
+                "overscroll-behavior",
+                Some((
+                    "overscroll-behavior-block",
+                    "overscroll-behavior-inline",
+                    true,
+                )),
+            ),
+            ("padding", Some(("padding-block", "padding-inline", false))),
+            (
+                "scroll-margin",
+                Some(("scroll-margin-block", "scroll-margin-inline", false)),
+            ),
+            (
+                "scroll-padding",
+                Some(("scroll-padding-block", "scroll-padding-inline", false)),
+            ),
+            ("border", None),
+            ("border-radius", None),
+            ("MARGIN", None),
+            ("", None),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(
+                physical_shorthand_to_flow_relative_by_axis(input),
+                expected,
+                "{input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn applicable_elements_by_pseudo_class_lookup() {
+        let cases: &[(&str, Option<&[&str]>)] = &[
+            ("any-link", Some(LINK_ELEMENTS)),
+            ("link", Some(&["a", "area"])),
+            ("visited", Some(LINK_ELEMENTS)),
+            ("autofill", Some(&["input", "select", "textarea"])),
+            ("checked", Some(&["input", "option"])),
+            ("default", Some(&["button", "input", "option"])),
+            ("disabled", Some(DISABLEABLE_ELEMENTS)),
+            ("enabled", Some(DISABLEABLE_ELEMENTS)),
+            ("in-range", Some(&["input"])),
+            ("out-of-range", Some(RANGEABLE_ELEMENTS)),
+            ("invalid", Some(VALIDATABLE_ELEMENTS)),
+            ("user-invalid", Some(VALIDATABLE_ELEMENTS)),
+            ("user-valid", Some(VALIDATABLE_ELEMENTS)),
+            (
+                "valid",
+                Some(&["button", "fieldset", "form", "input", "select", "textarea"]),
+            ),
+            ("optional", Some(REQUIRABLE_ELEMENTS)),
+            ("required", Some(&["input", "select", "textarea"])),
+            ("placeholder-shown", Some(&["input", "textarea"])),
+            ("hover", None),
+            ("Checked", None),
+            (":checked", None),
+            ("", None),
+        ];
+        for &(input, expected) in cases {
+            assert_eq!(
+                applicable_elements_by_pseudo_class(input),
+                expected,
+                "{input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn at_rule_descriptors_lookup() {
+        let cases: &[(&str, Option<&[&str]>)] = &[
+            ("color-profile", Some(COLOR_PROFILE_DESCRIPTORS)),
+            ("counter-style", Some(COUNTER_STYLE_DESCRIPTORS)),
+            ("font-face", Some(FONT_FACE_DESCRIPTORS)),
+            ("FONT-FACE", Some(FONT_FACE_DESCRIPTORS)),
+            ("font-feature-values", Some(FONT_FEATURE_VALUES_DESCRIPTORS)),
+            ("font-palette-values", Some(FONT_PALETTE_VALUES_DESCRIPTORS)),
+            ("page", Some(PAGE_DESCRIPTORS)),
+            ("Page", Some(PAGE_DESCRIPTORS)),
+            ("position-try", Some(POSITION_TRY_DESCRIPTORS)),
+            ("property", Some(PROPERTY_DESCRIPTORS)),
+            ("view-transition", Some(VIEW_TRANSITION_DESCRIPTORS)),
+            ("viewport", Some(VIEWPORT_DESCRIPTORS)),
+            ("-ms-viewport", Some(VIEWPORT_DESCRIPTORS)),
+            ("-o-viewport", Some(VIEWPORT_DESCRIPTORS)),
+            ("media", None),
+            ("@font-face", None),
+            ("-webkit-viewport", None),
+            ("", None),
+        ];
+        for &(input, expected) in cases {
+            assert_eq!(at_rule_descriptors(input), expected, "{input:?}");
+        }
+        let samples: &[(&str, &[&str])] = &[
+            (
+                "font-face",
+                &["src", "font-display", "unicode-range", "size-adjust"],
+            ),
+            (
+                "counter-style",
+                &["system", "symbols", "additive-symbols", "speak-as"],
+            ),
+            ("property", &["syntax", "inherits", "initial-value"]),
+            ("page", &["size", "marks", "bleed"]),
+            ("position-try", &["top", "position-area", "margin-inline"]),
+        ];
+        for &(at_rule, expected) in samples {
+            assert_subset(at_rule, expected, at_rule_descriptors(at_rule).unwrap());
+        }
+    }
+
+    #[test]
+    fn is_autoprefixable_at_rule_name_matches_upstream() {
+        assert_bool(
+            is_autoprefixable_at_rule_name,
+            &[
+                ("-moz-keyframes", true),
+                ("-ms-viewport", true),
+                ("-moz-document", true),
+                ("keyframes", false),
+                ("viewport", false),
+            ],
+        );
+        assert_bool(
+            is_autoprefixable_at_rule_name,
+            &[
+                ("-WEBKIT-Keyframes", true),
+                ("-o-viewport", true),
+                ("-webkit-document", false),
+                ("", false),
+            ],
+        );
+    }
+
+    #[test]
+    fn is_autoprefixable_selector_matches_upstream() {
+        assert_bool(
+            is_autoprefixable_selector,
+            &[
+                (":-moz-any-link", true),
+                ("::-webkit-backdrop", true),
+                (":-ms-input-placeholder", true),
+                ("::-webkit-input-placeholder", true),
+                ("::placeholder", false),
+                (":any-link", false),
+            ],
+        );
+        assert_bool(
+            is_autoprefixable_selector,
+            &[
+                (":-MOZ-Full-Screen", true),
+                ("-moz-any-link", false),
+                ("::-moz-any-link", false),
+                ("", false),
+            ],
+        );
+    }
+
+    #[test]
+    fn is_autoprefixable_media_feature_name_prefixed() {
+        assert_bool(
+            is_autoprefixable_media_feature_name,
+            &[
+                ("-webkit-min-device-pixel-ratio", true),
+                ("-webkit-device-pixel-ratio", true),
+                ("-moz-max-device-pixel-ratio", true),
+                ("-o-min-device-pixel-ratio", true),
+                ("-WEBKIT-MIN-DEVICE-PIXEL-RATIO", true),
+                ("-webkit-min-width", false),
+                ("width", false),
+                ("", false),
+            ],
+        );
+    }
+
+    #[test]
+    fn is_autoprefixable_property_matches_upstream() {
+        assert_bool(
+            is_autoprefixable_property,
+            &[
+                ("-webkit-transition", true),
+                ("transition", false),
+                ("-webkit-touch-callout", false),
+                ("-ms-interpolation-mode", false),
+            ],
+        );
+        assert_bool(
+            is_autoprefixable_property,
+            &[
+                ("-moz-user-select", true),
+                ("-ms-flex", true),
+                ("-WEBKIT-Transform", true),
+                ("--transition", false),
+                ("-webkit-", false),
+                ("", false),
+            ],
+        );
+    }
+
+    #[test]
+    fn is_autoprefixable_property_value_matches_upstream() {
+        assert_bool(
+            is_autoprefixable_property_value,
+            &[("-webkit-max-content", true), ("max-content", false)],
+        );
+        assert_bool(
+            is_autoprefixable_property_value,
+            &[
+                ("-MOZ-Calc", true),
+                ("-ms-grid", true),
+                ("-moz-thai", true),
+                ("-webkit-box", false),
+                ("", false),
+            ],
+        );
+    }
+
+    #[test]
+    fn direction_flow_to_sides_lookup() {
+        let cases = [
+            ("row", Some(("left", "right"))),
+            ("row-reverse", Some(("right", "left"))),
+            ("column", Some(("top", "bottom"))),
+            ("column-reverse", Some(("bottom", "top"))),
+            ("wrap", None),
+            ("ROW", None),
+            ("", None),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(direction_flow_to_sides(input), expected, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn is_custom_element_matches_upstream() {
+        assert_bool(
+            is_custom_element,
+            &[
+                ("x-foo", true),
+                ("X-foo", false),
+                ("x-Foo", false),
+                ("X-FOO", false),
+                (".foo", false),
+                (".foo-bar", false),
+                ("#foo", false),
+                ("#foo-bar", false),
+                (":foo", false),
+                (":foo-bar", false),
+                ("::foo", false),
+                ("::foo-bar", false),
+                ("div", false),
+                ("dIv", false),
+                ("DiV", false),
+                ("DIV", false),
+                ("foo", false),
+                ("acronym", false),
+                ("font-face", false),
+                ("clipPath", false),
+                ("abs", false),
+                ("annotation-xml", false),
+                ("applet", false),
+            ],
+        );
+        assert_bool(
+            is_custom_element,
+            &[
+                ("my-element", true),
+                ("a-", true),
+                ("missing-glyph", false),
+                ("1-foo", false),
+                ("-foo", false),
+                ("", false),
+            ],
+        );
+    }
+
+    #[test]
+    fn is_custom_element_non_ascii() {
+        assert_bool(is_custom_element, &[("math-α", true), ("emotion-😍", true)]);
+    }
+
+    #[test]
+    fn is_counter_increment_custom_ident_value_matches_upstream() {
+        assert_bool(
+            is_counter_increment_custom_ident_value,
+            &[
+                ("counter", true),
+                ("cOuNtEr", true),
+                ("COUNTER", true),
+                ("counter-name", true),
+                ("counter1", true),
+                ("counter2", true),
+                ("none", false),
+                ("inherit", false),
+                ("initial", false),
+                ("unset", false),
+                ("-1", false),
+                ("1", false),
+            ],
+        );
+        assert_bool(
+            is_counter_increment_custom_ident_value,
+            &[("NONE", false), ("revert-layer", false), ("+2", false)],
+        );
+    }
+
+    #[test]
+    fn is_counter_reset_custom_ident_value_matches_upstream() {
+        assert_bool(
+            is_counter_reset_custom_ident_value,
+            &[
+                ("counter", true),
+                ("cOuNtEr", true),
+                ("COUNTER", true),
+                ("counter-name", true),
+                ("counter1", true),
+                ("counter2", true),
+                ("none", false),
+                ("inherit", false),
+                ("initial", false),
+                ("unset", false),
+                ("-1", false),
+                ("1", false),
+            ],
+        );
+        assert_bool(
+            is_counter_reset_custom_ident_value,
+            &[("Inherit", false), ("revert", false), ("0", false)],
+        );
+    }
+
+    #[test]
+    fn counter_custom_ident_numeric_prefix() {
+        for f in [
+            is_counter_increment_custom_ident_value,
+            is_counter_reset_custom_ident_value,
+        ] {
+            assert_bool(f, &[("1foo", false), ("1.5", false)]);
+        }
+    }
+
+    #[test]
+    fn is_valid_font_size_matches_upstream() {
+        assert_bool(
+            is_valid_font_size,
+            &[
+                ("10px", true),
+                ("20%", true),
+                ("20", false),
+                ("small", true),
+                ("smaller", true),
+                ("smallest", false),
+                ("math", true),
+                ("", false),
+            ],
+        );
+        assert_bool(
+            is_valid_font_size,
+            &[
+                ("1.5em", true),
+                ("2REM", true),
+                ("10cqi", true),
+                ("10deg", false),
+                ("10s", false),
+                ("inherit", true),
+                ("px", false),
+            ],
+        );
+    }
+
+    #[test]
+    fn is_valid_font_size_keyword_case() {
+        assert_bool(is_valid_font_size, &[("SMALL", false), ("Medium", false)]);
+    }
+
+    #[test]
+    fn is_context_functional_pseudo_class_matches_upstream() {
+        assert_bool(
+            is_context_functional_pseudo_class,
+            &[
+                (":hover", false),
+                (":has", true),
+                (":is", true),
+                (":matches", true),
+                (":not", true),
+                (":where", true),
+                (":nth-child", true),
+                (":nth-last-child", true),
+            ],
+        );
+        assert_bool(
+            is_context_functional_pseudo_class,
+            &[
+                ("is", true),
+                (":NOT", true),
+                ("::where", true),
+                (":nth-of-type", false),
+                (":host", false),
+                ("", false),
+            ],
+        );
+    }
+
+    #[test]
+    fn is_selector_containing_pseudo_class_lookup() {
+        assert_bool(
+            is_selector_containing_pseudo_class,
+            &[
+                (":is", true),
+                (":not", true),
+                (":has", true),
+                (":nth-child", true),
+                (":host", true),
+                (":host-context", true),
+                ("::slotted", true),
+                (":HOST", true),
+                ("slotted", true),
+                (":hover", false),
+                ("::before", false),
+                (":nth-of-type", false),
+                ("", false),
+            ],
+        );
+    }
+
+    #[test]
+    fn is_family_name_keyword_matches_upstream() {
+        assert_bool(
+            is_family_name_keyword,
+            &[
+                ("serif", true),
+                ("SANS-SERIF", true),
+                ("monospace", true),
+                ("\"serif\"", false),
+                ("Arial", false),
+            ],
+        );
+        assert_bool(
+            is_family_name_keyword,
+            &[
+                ("system-ui", true),
+                ("ui-monospace", true),
+                ("inherit", true),
+                ("Cursive", true),
+                ("helvetica", false),
+                ("", false),
+            ],
+        );
+    }
+
+    #[test]
+    fn is_autoprefixable_media_feature_name_device_pixel_ratio() {
+        assert_bool(
+            is_autoprefixable_media_feature_name,
+            &[
+                ("min-device-pixel-ratio", true),
+                ("-ms-device-pixel-ratio", true),
+            ],
+        );
+    }
+
+    #[test]
+    fn is_autoprefixable_at_rule_name_at_sign() {
+        assert_bool(
+            is_autoprefixable_at_rule_name,
+            &[("@-moz-keyframes", false)],
+        );
     }
 }

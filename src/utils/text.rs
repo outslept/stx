@@ -3,6 +3,51 @@
 /// Extracts a leading CSS vendor prefix (e.g., `"-webkit-"`, `"-moz-"`, `"-ms-"`, `"-o-"`).
 ///
 /// Returns `None` if the identifier is not vendor-prefixed or is a custom property (`--*`).
+const FONT_SIZE_KEYWORDS: &[&str] = &[
+    "xx-small",
+    "x-small",
+    "small",
+    "medium",
+    "large",
+    "x-large",
+    "xx-large",
+    "xxx-large",
+    "larger",
+    "smaller",
+];
+const FONT_SIZE_UNITS: &[&str] = &[
+    "px", "em", "rem", "%", "pt", "pc", "in", "cm", "mm", "vh", "vw", "ch", "ex",
+];
+
+pub fn font_size_end(value: &str) -> Option<usize> {
+    let bytes = value.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        let start = i;
+        while i < bytes.len() && !bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        let token = value[start..i]
+            .split('/')
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if FONT_SIZE_KEYWORDS.contains(&token.as_str())
+            || FONT_SIZE_UNITS.iter().any(|unit| {
+                token
+                    .strip_suffix(unit)
+                    .is_some_and(|number| number.parse::<f64>().is_ok())
+            })
+        {
+            return Some(i);
+        }
+    }
+    None
+}
+
 pub fn vendor_prefix(s: &str) -> Option<&str> {
     let bytes = s.as_bytes();
     if bytes.len() < 3 || bytes[0] != b'-' || bytes[1] == b'-' {
@@ -271,4 +316,291 @@ pub fn normalize_combinator(value: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const VALUE: &str = "-1px -1px 1px rgba(0, 0, 0, 0.2) inset";
+
+    #[test]
+    fn vendor_prefix_upstream() {
+        assert_eq!(vendor_prefix("-moz-color"), Some("-moz-"));
+        assert_eq!(vendor_prefix("color"), None);
+        assert_eq!(vendor_prefix(VALUE), None);
+    }
+
+    #[test]
+    fn vendor_prefix_edge_cases() {
+        for (input, expected) in [
+            ("-webkit-box-shadow", Some("-webkit-")),
+            ("-ms-", Some("-ms-")),
+            ("-o-x", Some("-o-")),
+            ("-a_b-c", Some("-a_b-")),
+            ("--custom-prop", None),
+            ("--", None),
+            ("-", None),
+            ("", None),
+            ("-moz", None),
+            ("-é-x", None),
+        ] {
+            assert_eq!(vendor_prefix(input), expected, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn unprefixed_upstream() {
+        assert_eq!(unprefixed("-moz-color"), "color");
+        assert_eq!(unprefixed("color"), "color");
+        assert_eq!(unprefixed(VALUE), VALUE);
+    }
+
+    #[test]
+    fn unprefixed_edge_cases() {
+        assert_eq!(unprefixed("-webkit-box-shadow"), "box-shadow");
+        assert_eq!(unprefixed("--custom"), "--custom");
+        assert_eq!(unprefixed("-ms-"), "");
+        assert_eq!(unprefixed(""), "");
+    }
+
+    #[test]
+    fn strip_comments_preserving_offsets_cases() {
+        for (input, expected) in [
+            ("", ""),
+            ("a b", "a b"),
+            ("a/* x */b", "a       b"),
+            ("a/*\n*/b", "a  \n  b"),
+            ("a/*\r\n*/b", "a  \r\n  b"),
+            ("a/* x", "a    "),
+            ("/**/", "    "),
+            ("'/* x */'", "'/* x */'"),
+            ("\"a\\\"/*\"/*c*/", "\"a\\\"/*\"     "),
+            ("é/*ü*/x", "é      x"),
+            ("a /* 1 */ b /* 2 */", "a         b        "),
+        ] {
+            let out = strip_comments_preserving_offsets(input);
+            assert_eq!(out, expected, "{input:?}");
+            assert_eq!(out.len(), input.len(), "{input:?}");
+        }
+    }
+
+    #[test]
+    fn strip_comments_cases() {
+        for (input, expected) in [
+            ("", ""),
+            ("a b", "a b"),
+            ("a/* x */b", "ab"),
+            ("a/*\n*/b", "ab"),
+            ("a/* x", "a"),
+            ("/**/", ""),
+            ("a/*/b", "a"),
+            ("'/* x */'", "'/* x */'"),
+            ("\"a\\\"/*\"/*c*/", "\"a\\\"/*\""),
+            ("'a\\", "'a\\"),
+            ("é/*ü*/x", "éx"),
+            ("a /* 1 */ b /* 2 */", "a  b "),
+        ] {
+            assert_eq!(strip_comments(input), expected, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn split_top_level_cases() {
+        assert_eq!(split_top_level("", b','), vec![(0, 0, "")]);
+        assert_eq!(split_top_level("a", b','), vec![(0, 1, "a")]);
+        assert_eq!(
+            split_top_level("a,b,", b','),
+            vec![(0, 1, "a"), (2, 3, "b"), (4, 4, "")]
+        );
+        assert_eq!(
+            split_top_level("a, f(b, [c, {d, e}]), 'x,y', \"p,q\", /* m, n */ z", b','),
+            vec![
+                (0, 1, "a"),
+                (2, 20, " f(b, [c, {d, e}])"),
+                (21, 27, " 'x,y'"),
+                (28, 34, " \"p,q\""),
+                (35, 48, " /* m, n */ z"),
+            ]
+        );
+        assert_eq!(
+            split_top_level("'a\\',b',c", b','),
+            vec![(0, 7, "'a\\',b'"), (8, 9, "c")]
+        );
+        assert_eq!(
+            split_top_level("a,/* b, c", b','),
+            vec![(0, 1, "a"), (2, 9, "/* b, c")]
+        );
+        assert_eq!(
+            split_top_level("a,'b, c", b','),
+            vec![(0, 1, "a"), (2, 7, "'b, c")]
+        );
+        assert_eq!(
+            split_top_level("a) ,b", b','),
+            vec![(0, 3, "a) "), (4, 5, "b")]
+        );
+        assert_eq!(split_top_level("é,ü", b','), vec![(0, 2, "é"), (3, 5, "ü")]);
+        assert_eq!(
+            split_top_level("a b(c d)", b' '),
+            vec![(0, 1, "a"), (2, 8, "b(c d)")]
+        );
+    }
+
+    #[test]
+    fn trim_subslice_cases() {
+        assert_eq!(trim_subslice("  ab  ", 0, 6), (2, 4, "ab"));
+        assert_eq!(trim_subslice("x \t\nab\n y", 1, 8), (4, 6, "ab"));
+        assert_eq!(trim_subslice("   ", 0, 3), (3, 3, ""));
+        assert_eq!(trim_subslice("", 0, 0), (0, 0, ""));
+        assert_eq!(trim_subslice("a b", 1, 1), (1, 1, ""));
+        assert_eq!(trim_subslice(" é ", 0, 4), (1, 3, "é"));
+    }
+
+    #[test]
+    fn format_clean_float_cases() {
+        for (input, expected) in [
+            (0.0, "0"),
+            (50.0, "50"),
+            (-3.0, "-3"),
+            (0.5, "0.5"),
+            (-2.5, "-2.5"),
+            (33.333_333, "33.3333"),
+            (1.234_56, "1.2346"),
+            (0.1 + 0.2, "0.3"),
+            (1e-10, "0"),
+            (-0.000_01, "0"),
+            (12.300_000_1, "12.3"),
+        ] {
+            assert_eq!(format_clean_float(input), expected, "{input}");
+        }
+    }
+
+    #[test]
+    fn is_configuration_comment_upstream() {
+        for (input, expected) in [
+            ("stylelint-disable", true),
+            ("stylelint-disable-line", true),
+            ("stylelint-disable-next-line", true),
+            ("stylelint-enable", true),
+            ("stylelint-", false),
+            ("stylelint-disable-", false),
+            ("stylelint-disable-lineee", false),
+            ("stylelint-disable-next", false),
+            ("stylelint-enable-", false),
+            ("", false),
+            (" ", false),
+            ("\t", false),
+            ("foo", false),
+        ] {
+            assert_eq!(is_configuration_comment(input), expected, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn is_configuration_comment_extra() {
+        for (input, expected) in [
+            ("stylelint-disable ", true),
+            ("stylelint-disable\t", true),
+            ("stylelint-disable --", true),
+            ("stylelint-disable color-named -- reason", true),
+            ("stylelint-disable-next-line\nfoo", true),
+            ("stx-disable", true),
+            ("stx-enable", true),
+            ("stx-disable-line", true),
+            ("stx-disable-next-line", true),
+            ("stx-", false),
+            ("stx-disablee", false),
+            ("Stylelint-disable", false),
+            ("stylelint disable", false),
+            ("eslint-disable", false),
+        ] {
+            assert_eq!(is_configuration_comment(input), expected, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn is_whitespace_cases() {
+        for c in [' ', '\n', '\t', '\r', '\x0c'] {
+            assert!(is_whitespace(c), "{c:?}");
+        }
+        for c in ['a', '\x0b', '\u{a0}', '\u{2003}', '\0', '.'] {
+            assert!(!is_whitespace(c), "{c:?}");
+        }
+    }
+
+    #[test]
+    fn is_only_whitespace_upstream() {
+        assert!(is_only_whitespace("\r\n \t \n   "));
+        assert!(!is_only_whitespace("   s"));
+        assert!(!is_only_whitespace("s\t"));
+        assert!(!is_only_whitespace("\n  .\t"));
+    }
+
+    #[test]
+    fn is_only_whitespace_extra() {
+        assert!(is_only_whitespace(""));
+        assert!(is_only_whitespace("\x0c"));
+        assert!(!is_only_whitespace("\u{a0}"));
+    }
+
+    #[test]
+    fn is_single_line_string_upstream() {
+        assert!(is_single_line_string("foo"));
+        assert!(is_single_line_string("foo bar"));
+        assert!(!is_single_line_string("foo\nbar"));
+        assert!(!is_single_line_string("foo\rbar"));
+        assert!(!is_single_line_string("foo\nbar"));
+    }
+
+    #[test]
+    fn is_single_line_string_extra() {
+        assert!(is_single_line_string(""));
+        assert!(is_single_line_string("a\tb\x0c"));
+        assert!(!is_single_line_string("\r\n"));
+    }
+
+    #[test]
+    fn normalize_pseudo_name_cases() {
+        for (input, expected) in [
+            ("hover", "hover"),
+            (":Hover", "hover"),
+            ("::BEFORE", "before"),
+            (":::x", "x"),
+            ("-WEBKIT-scrollbar", "-webkit-scrollbar"),
+            ("NTH-CHILD", "nth-child"),
+            ("a:b", "a:b"),
+            ("", ""),
+            ("::", ""),
+            (":É", "É"),
+        ] {
+            assert_eq!(normalize_pseudo_name(input), expected, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn normalize_combinator_upstream() {
+        for (input, expected) in [
+            ("   ", " "),
+            ("\n\t ", " "),
+            (">\n", "> "),
+            (">", ">"),
+            ("+", "+"),
+            ("~", "~"),
+        ] {
+            assert_eq!(normalize_combinator(input), expected, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn normalize_combinator_extra() {
+        for (input, expected) in [
+            ("", ""),
+            (" > ", " > "),
+            ("\r\n~\x0c", " ~ "),
+            ("|| ", "|| "),
+            (" >>> ", " >>> "),
+        ] {
+            assert_eq!(normalize_combinator(input), expected, "{input:?}");
+        }
+    }
 }
