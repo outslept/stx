@@ -5,8 +5,21 @@ use crate::{
 };
 use oxc_css_parser::{Span, ast::ComponentValue};
 
-pub struct FunctionNoUnknown {
-    ignore_functions: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Reports function names that are not recognized as CSS functions.
+    ///
+    /// Set the primary option to `true`. Known names are recognized regardless
+    /// of case. Names beginning with `-` or containing a dot are skipped.
+    /// Use `ignoreFunctions` with a literal name, a `/regex/`, or an array of
+    /// either for project-specific names.
+    ///
+    /// ```css
+    /// a { transform: theme(1px); } /* reported unless theme is ignored */
+    /// ```
+    "function-no-unknown", correctness, recommended = true;
+    pub struct FunctionNoUnknown {
+        ignore_functions: Vec<OptionMatcher>,
+    }
 }
 
 impl FunctionNoUnknown {
@@ -151,7 +164,7 @@ const KNOWN_FUNCTIONS: &[&str] = &[
 
 impl Rule for FunctionNoUnknown {
     fn name(&self) -> &'static str {
-        "function-no-unknown"
+        Self::NAME
     }
 
     fn check_component_value<'a>(&self, val: &'a ComponentValue<'a>, ctx: &mut LintContext<'a>) {

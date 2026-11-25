@@ -1,8 +1,19 @@
 use crate::{context::LintContext, rules::Rule, utils::*};
 use oxc_css_parser::ast::QualifiedRule;
-pub struct R {
-    max: u64,
+
+crate::define_stx_lint! {
+    /// Limits the number of pseudo-classes in each selector.
+    ///
+    /// Set to a non-negative integer. Legacy single-colon pseudo-elements such as
+    /// `:before` do not count. Does not fix violations.
+    ///
+    /// Example: `a:hover {}` exceeds a maximum of `0`.
+    "selector-max-pseudo-class", restriction;
+    pub struct R {
+        max: u64,
+    }
 }
+
 impl R {
     pub fn from_config(p: &serde_json::Value) -> Option<Self> {
         Some(Self { max: p.as_u64()? })
@@ -34,7 +45,7 @@ fn count(raw: &str) -> usize {
 }
 impl Rule for R {
     fn name(&self) -> &'static str {
-        "selector-max-pseudo-class"
+        Self::NAME
     }
     fn check_qualified_rule<'a>(&self, rule: &'a QualifiedRule<'a>, ctx: &mut LintContext<'a>) {
         for sel in &rule.selector.selectors {

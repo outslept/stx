@@ -9,9 +9,23 @@ use crate::{
     },
 };
 
-#[derive(Debug, Default)]
-pub struct FunctionDisallowedList {
-    disallowed: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Disallows specified function calls in declaration values.
+    ///
+    /// The primary option accepts a function name, a `/regex/`, or an array
+    /// of either. Literal names are case-sensitive; omit the parentheses.
+    ///
+    /// With `"scale"`:
+    ///
+    /// ```css
+    /// a { transform: rotate(7deg); } /* passes */
+    /// a { transform: scale(1); } /* reported */
+    /// ```
+    "function-disallowed-list", restriction;
+    #[derive(Debug, Default)]
+    pub struct FunctionDisallowedList {
+        disallowed: Vec<OptionMatcher>,
+    }
 }
 
 impl FunctionDisallowedList {
@@ -28,7 +42,7 @@ pub fn rejected_message(name: &str) -> String {
 
 impl Rule for FunctionDisallowedList {
     fn name(&self) -> &'static str {
-        "function-disallowed-list"
+        Self::NAME
     }
 
     fn check_declaration<'a>(

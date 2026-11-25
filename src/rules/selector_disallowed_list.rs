@@ -12,10 +12,20 @@ pub fn reject_msg(selector: &str) -> String {
     format!("Disallowed selector \"{selector}\"")
 }
 
-pub struct SelectorDisallowedList {
-    disallowed: Vec<OptionMatcher>,
-    ignore_inside_block: bool,
-    split_list: bool,
+crate::define_stx_lint! {
+    /// Disallows selectors that match configured strings or patterns.
+    ///
+    /// Set to a string, a `/regex/`, or a list of either. The default is to match the
+    /// whole trimmed selector list; set `splitList: true` to match each selector separately.
+    /// Use `ignore: ["inside-block"]` to skip rules inside blocks. Does not fix violations.
+    ///
+    /// Example: `a > .foo {}` is disallowed by the literal `"a > .foo"`.
+    "selector-disallowed-list", restriction;
+    pub struct SelectorDisallowedList {
+        disallowed: Vec<OptionMatcher>,
+        ignore_inside_block: bool,
+        split_list: bool,
+    }
 }
 impl SelectorDisallowedList {
     pub fn from_config(
@@ -31,7 +41,7 @@ impl SelectorDisallowedList {
 }
 impl Rule for SelectorDisallowedList {
     fn name(&self) -> &'static str {
-        "selector-disallowed-list"
+        Self::NAME
     }
     fn check_qualified_rule<'a>(&self, rule: &'a QualifiedRule<'a>, ctx: &mut LintContext<'a>) {
         if self.ignore_inside_block && !ctx.ancestors.is_empty() {

@@ -11,10 +11,32 @@ use oxc_css_parser::{
     Span,
     ast::{ComponentValue, Declaration, DelimiterKind},
 };
-pub struct PropertyLayoutMappings {
-    physical: bool,
-    ignore: Vec<OptionMatcher>,
+
+crate::define_stx_lint! {
+    /// Enforce physical or flow-relative layout properties.
+    ///
+    /// Reference: <https://stylelint.io/user-guide/rules/property-layout-mappings>
+    ///
+    /// Set the primary option to `"physical"` or `"flow-relative"` to allow
+    /// that mapping. `ignoreProperties` accepts exact names or slash-delimited
+    /// regexes. The check includes property references in `transition`,
+    /// `transition-property`, and `will-change`. Outside those references, it
+    /// skips declarations inside `@page`. Flow-relative mode also reports
+    /// supported multi-value physical shorthands. No edits are applied.
+    ///
+    /// With `"flow-relative"`, use `margin-inline-start` instead of `margin-left`
+    /// when targeting the start side of the inline axis:
+    ///
+    /// ```css
+    /// .card { margin-inline-start: 1rem; }
+    /// ```
+    "property-layout-mappings", restriction;
+    pub struct PropertyLayoutMappings {
+        physical: bool,
+        ignore: Vec<OptionMatcher>,
+    }
 }
+
 impl PropertyLayoutMappings {
     pub fn from_config(
         p: &serde_json::Value,
@@ -71,7 +93,7 @@ impl PropertyLayoutMappings {
 }
 impl Rule for PropertyLayoutMappings {
     fn name(&self) -> &'static str {
-        "property-layout-mappings"
+        Self::NAME
     }
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {
         let Some(prop) = ident_name(&decl.name) else {

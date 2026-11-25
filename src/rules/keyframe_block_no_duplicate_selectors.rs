@@ -10,7 +10,19 @@ use oxc_css_parser::{
     ast::{AtRule, KeyframeBlock, KeyframeSelector, SimpleBlock, Statement},
 };
 
-pub struct KeyframeBlockNoDuplicateSelectors;
+crate::define_stx_lint! {
+    /// Disallows repeated selectors within a single `@keyframes` rule.
+    ///
+    /// Set the primary option to `true`. Selectors are compared case-insensitively
+    /// both within a list and across blocks, including in vendor-prefixed
+    /// keyframes. `from` and `0%` are distinct, as are `to` and `100%`.
+    ///
+    /// ```css
+    /// @keyframes fade { from, FROM { opacity: 0; } } /* reports FROM */
+    /// ```
+    "keyframe-block-no-duplicate-selectors", suspicious, recommended = true;
+    pub struct KeyframeBlockNoDuplicateSelectors;
+}
 
 pub(super) fn is_keyframes(at_rule: &AtRule<'_>) -> bool {
     [
@@ -64,7 +76,7 @@ pub(super) fn selector_span(selector: &KeyframeSelector<'_>) -> Span {
 
 impl Rule for KeyframeBlockNoDuplicateSelectors {
     fn name(&self) -> &'static str {
-        "keyframe-block-no-duplicate-selectors"
+        Self::NAME
     }
 
     fn check_at_rule<'a>(&self, at_rule: &'a AtRule<'a>, ctx: &mut LintContext<'a>) {

@@ -22,9 +22,29 @@ use crate::{
     },
 };
 
-pub struct NoDescendingSpecificity {
-    ignore: Vec<OptionMatcher>,
-    ignore_selectors_within_list: bool,
+crate::define_stx_lint! {
+    /// Report a less specific selector that follows a more specific selector with
+    /// a comparable final compound.
+    ///
+    /// Reference: <https://stylelint.io/user-guide/rules/no-descending-specificity>
+    ///
+    /// Enable with `true`. The `ignore` option accepts exact selectors or
+    /// slash-delimited regexes; `selectors-within-list` skips selector lists with
+    /// more than one selector. Nested selectors are resolved, and each at-rule
+    /// block is checked separately. This compares selectors in rules with
+    /// declarations, not which properties they set or whether their elements overlap.
+    ///
+    /// `a` is reported here:
+    ///
+    /// ```css
+    /// nav a { color: red; }
+    /// a { color: blue; }
+    /// ```
+    "no-descending-specificity", suspicious, recommended = true;
+    pub struct NoDescendingSpecificity {
+        ignore: Vec<OptionMatcher>,
+        ignore_selectors_within_list: bool,
+    }
 }
 
 fn has_declarations(statements: &[Statement<'_>]) -> bool {
@@ -181,7 +201,7 @@ impl NoDescendingSpecificity {
 
 impl Rule for NoDescendingSpecificity {
     fn name(&self) -> &'static str {
-        "no-descending-specificity"
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, stylesheet: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {

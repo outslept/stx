@@ -13,10 +13,25 @@ use oxc_css_parser::{
 };
 use serde_json::{Map, Value};
 
-pub struct LengthZeroNoUnit {
-    ignore_custom_properties: bool,
-    ignore_functions: Vec<OptionMatcher>,
-    ignore_at_rules: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Disallow length units on zero values in declarations and at-rule preludes.
+    ///
+    /// Enable with `true`. Set `ignore` to `"custom-properties"` or include it
+    /// in the array to skip custom property declarations. `ignoreFunctions`
+    /// and `ignorePreludeOfAtRules` accept a string or array of literal names
+    /// and `/regex/` patterns. Function names are lowercased before matching;
+    /// omit `@` from at-rule names.
+    /// Non-length units, CSS math functions such as `calc()`, `flex`,
+    /// `line-height`, and the line-height component of `font` are exempt.
+    /// Declarations in Less detached rulesets are also skipped.
+    ///
+    /// Example: `a { margin: 0px; }` is fixed to `a { margin: 0; }`.
+    "length-zero-no-unit", style, fix = fix;
+    pub struct LengthZeroNoUnit {
+        ignore_custom_properties: bool,
+        ignore_functions: Vec<OptionMatcher>,
+        ignore_at_rules: Vec<OptionMatcher>,
+    }
 }
 
 impl LengthZeroNoUnit {
@@ -127,7 +142,7 @@ impl LengthZeroNoUnit {
 
 impl Rule for LengthZeroNoUnit {
     fn name(&self) -> &'static str {
-        "length-zero-no-unit"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

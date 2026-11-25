@@ -14,10 +14,22 @@ pub enum LayoutMode {
     FlowRelative,
 }
 
-pub struct UnitLayoutMappings {
-    mode: LayoutMode,
-    ignore_units: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Enforces physical or flow-relative units where the two forms have layout mappings.
+    ///
+    /// Set to `"physical"` to disallow flow-relative units, or `"flow-relative"` to
+    /// disallow physical units with logical equivalents. `ignoreUnits` accepts names
+    /// or `/regex/` patterns. Checks declaration dimensions, not media queries.
+    /// Does not fix violations.
+    ///
+    /// Example: `a { margin-inline-start: 0vh; }` is reported in `"flow-relative"` mode.
+    "unit-layout-mappings", restriction;
+    pub struct UnitLayoutMappings {
+        mode: LayoutMode,
+        ignore_units: Vec<OptionMatcher>,
+    }
 }
+
 impl UnitLayoutMappings {
     pub fn from_config(
         primary: &serde_json::Value,
@@ -36,7 +48,7 @@ impl UnitLayoutMappings {
 }
 impl Rule for UnitLayoutMappings {
     fn name(&self) -> &'static str {
-        "unit-layout-mappings"
+        Self::NAME
     }
     fn check_declaration<'a>(
         &self,

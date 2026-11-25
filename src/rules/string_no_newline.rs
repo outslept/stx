@@ -6,9 +6,23 @@ use crate::{
 use oxc_css_parser::{Span, Syntax, ast::Stylesheet};
 use serde_json::{Map, Value};
 
-pub struct StringNoNewline {
-    ignore_preludes: bool,
-    ignore_values: bool,
+crate::define_stx_lint! {
+    /// Reports unescaped line breaks inside quoted strings.
+    ///
+    /// Set to `true`. Use `ignore` with `"at-rule-preludes"` or `"declaration-values"`
+    /// to exempt those contexts. Escaped line breaks are allowed. Does not fix violations.
+    ///
+    /// The literal newline in this CSS is reported:
+    ///
+    /// ```css
+    /// a { content: "broken
+    /// value"; }
+    /// ```
+    "string-no-newline", correctness, recommended = true;
+    pub struct StringNoNewline {
+        ignore_preludes: bool,
+        ignore_values: bool,
+    }
 }
 
 impl StringNoNewline {
@@ -23,7 +37,7 @@ impl StringNoNewline {
 
 impl Rule for StringNoNewline {
     fn name(&self) -> &'static str {
-        "string-no-newline"
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, _ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {

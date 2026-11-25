@@ -49,11 +49,24 @@ fn parse_ignore_map(
     }
     out
 }
-pub struct UnitAllowedList {
-    allowed: Vec<String>,
-    ignore_functions: Vec<OptionMatcher>,
-    ignore_properties: Vec<(String, Vec<OptionMatcher>)>,
+
+crate::define_stx_lint! {
+    /// Allows only listed units in declaration values and `@media` queries.
+    ///
+    /// Set to a unit or list of units, matched case-insensitively. Use `"%"` for
+    /// percentages; unitless numbers are not checked. `ignoreFunctions` takes names
+    /// or `/regex/` patterns; `url()` is always skipped. `ignoreProperties` maps units
+    /// to property names or patterns and applies only to declarations. No auto-fix.
+    ///
+    /// Example: `a { margin: 10rem; }` is disallowed with `["px", "em"]`.
+    "unit-allowed-list", restriction;
+    pub struct UnitAllowedList {
+        allowed: Vec<String>,
+        ignore_functions: Vec<OptionMatcher>,
+        ignore_properties: Vec<(String, Vec<OptionMatcher>)>,
+    }
 }
+
 impl UnitAllowedList {
     pub fn from_config(
         primary: &serde_json::Value,
@@ -164,7 +177,7 @@ impl UnitAllowedList {
 }
 impl Rule for UnitAllowedList {
     fn name(&self) -> &'static str {
-        "unit-allowed-list"
+        Self::NAME
     }
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {
         let prop = ident_name(&decl.name);

@@ -17,11 +17,24 @@ pub enum HexLengthMode {
     Long,
 }
 
-/// [`color-hex-length`](https://stylelint.io/user-guide/rules/color-hex-length)
-///
-/// Specify short or long notation for hex colors.
-pub struct ColorHexLength {
-    pub mode: HexLengthMode,
+crate::define_stx_lint! {
+    /// Require short or long notation for hex colors without changing their value.
+    ///
+    /// Use `"short"` to collapse repeated digit pairs into three or four digits
+    /// where possible, or `"long"` to expand them to six or eight digits. There
+    /// are no secondary options. Invalid hex colors and `url()` contents are
+    /// skipped. Autofix rewrites the digits, retaining any alpha channel.
+    ///
+    /// With `"short"`:
+    /// ```css
+    /// a { color: #aabbcc; } /* reported */
+    /// a { color: #abc; }    /* accepted */
+    /// a { color: #123456; } /* accepted: cannot be shortened */
+    /// ```
+    "color-hex-length", style, fix = fix;
+    pub struct ColorHexLength {
+        pub mode: HexLengthMode,
+    }
 }
 
 impl Default for ColorHexLength {
@@ -51,7 +64,7 @@ impl ColorHexLength {
 
 impl Rule for ColorHexLength {
     fn name(&self) -> &'static str {
-        "color-hex-length"
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, _ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {

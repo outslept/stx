@@ -8,19 +8,9 @@ use oxc_css_parser::{Span, ast::Stylesheet};
 use serde_json::{Map, Value};
 
 use crate::context::LintContext;
-use crate::declare_stx_lint;
 use crate::rules::Rule;
 use crate::utils::options::{OptionMatcher, options_matches, parse_option_matchers};
 use crate::utils::reference::{AT_KEYWORDS, in_set_ignore_case};
-
-declare_stx_lint! {
-    /// Disallow unknown at-rules.
-    AtRuleNoUnknown,
-    "at-rule-no-unknown",
-    correctness,
-    fix = none,
-    recommended = true,
-}
 
 #[derive(Default)]
 pub struct AtRuleNoUnknownConfig {
@@ -28,11 +18,21 @@ pub struct AtRuleNoUnknownConfig {
     ignore_at_rules: Vec<OptionMatcher>,
 }
 
-/// [`at-rule-no-unknown`](https://stylelint.io/user-guide/rules/at-rule-no-unknown)
-///
-/// Disallow unknown at-rules.
-#[derive(Default)]
-pub struct AtRuleNoUnknown(AtRuleNoUnknownConfig);
+crate::define_stx_lint! {
+    /// Flag at-rule names that are not recognized CSS keywords.
+    ///
+    /// Enable with `true`. Use the secondary `ignoreAtRules` list for custom names
+    /// or slash-delimited regexes, matched without `@`. Vendor-prefixed names,
+    /// `@charset`, bare blockless at-words, and Less variable or mixin syntax are skipped.
+    ///
+    /// ```css
+    /// @medai print { a { color: black; } } /* reported */
+    /// @media print { a { color: black; } } /* accepted */
+    /// ```
+    "at-rule-no-unknown", correctness, recommended = true;
+    #[derive(Default)]
+    pub struct AtRuleNoUnknown(AtRuleNoUnknownConfig);
+}
 
 impl Deref for AtRuleNoUnknown {
     type Target = AtRuleNoUnknownConfig;

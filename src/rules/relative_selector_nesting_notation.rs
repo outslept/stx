@@ -6,8 +6,27 @@ use crate::{
     rules::Rule,
 };
 
-pub struct RelativeSelectorNestingNotation {
-    explicit: bool,
+crate::define_stx_lint! {
+    /// Enforce explicit or implicit notation for nested relative selectors.
+    ///
+    /// Reference: <https://stylelint.io/user-guide/rules/relative-selector-nesting-notation>
+    ///
+    /// Set the primary option to `"explicit"` or `"implicit"`. A non-string
+    /// disables the rule; any other string is treated as `"implicit"`.
+    /// Explicit mode adds `& ` when `&` is absent or the selector starts with
+    /// a combinator. Implicit mode removes a leading `&` used before a
+    /// combinator, whitespace, or comment; it leaves forms like `&:hover` intact.
+    /// Top-level selectors are not checked.
+    ///
+    /// In `"explicit"` mode this becomes `a { & > b { color: red; } }`:
+    ///
+    /// ```css
+    /// a { > b { color: red; } }
+    /// ```
+    "relative-selector-nesting-notation", style, fix = fix;
+    pub struct RelativeSelectorNestingNotation {
+        explicit: bool,
+    }
 }
 
 impl RelativeSelectorNestingNotation {
@@ -37,7 +56,7 @@ fn starts_with_combinator(selector: &str) -> bool {
 
 impl Rule for RelativeSelectorNestingNotation {
     fn name(&self) -> &'static str {
-        "relative-selector-nesting-notation"
+        Self::NAME
     }
 
     fn check_qualified_rule<'a>(&self, rule: &'a QualifiedRule<'a>, ctx: &mut LintContext<'a>) {

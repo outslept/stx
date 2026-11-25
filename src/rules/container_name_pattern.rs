@@ -7,10 +7,26 @@ use crate::context::LintContext;
 use crate::rules::Rule;
 use crate::utils::ast::decl_value_raw;
 
-#[derive(Debug)]
-pub struct ContainerNamePattern {
-    regex: Regex,
-    raw_pattern: String,
+crate::define_stx_lint! {
+    /// Require container names to match a regular expression.
+    ///
+    /// Supply a regex string as the primary option, either bare or written
+    /// as `/pattern/` with optional `i` for case-insensitive matching. There
+    /// are no secondary options. The rule checks `container-name`, names
+    /// before `/` in `container`, and names in `@container` queries. It skips
+    /// CSS-wide declaration keywords, `none`, and interpolated query preludes.
+    ///
+    /// With `"^[a-z-]+$"`:
+    /// ```css
+    /// .card { container: Card / inline-size; } /* reported */
+    /// .card { container: card / inline-size; } /* accepted */
+    /// ```
+    "container-name-pattern", style;
+    #[derive(Debug)]
+    pub struct ContainerNamePattern {
+        regex: Regex,
+        raw_pattern: String,
+    }
 }
 
 impl ContainerNamePattern {
@@ -309,7 +325,7 @@ fn extract_at_rule_name_and_prelude<'a>(
 
 impl Rule for ContainerNamePattern {
     fn name(&self) -> &'static str {
-        "container-name-pattern"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

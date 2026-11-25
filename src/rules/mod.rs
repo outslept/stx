@@ -1,3 +1,9 @@
+//! Rule reference and runtime registration.
+//!
+//! Each rule type documents its settings and examples. Search for the rule's
+//! kebab-case configuration key to go directly to its type. A rule is only active
+//! when selected by the configuration or a preset.
+
 pub mod alpha_value_notation;
 pub mod annotation_no_unknown;
 pub mod at_charset_rule_no_invalid;
@@ -233,18 +239,72 @@ pub enum RuleFixMeta {
 
 /// Static metadata and documentation associated with a lint rule.
 pub trait RuleMeta {
+    /// Kebab-case key used in a configuration's `rules` object.
     const NAME: &'static str;
+    /// Kind of problem the rule reports.
     const CATEGORY: RuleCategory;
+    /// Whether the rule can emit edits for the autofix engine.
     const FIX: RuleFixMeta = RuleFixMeta::None;
+    /// Whether the rule is enabled by the recommended preset.
     const IS_RECOMMENDED: bool = false;
+    /// Optional one-line summary, separate from the full reference.
     const SHORT_DESCRIPTION: &'static str = "";
 
+    /// Returns the rule's reference in Markdown when documentation is provided.
     fn documentation() -> Option<&'static str> {
         None
     }
 }
 
-/// Declares static metadata, documentation, and constants for a `stx` lint rule.
+/// Defines a rule type and its [`rules::RuleMeta`](crate::rules::RuleMeta) implementation.
+///
+/// The leading doc comments are published on the type and returned by
+/// [`RuleMeta::documentation`]. The generated `NAME` can be returned from
+/// [`Rule::name`]; the macro does not implement the rule's lint callbacks.
+///
+/// # Examples
+///
+/// ```
+/// use stx::{define_stx_lint, rules::{RuleCategory, RuleFixMeta, RuleMeta}};
+///
+/// define_stx_lint! {
+///     /// Flag empty widget blocks.
+///     "widget-no-empty", correctness, fix = conditional, recommended = true;
+///     pub struct WidgetNoEmpty;
+/// }
+///
+/// assert_eq!(WidgetNoEmpty::NAME, "widget-no-empty");
+/// assert_eq!(WidgetNoEmpty::CATEGORY, RuleCategory::Correctness);
+/// assert_eq!(WidgetNoEmpty::FIX, RuleFixMeta::Conditional);
+/// assert!(WidgetNoEmpty::documentation().unwrap().contains("empty widget blocks"));
+/// ```
+#[macro_export]
+macro_rules! define_stx_lint {
+    (
+        $(#[doc = $doc:literal])+
+        $rule_name:literal, $category:ident
+        $(, fix = $fix:ident)?
+        $(, recommended = $recommended:literal)?
+        $(, short_description = $short_desc:literal)?
+        $(,)?;
+        $(#[$attr:meta])* $vis:vis struct $struct_name:ident $($body:tt)*
+    ) => {
+        $(#[doc = $doc])+
+        #[doc(alias = $rule_name)]
+        $(#[$attr])*
+        $vis struct $struct_name $($body)*
+
+        $crate::declare_stx_lint! {
+            $(#[doc = $doc])+
+            $struct_name, $rule_name, $category
+            $(, fix = $fix)?
+            $(, recommended = $recommended)?
+            $(, short_description = $short_desc)?
+        }
+    };
+}
+
+/// Implements rule metadata for an existing type. Use [`define_stx_lint!`] for new rule types.
 #[macro_export]
 macro_rules! declare_stx_lint {
     (

@@ -12,8 +12,22 @@ pub enum ImportNotationMode {
     String,
 }
 
-pub struct ImportNotation {
-    pub mode: ImportNotationMode,
+crate::define_stx_lint! {
+    /// Enforces `url()` or quoted string notation for the target of `@import`.
+    ///
+    /// Set the primary option to `"url"` to wrap strings in `url()`, or
+    /// `"string"` to unwrap nonempty `url()` arguments. Auto-fix preserves
+    /// existing quotes, adds double quotes when unwrapping an unquoted path,
+    /// and leaves trailing import conditions in place. Unwrapping uses the
+    /// first closing parenthesis, so use care with paths containing `)`.
+    ///
+    /// ```css
+    /// @import url(foo.css) screen; /* fixes to @import "foo.css" screen; with "string" */
+    /// ```
+    "import-notation", style, fix = fix;
+    pub struct ImportNotation {
+        pub mode: ImportNotationMode,
+    }
 }
 
 impl Default for ImportNotation {
@@ -26,7 +40,7 @@ impl Default for ImportNotation {
 
 impl Rule for ImportNotation {
     fn name(&self) -> &'static str {
-        "import-notation"
+        Self::NAME
     }
 
     fn check_at_rule<'a>(&self, at_rule: &'a AtRule<'a>, ctx: &mut LintContext<'a>) {

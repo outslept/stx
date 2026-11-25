@@ -17,7 +17,17 @@ use crate::{
     },
 };
 
-pub struct SelectorNoUnmatchable;
+crate::define_stx_lint! {
+    /// Reports selector combinations that cannot match an element or pseudo-element.
+    ///
+    /// Set to `true`. Checks known incompatible selectors, including after resolving
+    /// nesting. It does not determine whether a selector matches a particular document
+    /// and does not fix violations.
+    ///
+    /// Example: `:is(::before) {}` cannot match because `:is()` cannot represent pseudo-elements.
+    "selector-no-unmatchable", correctness;
+    pub struct SelectorNoUnmatchable;
+}
 
 fn text(source: &str, span: Span) -> &str {
     &source[span.start as usize..span.end as usize]
@@ -259,7 +269,7 @@ impl Reasons {
 
 impl Rule for SelectorNoUnmatchable {
     fn name(&self) -> &'static str {
-        "selector-no-unmatchable"
+        Self::NAME
     }
     fn check_qualified_rule<'a>(&self, rule: &'a QualifiedRule<'a>, ctx: &mut LintContext<'a>) {
         if ctx.in_keyframes() || !is_standard_syntax_rule(ctx.source, rule) {

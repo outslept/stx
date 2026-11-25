@@ -12,9 +12,20 @@ use oxc_css_parser::{
 };
 use serde_json::{Map, Value};
 
-pub struct UnitNoUnknown {
-    ignore_units: Vec<OptionMatcher>,
-    ignore_functions: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Reports unknown units in declaration values and media features.
+    ///
+    /// Set to `true`. `ignoreUnits` and `ignoreFunctions` accept names or `/regex/`
+    /// patterns; function exceptions apply to declarations. `x` is accepted in
+    /// resolution contexts such as `image-set()` and `@media (resolution: 2x)`.
+    /// Does not fix violations.
+    ///
+    /// Example: `@media (min-width: 13pix) {}` is reported for `pix`.
+    "unit-no-unknown", correctness, recommended = true;
+    pub struct UnitNoUnknown {
+        ignore_units: Vec<OptionMatcher>,
+        ignore_functions: Vec<OptionMatcher>,
+    }
 }
 
 impl UnitNoUnknown {
@@ -58,7 +69,7 @@ const KNOWN_UNITS: &[&str] = &[
 
 impl Rule for UnitNoUnknown {
     fn name(&self) -> &'static str {
-        "unit-no-unknown"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

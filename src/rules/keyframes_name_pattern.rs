@@ -6,14 +6,31 @@ use crate::{
 };
 use oxc_css_parser::ast::{AtRule, AtRulePrelude, InterpolableStr, KeyframesName};
 
-#[derive(Default)]
-pub struct KeyframesNamePattern {
-    pub matcher: PatternMatcher,
+crate::define_stx_lint! {
+    /// Requires `@keyframes` names to match a configured regular expression.
+    ///
+    /// Supply a bare regex string or `/regex/flags` as the primary option.
+    /// The rule matches the source spelling, including any surrounding quotes,
+    /// also in vendor-prefixed keyframes. Interpolated names are skipped.
+    /// If no pattern string is supplied or it cannot compile, the rule
+    /// checks for lowercase kebab-case instead.
+    ///
+    /// With `"/^foo-bar$/"`:
+    ///
+    /// ```css
+    /// @keyframes foo-bar { from { opacity: 0; } } /* passes */
+    /// @keyframes FOO-bar { from { opacity: 0; } } /* reported */
+    /// ```
+    "keyframes-name-pattern", style;
+    #[derive(Default)]
+    pub struct KeyframesNamePattern {
+        pub matcher: PatternMatcher,
+    }
 }
 
 impl Rule for KeyframesNamePattern {
     fn name(&self) -> &'static str {
-        "keyframes-name-pattern"
+        Self::NAME
     }
 
     fn check_at_rule<'a>(&self, at_rule: &'a AtRule<'a>, ctx: &mut LintContext<'a>) {

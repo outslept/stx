@@ -47,8 +47,17 @@ pub fn rejected_message(operator: &str) -> String {
     format!("Disallowed operator \"{operator}\"")
 }
 
-pub struct SelectorAttributeOperatorDisallowedList {
-    disallowed: Vec<String>,
+crate::define_stx_lint! {
+    /// Disallows listed operators in attribute selectors.
+    ///
+    /// Set to a literal operator or a list of operators, such as `["*=", "~="]`.
+    /// Attribute presence selectors have no operator and are not checked. Does not fix violations.
+    ///
+    /// Example: `[class*="foo"] {}` is disallowed when `*=` is listed.
+    "selector-attribute-operator-disallowed-list", restriction;
+    pub struct SelectorAttributeOperatorDisallowedList {
+        disallowed: Vec<String>,
+    }
 }
 
 impl SelectorAttributeOperatorDisallowedList {
@@ -61,7 +70,7 @@ impl SelectorAttributeOperatorDisallowedList {
 
 impl Rule for SelectorAttributeOperatorDisallowedList {
     fn name(&self) -> &'static str {
-        "selector-attribute-operator-disallowed-list"
+        Self::NAME
     }
 
     fn check_complex_selector<'a>(&self, sel: &'a ComplexSelector<'a>, ctx: &mut LintContext<'a>) {

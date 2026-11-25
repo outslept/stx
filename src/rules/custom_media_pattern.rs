@@ -6,11 +6,25 @@ use serde_json::{Map, Value};
 use crate::context::LintContext;
 use crate::rules::Rule;
 
-#[derive(Debug)]
-pub struct CustomMediaPattern {
-    regex: Regex,
-    raw_pattern: String,
-    param_regex: Regex,
+crate::define_stx_lint! {
+    /// Require names defined by `@custom-media` to match a regular expression.
+    ///
+    /// Supply a bare regex string or `/pattern/` with optional `i` as the
+    /// primary option. There are no secondary options. The match excludes
+    /// the initial `--` and applies to definitions, not to `@media` uses.
+    ///
+    /// With `"^[a-z-]+$"`:
+    /// ```css
+    /// @custom-media --WideLayout (width >= 60rem);   /* reported */
+    /// @custom-media --wide-layout (width >= 60rem); /* accepted */
+    /// ```
+    "custom-media-pattern", style;
+    #[derive(Debug)]
+    pub struct CustomMediaPattern {
+        regex: Regex,
+        raw_pattern: String,
+        param_regex: Regex,
+    }
 }
 
 impl CustomMediaPattern {
@@ -142,7 +156,7 @@ impl CustomMediaPattern {
 
 impl Rule for CustomMediaPattern {
     fn name(&self) -> &'static str {
-        "custom-media-pattern"
+        Self::NAME
     }
 
     fn check_at_rule<'a>(&self, at_rule: &'a AtRule<'a>, ctx: &mut LintContext<'a>) {

@@ -8,19 +8,9 @@ use oxc_css_parser::{Span, ast::Stylesheet};
 use serde_json::{Map, Value};
 
 use crate::context::{Fix, LintContext};
-use crate::declare_stx_lint;
 use crate::rules::Rule;
 use crate::utils::options::{OptionMatcher, options_matches, parse_option_matchers};
 use crate::utils::reference::{DEPRECATED_AT_KEYWORDS, in_set_ignore_case};
-
-declare_stx_lint! {
-    /// Disallow deprecated at-rules.
-    AtRuleNoDeprecated,
-    "at-rule-no-deprecated",
-    correctness,
-    fix = conditional,
-    recommended = true,
-}
 
 #[derive(Default)]
 pub struct AtRuleNoDeprecatedConfig {
@@ -28,8 +18,22 @@ pub struct AtRuleNoDeprecatedConfig {
     ignore_at_rules: Vec<OptionMatcher>,
 }
 
-#[derive(Default)]
-pub struct AtRuleNoDeprecated(AtRuleNoDeprecatedConfig);
+crate::define_stx_lint! {
+    /// Flag the deprecated at-rules `@document`, `@nest`, and `@viewport`.
+    ///
+    /// Enable with `true`. The secondary `ignoreAtRules` list accepts names or
+    /// slash-delimited regexes matched without `@`. Less variables and mixin calls
+    /// are not at-rules for this check. Autofix removes `@nest` and its trailing
+    /// whitespace; the other deprecated at-rules are reported without a fix.
+    ///
+    /// ```css
+    /// a { @nest & > b { color: red; } } /* reported */
+    /// a { & > b { color: red; } }       /* accepted */
+    /// ```
+    "at-rule-no-deprecated", correctness, fix = conditional, recommended = true;
+    #[derive(Default)]
+    pub struct AtRuleNoDeprecated(AtRuleNoDeprecatedConfig);
+}
 
 impl Deref for AtRuleNoDeprecated {
     type Target = AtRuleNoDeprecatedConfig;

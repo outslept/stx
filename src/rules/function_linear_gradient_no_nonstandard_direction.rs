@@ -5,14 +5,28 @@ use crate::{
 };
 use oxc_css_parser::{Span, ast::Declaration};
 
-const NAME: &str = "function-linear-gradient-no-nonstandard-direction";
+const NAME: &str = FunctionLinearGradientNoNonstandardDirection::NAME;
 const SIDES: [&str; 4] = ["top", "left", "bottom", "right"];
 
-pub struct FunctionLinearGradientNoNonstandardDirection;
+crate::define_stx_lint! {
+    /// Reports nonstandard directions in `linear-gradient()` and its vendor-prefixed forms.
+    ///
+    /// Set the primary option to `true`. Use `to` before sides in unprefixed
+    /// gradients, omit it in legacy prefixed forms, and include units with
+    /// numeric angles. The rule skips `repeating-linear-gradient()` and
+    /// first arguments containing a color interpolation clause such as `in oklab`.
+    ///
+    /// ```css
+    /// a { background: linear-gradient(top, red, blue); } /* reported */
+    /// a { background: linear-gradient(to top, red, blue); } /* passes */
+    /// ```
+    "function-linear-gradient-no-nonstandard-direction", correctness, recommended = true;
+    pub struct FunctionLinearGradientNoNonstandardDirection;
+}
 
 impl Rule for FunctionLinearGradientNoNonstandardDirection {
     fn name(&self) -> &'static str {
-        NAME
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

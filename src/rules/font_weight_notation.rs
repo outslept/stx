@@ -16,9 +16,26 @@ pub enum FontWeightMode {
     NamedWherePossible,
 }
 
-pub struct FontWeightNotation {
-    mode: FontWeightMode,
-    ignore_relative: bool,
+crate::define_stx_lint! {
+    /// Enforces numeric or named weight notation in `font-weight` and `font` declarations.
+    ///
+    /// Set the primary option to `"numeric"` to require numbers or
+    /// `"named-where-possible"` to require `normal` and `bold` in place of `400`
+    /// and `700`. Other numeric weights are allowed in the latter mode.
+    ///
+    /// Auto-fix converts `normal` and `bold` to and from their numeric
+    /// equivalents. With `"numeric"`, `bolder` and `lighter` are reported without
+    /// a fix unless `ignore` is `"relative"` or an array containing it.
+    ///
+    /// ```css
+    /// a { font-weight: normal; } /* fixes to 400 with "numeric" */
+    /// a { font-weight: 400; } /* fixes to normal with "named-where-possible" */
+    /// ```
+    "font-weight-notation", style, fix = conditional;
+    pub struct FontWeightNotation {
+        mode: FontWeightMode,
+        ignore_relative: bool,
+    }
 }
 
 impl FontWeightNotation {
@@ -67,7 +84,7 @@ fn is_div(kind: &ValueTokenKind) -> bool {
 
 impl Rule for FontWeightNotation {
     fn name(&self) -> &'static str {
-        "font-weight-notation"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

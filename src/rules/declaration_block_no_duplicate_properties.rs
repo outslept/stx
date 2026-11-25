@@ -38,13 +38,38 @@ impl IgnoreMatcher {
     }
 }
 
-#[derive(Debug, Default)]
-pub struct DeclarationBlockNoDuplicateProperties {
-    ignore_duplicates: bool,
-    ignore_diff_values: bool,
-    ignore_diff_syntaxes: bool,
-    ignore_prefixless_same_values: bool,
-    ignore_properties: Vec<IgnoreMatcher>,
+crate::define_stx_lint! {
+    /// Disallows repeated standard property names within the same declaration block.
+    ///
+    /// Set the primary option to `true`. Property names are compared
+    /// case-insensitively; custom properties and `src` are excluded.
+    /// `ignoreProperties` accepts a literal name (case-insensitive), a `/regex/`
+    /// (optionally with `i`), or an array of either.
+    ///
+    /// `ignore` accepts one or more of these strings for consecutive duplicates:
+    ///
+    /// - `consecutive-duplicates`: allow them regardless of value.
+    /// - `consecutive-duplicates-with-different-values`: allow different values.
+    /// - `consecutive-duplicates-with-different-syntaxes`: allow different value syntax.
+    /// - `consecutive-duplicates-with-same-prefixless-values`: allow differing values
+    ///   that match after vendor prefixes are removed.
+    ///
+    /// Auto-fix removes the reported declaration. With no exceptions, it keeps
+    /// the later declaration unless the earlier one has `!important` and the
+    /// later one does not.
+    ///
+    /// ```css
+    /// a { color: red; color: blue; } /* fixes to color: blue */
+    /// ```
+    "declaration-block-no-duplicate-properties", suspicious, fix = fix, recommended = true;
+    #[derive(Debug, Default)]
+    pub struct DeclarationBlockNoDuplicateProperties {
+        ignore_duplicates: bool,
+        ignore_diff_values: bool,
+        ignore_diff_syntaxes: bool,
+        ignore_prefixless_same_values: bool,
+        ignore_properties: Vec<IgnoreMatcher>,
+    }
 }
 
 impl DeclarationBlockNoDuplicateProperties {
@@ -806,7 +831,7 @@ impl DeclarationBlockNoDuplicateProperties {
 
 impl Rule for DeclarationBlockNoDuplicateProperties {
     fn name(&self) -> &'static str {
-        "declaration-block-no-duplicate-properties"
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, _ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {

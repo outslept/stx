@@ -87,8 +87,19 @@ fn valid_component(component: &str) -> bool {
     }
 }
 
-#[derive(Debug, Default)]
-pub struct SyntaxStringNoInvalid;
+crate::define_stx_lint! {
+    /// Reports invalid syntax strings in `@property` registrations.
+    ///
+    /// Set to `true`. Only checks quoted `syntax` descriptor values, not whether the
+    /// registration is otherwise complete. Accepts `*`, known type names and literal
+    /// identifiers, with `|` alternatives and supported `+` and `#` multipliers.
+    /// Does not fix violations.
+    ///
+    /// Example: `@property --foo { syntax: "<length> | <foo>" }` is reported for `<foo>`.
+    "syntax-string-no-invalid", correctness;
+    #[derive(Debug, Default)]
+    pub struct SyntaxStringNoInvalid;
+}
 
 impl SyntaxStringNoInvalid {
     fn check_block(&self, block: &SimpleBlock<'_>, offset: u32, ctx: &mut LintContext<'_>) {
@@ -133,7 +144,7 @@ impl SyntaxStringNoInvalid {
 
 impl Rule for SyntaxStringNoInvalid {
     fn name(&self) -> &'static str {
-        "syntax-string-no-invalid"
+        Self::NAME
     }
 
     fn check_at_rule<'a>(&self, at_rule: &'a AtRule<'a>, ctx: &mut LintContext<'a>) {

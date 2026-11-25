@@ -5,10 +5,28 @@ use crate::{
 };
 use oxc_css_parser::ast::QualifiedRule;
 
-pub struct RuleNestingAtRuleRequiredList {
-    required: Vec<OptionMatcher>,
-    patterns: Vec<String>,
+crate::define_stx_lint! {
+    /// Require each style rule to have a matching at-rule ancestor.
+    ///
+    /// Reference: <https://stylelint.io/user-guide/rules/rule-nesting-at-rule-required-list>
+    ///
+    /// Set the primary option to a string or an array of strings containing
+    /// exact at-rule names or slash-delimited regexes, without `@`. Any ancestor
+    /// can match, not just the immediate parent. With an empty list, no style
+    /// rule can satisfy the requirement.
+    ///
+    /// With `["layer"]`, this rule passes:
+    ///
+    /// ```css
+    /// @layer base { a { color: red; } }
+    /// ```
+    "rule-nesting-at-rule-required-list", restriction;
+    pub struct RuleNestingAtRuleRequiredList {
+        required: Vec<OptionMatcher>,
+        patterns: Vec<String>,
+    }
 }
+
 impl RuleNestingAtRuleRequiredList {
     pub fn from_config(primary: &serde_json::Value) -> Self {
         let patterns = match primary {
@@ -35,7 +53,7 @@ pub fn expected_message(patterns: &[String]) -> String {
 }
 impl Rule for RuleNestingAtRuleRequiredList {
     fn name(&self) -> &'static str {
-        "rule-nesting-at-rule-required-list"
+        Self::NAME
     }
     fn check_qualified_rule<'a>(&self, rule: &'a QualifiedRule<'a>, ctx: &mut LintContext<'a>) {
         let found = ctx.ancestors.iter().any(

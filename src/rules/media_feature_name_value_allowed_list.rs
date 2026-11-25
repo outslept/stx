@@ -6,9 +6,22 @@ use crate::{
     utils::{OptionMatcher, at_rule_prelude_span, media_feature_groups, options_matches},
 };
 
-#[derive(Debug, Default)]
-pub struct MediaFeatureNameValueAllowedList {
-    entries: Vec<(OptionMatcher, Vec<OptionMatcher>)>,
+crate::define_stx_lint! {
+    /// Restrict the values used with configured media features in `@media` queries.
+    ///
+    /// The primary option is an object mapping feature names or `/regex/` keys
+    /// to a value string or an array of value strings. Values can also be
+    /// `/regex/` patterns. The first matching key wins, and literal matches
+    /// are case-sensitive. The rule checks identifiers, numbers, percentages,
+    /// and dimensions outside function arguments. Boolean features have no
+    /// value to check, even with an empty allowlist. No rule-specific secondary options.
+    ///
+    /// With `{"min-width": "768px"}`, `@media (min-width: 1000px) {}` is reported.
+    "media-feature-name-value-allowed-list", restriction;
+    #[derive(Debug, Default)]
+    pub struct MediaFeatureNameValueAllowedList {
+        entries: Vec<(OptionMatcher, Vec<OptionMatcher>)>,
+    }
 }
 
 impl MediaFeatureNameValueAllowedList {
@@ -40,7 +53,7 @@ pub fn rejected_message(name: &str, value: &str) -> String {
 
 impl Rule for MediaFeatureNameValueAllowedList {
     fn name(&self) -> &'static str {
-        "media-feature-name-value-allowed-list"
+        Self::NAME
     }
 
     fn check_at_rule<'a>(&self, at_rule: &'a AtRule<'a>, ctx: &mut LintContext<'a>) {

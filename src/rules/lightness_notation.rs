@@ -12,8 +12,20 @@ pub enum LightnessMode {
     Number,
 }
 
-pub struct LightnessNotation {
-    pub mode: LightnessMode,
+crate::define_stx_lint! {
+    /// Require percentage or number notation for literal lightness channels.
+    ///
+    /// Set the primary option to `"percentage"` or `"number"`. There are no
+    /// rule-specific secondary options. This checks `lab()`, `lch()`, `oklab()`,
+    /// and `oklch()`, including relative colors, but leaves expressions alone.
+    /// A number of `1` means `1%` in Lab/LCH and `100%` in OKLab/OKLCH.
+    ///
+    /// With `"percentage"`, `a { color: oklch(0.5 0.1 30); }` is fixed to
+    /// `a { color: oklch(50% 0.1 30); }`.
+    "lightness-notation", style, fix = fix;
+    pub struct LightnessNotation {
+        pub mode: LightnessMode,
+    }
 }
 
 impl Default for LightnessNotation {
@@ -43,7 +55,7 @@ fn after_function(tokens: &[crate::utils::ValueToken<'_>], open: usize) -> usize
 
 impl Rule for LightnessNotation {
     fn name(&self) -> &'static str {
-        "lightness-notation"
+        Self::NAME
     }
 
     fn check_component_value<'a>(&self, val: &'a ComponentValue<'a>, ctx: &mut LintContext<'a>) {

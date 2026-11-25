@@ -9,10 +9,27 @@ use crate::{
     },
 };
 
-#[derive(Debug, Default)]
-pub struct DeclarationPropertyUnitAllowedList {
-    entries: Vec<(OptionMatcher, Vec<String>)>,
-    ignore_inside_function: bool,
+crate::define_stx_lint! {
+    /// Restricts which units can appear in declarations for configured properties.
+    ///
+    /// The primary option maps property names or `/regex/` patterns to a unit
+    /// or an array of units. The first matching entry applies. Units are
+    /// case-insensitive; use `"%"` for percentages. Unitless numbers and
+    /// `url()` arguments are not checked. Set `ignore` to `"inside-function"`
+    /// (or include it in an array) to skip units in other functions too.
+    ///
+    /// With `{"font-size": "px"}`:
+    ///
+    /// ```css
+    /// a { font-size: 12px; } /* passes */
+    /// a { font-size: 1.2rem; } /* reported */
+    /// ```
+    "declaration-property-unit-allowed-list", restriction;
+    #[derive(Debug, Default)]
+    pub struct DeclarationPropertyUnitAllowedList {
+        entries: Vec<(OptionMatcher, Vec<String>)>,
+        ignore_inside_function: bool,
+    }
 }
 
 impl DeclarationPropertyUnitAllowedList {
@@ -50,7 +67,7 @@ pub fn rejected_message(property: &str, unit: &str) -> String {
 
 impl Rule for DeclarationPropertyUnitAllowedList {
     fn name(&self) -> &'static str {
-        "declaration-property-unit-allowed-list"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

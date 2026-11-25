@@ -10,8 +10,18 @@ use crate::{
 use oxc_css_parser::{Span, ast::SelectorList};
 use serde_json::{Map, Value};
 
-pub struct SelectorNoVendorPrefix {
-    ignore_selectors: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Disallows vendor prefixes on pseudo-selectors known to Autoprefixer.
+    ///
+    /// Set to `true`. `ignoreSelectors` matches the selector text, including its colons,
+    /// by string or `/regex/` pattern. Auto-fix strips the prefix from reported names;
+    /// other vendor-specific pseudos are left alone.
+    ///
+    /// Example: `::-moz-placeholder {}` is fixed to `::placeholder {}`.
+    "selector-no-vendor-prefix", restriction, fix = fix;
+    pub struct SelectorNoVendorPrefix {
+        ignore_selectors: Vec<OptionMatcher>,
+    }
 }
 
 impl SelectorNoVendorPrefix {
@@ -34,7 +44,7 @@ fn strip_prefix(s: &str) -> Option<&str> {
 
 impl Rule for SelectorNoVendorPrefix {
     fn name(&self) -> &'static str {
-        "selector-no-vendor-prefix"
+        Self::NAME
     }
 
     fn check_selector_list<'a>(&self, list: &'a SelectorList<'a>, ctx: &mut LintContext<'a>) {

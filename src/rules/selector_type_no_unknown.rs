@@ -20,7 +20,7 @@ use crate::{
     },
 };
 
-const NAME: &str = "selector-type-no-unknown";
+const NAME: &str = SelectorTypeNoUnknown::NAME;
 const MAX_FRAGMENT_PARENS: usize = 64;
 
 #[derive(Clone, Copy, Default)]
@@ -195,11 +195,21 @@ fn may_have_type(selector: &str) -> bool {
         })
 }
 
-pub struct SelectorTypeNoUnknown {
-    ignore_custom_elements: bool,
-    ignore_default_namespace: bool,
-    ignore_namespaces: Vec<OptionMatcher>,
-    ignore_types: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Reports type selectors outside the known HTML, SVG, and MathML tag sets.
+    ///
+    /// Set to `true`. `ignore` accepts `"custom-elements"` and `"default-namespace"`.
+    /// `ignoreNamespaces` and `ignoreTypes` accept strings or `/regex/` patterns.
+    /// SVG names are case-sensitive; keyframe selectors are skipped. Does not fix violations.
+    ///
+    /// Example: `x-widget {}` is reported unless `"custom-elements"` is ignored.
+    "selector-type-no-unknown", correctness, recommended = true;
+    pub struct SelectorTypeNoUnknown {
+        ignore_custom_elements: bool,
+        ignore_default_namespace: bool,
+        ignore_namespaces: Vec<OptionMatcher>,
+        ignore_types: Vec<OptionMatcher>,
+    }
 }
 
 impl SelectorTypeNoUnknown {
@@ -215,7 +225,7 @@ impl SelectorTypeNoUnknown {
 
 impl Rule for SelectorTypeNoUnknown {
     fn name(&self) -> &'static str {
-        NAME
+        Self::NAME
     }
 
     fn check_qualified_rule<'a>(&self, rule: &'a QualifiedRule<'a>, ctx: &mut LintContext<'a>) {

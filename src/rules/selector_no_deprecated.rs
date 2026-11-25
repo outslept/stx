@@ -27,9 +27,21 @@ fn element_remap(name: &str) -> Option<&'static str> {
         _ => None,
     }
 }
-pub struct SelectorNoDeprecated {
-    ignore: Vec<OptionMatcher>,
+
+crate::define_stx_lint! {
+    /// Disallows deprecated CSS type selectors, pseudo-classes, and pseudo-elements.
+    ///
+    /// Set to `true`. `ignoreSelectors` accepts names without leading colons or
+    /// `/regex/` patterns. Auto-fix replaces only pseudos with a known replacement;
+    /// deprecated type selectors and other pseudos are reported without edits.
+    ///
+    /// Example: `a:focus-ring {}` is fixed to `a:focus-visible {}`.
+    "selector-no-deprecated", restriction, fix = conditional;
+    pub struct SelectorNoDeprecated {
+        ignore: Vec<OptionMatcher>,
+    }
 }
+
 impl SelectorNoDeprecated {
     pub fn new(s: Option<&serde_json::Map<String, serde_json::Value>>) -> Self {
         Self {
@@ -39,7 +51,7 @@ impl SelectorNoDeprecated {
 }
 impl Rule for SelectorNoDeprecated {
     fn name(&self) -> &'static str {
-        "selector-no-deprecated"
+        Self::NAME
     }
     fn check_qualified_rule<'a>(&self, rule: &'a QualifiedRule<'a>, ctx: &mut LintContext<'a>) {
         self.check_selector(rule.selector.span, ctx);

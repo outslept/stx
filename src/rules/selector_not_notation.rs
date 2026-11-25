@@ -9,8 +9,19 @@ pub enum SelectorNotMode {
     Simple,
 }
 
-pub struct SelectorNotNotation {
-    pub mode: SelectorNotMode,
+crate::define_stx_lint! {
+    /// Enforces simple or complex notation for `:not()` pseudo-classes.
+    ///
+    /// Set to `"simple"` to require a single simple selector in each `:not()`, or
+    /// `"complex"` to combine adjacent `:not()` calls. Auto-fix merges runs in complex
+    /// mode and splits supported argument lists in simple mode. A single compound
+    /// argument such as `:not(a.foo)` is reported without a fix in simple mode.
+    ///
+    /// Example: `"simple"` changes `:not(a, div) {}` to `:not(a):not(div) {}`.
+    "selector-not-notation", style, fix = conditional;
+    pub struct SelectorNotNotation {
+        pub mode: SelectorNotMode,
+    }
 }
 
 impl Default for SelectorNotNotation {
@@ -273,7 +284,7 @@ impl SelectorNotNotation {
 
 impl Rule for SelectorNotNotation {
     fn name(&self) -> &'static str {
-        "selector-not-notation"
+        Self::NAME
     }
 
     fn check_qualified_rule<'a>(&self, rule: &'a QualifiedRule<'a>, ctx: &mut LintContext<'a>) {

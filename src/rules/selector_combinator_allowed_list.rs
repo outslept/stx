@@ -17,8 +17,17 @@ pub fn rejected_message(combinator: &str) -> String {
     format!("Disallowed combinator \"{combinator}\"")
 }
 
-pub struct SelectorCombinatorAllowedList {
-    allowed: Vec<String>,
+crate::define_stx_lint! {
+    /// Allows only listed selector combinators.
+    ///
+    /// Set to a literal combinator or list of combinators. Use `" "` for a descendant
+    /// combinator, including one written with tabs or newlines. Does not fix violations.
+    ///
+    /// Example: `a ~ b {}` is disallowed with `[">", " "]`.
+    "selector-combinator-allowed-list", restriction;
+    pub struct SelectorCombinatorAllowedList {
+        allowed: Vec<String>,
+    }
 }
 
 impl SelectorCombinatorAllowedList {
@@ -31,7 +40,7 @@ impl SelectorCombinatorAllowedList {
 
 impl Rule for SelectorCombinatorAllowedList {
     fn name(&self) -> &'static str {
-        "selector-combinator-allowed-list"
+        Self::NAME
     }
 
     fn check_complex_selector<'a>(&self, sel: &'a ComplexSelector<'a>, ctx: &mut LintContext<'a>) {

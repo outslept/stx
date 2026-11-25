@@ -104,11 +104,25 @@ fn function_end(source: &str, open_paren: usize, end: usize) -> usize {
     end
 }
 
-pub struct ValueTypeCustomPropertyRequiredList {
-    types: Vec<String>,
-    ignore_functions: TypedIgnores,
-    ignore_properties: TypedIgnores,
-    ignore_values: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Requires custom property references for configured types of literal values.
+    ///
+    /// Set to a type or list of types: `"angle"`, `"color"`, `"length"`, `"number"`, or
+    /// `"percentage"`. Color detection covers named colors and recognized color
+    /// functions, not hex colors. `ignoreValues` matches value text; `ignoreFunctions`
+    /// and `ignoreProperties` accept names or `/regex/` patterns, or maps from type
+    /// names or patterns to those matchers. Skips custom property declarations and
+    /// `@property` blocks. Does not fix violations.
+    ///
+    /// Example: With `"length"`, `a { --foo: 1px; width: calc(var(--foo) + 2rem); }`
+    /// reports `2rem`, but not the declaration of `--foo` or its `var()` reference.
+    "value-type-custom-property-required-list", restriction;
+    pub struct ValueTypeCustomPropertyRequiredList {
+        types: Vec<String>,
+        ignore_functions: TypedIgnores,
+        ignore_properties: TypedIgnores,
+        ignore_values: Vec<OptionMatcher>,
+    }
 }
 
 impl ValueTypeCustomPropertyRequiredList {
@@ -127,7 +141,7 @@ impl ValueTypeCustomPropertyRequiredList {
 
 impl Rule for ValueTypeCustomPropertyRequiredList {
     fn name(&self) -> &'static str {
-        "value-type-custom-property-required-list"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

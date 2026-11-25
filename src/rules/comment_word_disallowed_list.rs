@@ -36,9 +36,24 @@ impl WordPattern {
     }
 }
 
-pub struct CommentWordDisallowedList {
-    patterns: Vec<WordPattern>,
-    pub severity: Severity,
+crate::define_stx_lint! {
+    /// Forbid configured text or regex matches inside comments.
+    ///
+    /// The primary option is a string or a list of strings, including
+    /// slash-delimited regexes such as `"/todo/i"`. There are no secondary
+    /// options. Literal strings match substrings, not just whole words.
+    /// Comments beginning with `/*# ` are skipped.
+    ///
+    /// With `["TODO"]`:
+    /// ```css
+    /// /* TODO: remove this */           /* reported */
+    /// /* Retained for compatibility */ /* accepted */
+    /// ```
+    "comment-word-disallowed-list", restriction;
+    pub struct CommentWordDisallowedList {
+        patterns: Vec<WordPattern>,
+        pub severity: Severity,
+    }
 }
 
 pub fn rejected_msg(pattern: &str) -> String {
@@ -114,7 +129,7 @@ impl CommentWordDisallowedList {
 
 impl Rule for CommentWordDisallowedList {
     fn name(&self) -> &'static str {
-        "comment-word-disallowed-list"
+        Self::NAME
     }
 
     fn check_comment<'a>(&self, comment: &'a Comment, ctx: &mut LintContext<'a>) {

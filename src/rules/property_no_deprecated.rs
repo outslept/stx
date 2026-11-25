@@ -65,9 +65,25 @@ const DEPRECATED_PROPS: &[(&str, Option<&str>)] = &[
     ("clip", None),
 ];
 
-#[derive(Debug, Default)]
-pub struct PropertyNoDeprecated {
-    ignore: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Report deprecated properties and replace those with a known equivalent.
+    ///
+    /// Reference: <https://stylelint.io/user-guide/rules/property-no-deprecated>
+    ///
+    /// Enable with `true`. `ignoreProperties` accepts exact names or
+    /// slash-delimited regexes. Properties without a mapped replacement, such
+    /// as `clip`, are reported without a fix. `-webkit-box-orient: vertical`
+    /// is exempt. The fix also changes `always` to `page` for `page-break-before`
+    /// and `page-break-after`.
+    ///
+    /// ```css
+    /// .grid { grid-gap: 1rem; } /* Fixes to gap */
+    /// ```
+    "property-no-deprecated", correctness, fix = conditional;
+    #[derive(Debug, Default)]
+    pub struct PropertyNoDeprecated {
+        ignore: Vec<OptionMatcher>,
+    }
 }
 
 impl PropertyNoDeprecated {
@@ -88,7 +104,7 @@ pub fn rejected_message(property: &str) -> String {
 
 impl Rule for PropertyNoDeprecated {
     fn name(&self) -> &'static str {
-        "property-no-deprecated"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

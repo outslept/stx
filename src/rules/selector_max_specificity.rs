@@ -126,9 +126,19 @@ fn simple_specificity(node: &SimpleSelector<'_>) -> Specificity {
     }
 }
 
-pub struct SelectorMaxSpecificity {
-    max: Specificity,
-    raw: String,
+crate::define_stx_lint! {
+    /// Limits the specificity of each selector.
+    ///
+    /// Set to three comma-separated non-negative integers in a string: IDs, classes
+    /// (including attributes and pseudo-classes), and types (including pseudo-elements).
+    /// Nested selectors are resolved before comparison. Does not fix violations.
+    ///
+    /// Example: `.a:not(.b, .c) {}` exceeds `"0,1,0"`.
+    "selector-max-specificity", restriction;
+    pub struct SelectorMaxSpecificity {
+        max: Specificity,
+        raw: String,
+    }
 }
 impl SelectorMaxSpecificity {
     pub fn from_config(p: &serde_json::Value) -> Option<Self> {
@@ -148,7 +158,7 @@ impl SelectorMaxSpecificity {
 }
 impl Rule for SelectorMaxSpecificity {
     fn name(&self) -> &'static str {
-        "selector-max-specificity"
+        Self::NAME
     }
     fn check_qualified_rule<'a>(&self, rule: &'a QualifiedRule<'a>, ctx: &mut LintContext<'a>) {
         if !is_standard_syntax_rule(ctx.source, rule) {

@@ -6,7 +6,7 @@ use std::borrow::Cow;
 
 use oxc_css_parser::{Span, ast::Stylesheet};
 
-use crate::{context::LintContext, declare_stx_lint, rules::Rule};
+use crate::{context::LintContext, rules::Rule};
 
 const REASON_BYTE_ORDER_MARK: &str = "expected no byte order mark before it";
 const REASON_POSITION: &str = "expected it to be at the very start of the stylesheet";
@@ -19,76 +19,22 @@ fn invalid_at_charset_diagnostic(reason: &str) -> String {
     format!("Invalid \"@charset\" rule, {reason}")
 }
 
-#[derive(Debug, Default, Clone, Copy)]
-pub struct AtCharsetRuleNoInvalid;
-
-declare_stx_lint! {
-    /// Disallow invalid `@charset` rules according to the CSS Syntax specification.
+crate::define_stx_lint! {
+    /// Check the placement and spelling of `@charset` declarations.
     ///
-    /// ### What it does
+    /// Enable with `true`; there are no rule-specific secondary options. If present,
+    /// `@charset` must start the file with no leading BOM, whitespace, or comment.
+    /// It must be lowercase, followed by one ASCII space, a double-quoted label,
+    /// and an immediate semicolon. The rule checks the form, not the encoding name.
     ///
-    /// Validates that every `@charset` rule in a stylesheet strictly conforms to the byte-stream
-    /// requirements defined by the CSS Syntax Module Level 3 specification:
+    /// Accepted at the start of a file:
     ///
-    /// 1. No UTF-8 Byte Order Mark (`\u{FEFF}`) precedes the rule.
-    /// 2. The rule starts at the very first character of the stylesheet (no leading whitespace,
-    ///    comments, or preceding statements).
-    /// 3. The at-rule name is lowercase (`@charset`).
-    /// 4. Exactly one ASCII space (`' '`) follows `@charset`.
-    /// 5. The encoding label is wrapped in double quotes (`"..."`).
-    /// 6. A semicolon (`;`) immediately follows the closing double quote (with no intervening
-    ///    whitespace, extra tokens, or block `{}`).
-    ///
-    /// ### Why is this bad?
-    ///
-    /// Unlike normal CSS at-rules, `@charset` is parsed by browsers using a strict byte-sequence
-    /// check (`@charset "<encoding>";`) at the very beginning of the stylesheet. Any deviation in
-    /// casing, spacing, quoting, or placement causes the browser to completely ignore the `@charset`
-    /// declaration.
-    ///
-    /// ### Options
-    ///
-    /// #### Primary
-    ///
-    /// - `true`: Enable the rule.
-    ///
-    /// ```json
-    /// {
-    ///   "at-charset-rule-no-invalid": true
-    /// }
-    /// ```
-    ///
-    /// ### Examples
-    ///
-    /// **Incorrect:**
-    /// ```css
-    /// @CHARSET "utf-8";
-    /// ```
-    /// ```css
-    /// @charset 'utf-8';
-    /// ```
-    /// ```css
-    /// @charset  "utf-8";
-    /// ```
-    /// ```css
-    /// /* comment */
-    /// @charset "utf-8";
-    /// ```
-    ///
-    /// **Correct:**
     /// ```css
     /// @charset "utf-8";
     /// ```
-    ///
-    /// ### References
-    ///
-    /// - [Stylelint Documentation: `at-charset-rule-no-invalid`](https://stylelint.io/user-guide/rules/at-charset-rule-no-invalid)
-    /// - [CSS Syntax Module Level 3: Determining the fallback encoding](https://www.w3.org/TR/css-syntax-3/#determine-the-fallback-encoding)
-    AtCharsetRuleNoInvalid,
-    "at-charset-rule-no-invalid",
-    correctness,
-    fix = none,
-    recommended = true,
+    "at-charset-rule-no-invalid", correctness;
+    #[derive(Debug, Default, Clone, Copy)]
+    pub struct AtCharsetRuleNoInvalid;
 }
 
 impl Rule for AtCharsetRuleNoInvalid {

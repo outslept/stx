@@ -23,86 +23,26 @@ enum Mode {
     Legacy,
 }
 
-/// [`color-function-notation`](https://stylelint.io/user-guide/rules/color-function-notation)
-///
-/// Specify modern or legacy notation for applicable color-functions.
-///
-/// ### What it does
-///
-/// Enforces either the modern space-separated syntax (`rgb(0 0 0 / 50%)`) or
-/// the legacy comma-separated syntax (`rgba(0, 0, 0, 50%)`) for `rgb()`,
-/// `rgba()`, `hsl()`, and `hsla()` color functions.
-///
-/// Preprocessor color helper calls (such as Sass `rgba(#fff, 0.85)` or
-/// `rgba($color, 0.5)`) are ignored.
-///
-/// ### Why is this bad?
-///
-/// Mixing legacy comma-separated color functions with modern space-separated
-/// CSS Color 4 syntax reduces consistency across stylesheets. Modern notation
-/// also aligns `rgb()` and `hsl()` with newer CSS color functions such as
-/// `lab()`, `lch()`, `oklab()`, and `oklch()`.
-///
-/// ### Autofix
-///
-/// When configured with `"modern"`, this rule automatically:
-/// - Replaces the first two channel-separating commas with spaces.
-/// - Replaces the third (alpha) comma with `/`.
-/// - Strips the trailing `a` from `rgba` / `hsla` function names.
-///
-/// ### Primary Option
-///
-/// - `"modern"`: require space-separated channels and `/` before alpha.
-/// - `"legacy"`: require comma-separated channels.
-///
-/// ### Secondary Options
-///
-/// ```json
-/// {
-///   "ignore": ["with-var-inside"]
-/// }
-/// ```
-///
-/// - `"ignore": ["with-var-inside"]`: ignore color functions that contain a
-///   direct `var()` argument (since a single `var()` may expand to multiple
-///   comma-separated or space-separated tokens at runtime).
-///
-/// ### Examples
-///
-/// #### `"modern"`
-///
-/// ##### Incorrect
-///
-/// ```css
-/// a { color: rgb(0, 0, 0); }
-/// a { color: rgba(12, 122, 231, 0.2); }
-/// ```
-///
-/// ##### Correct
-///
-/// ```css
-/// a { color: rgb(0 0 0); }
-/// a { color: rgb(12 122 231 / 0.2); }
-/// ```
-///
-/// #### `"legacy"`
-///
-/// ##### Incorrect
-///
-/// ```css
-/// a { color: rgb(0 0 0); }
-/// a { color: rgb(12 122 231 / 0.2); }
-/// ```
-///
-/// ##### Correct
-///
-/// ```css
-/// a { color: rgb(0, 0, 0); }
-/// a { color: rgba(12, 122, 231, 0.2); }
-/// ```
-pub struct ColorFunctionNotation {
-    mode: Mode,
-    ignore_with_var_inside: bool,
+crate::define_stx_lint! {
+    /// Require modern or legacy argument separators in `rgb()` and `hsl()` and their aliases.
+    ///
+    /// Set the primary option to `"modern"` for spaces between channels and `/`
+    /// before alpha, or `"legacy"` for commas. The secondary option
+    /// `ignore: ["with-var-inside"]` skips a call with a direct `var()` argument.
+    /// Namespaced Sass calls and calls with top-level hex or Sass variable
+    /// arguments are skipped. The rule checks notation, not argument validity.
+    /// Only `"modern"` autofixes; it also removes the `a` suffix when fixing a call.
+    ///
+    /// With `"modern"`:
+    /// ```css
+    /// a { color: rgba(0, 0, 0, 0.5); } /* reported */
+    /// a { color: rgb(0 0 0 / 0.5); }   /* accepted */
+    /// ```
+    "color-function-notation", style, fix = conditional;
+    pub struct ColorFunctionNotation {
+        mode: Mode,
+        ignore_with_var_inside: bool,
+    }
 }
 
 impl Default for ColorFunctionNotation {
@@ -142,7 +82,7 @@ impl ColorFunctionNotation {
 
 impl Rule for ColorFunctionNotation {
     fn name(&self) -> &'static str {
-        "color-function-notation"
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, _ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {

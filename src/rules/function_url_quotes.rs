@@ -15,9 +15,22 @@ pub enum UrlQuoteMode {
     Never,
 }
 
-pub struct FunctionUrlQuotes {
-    pub mode: UrlQuoteMode,
-    except_empty: bool,
+crate::define_stx_lint! {
+    /// Requires or forbids quotes around `url()` arguments in declarations and at-rule preludes.
+    ///
+    /// Set the primary option to `"always"` or `"never"`. Set `except` to
+    /// `"empty"` (or include it in an array) to reverse the choice for empty
+    /// arguments. In `"never"` mode, quotes needed for spaces or parentheses
+    /// are left in place. Auto-fix adds double quotes or removes optional quotes.
+    ///
+    /// ```css
+    /// a { background: url(foo.css); } /* fixes to url("foo.css") with "always" */
+    /// ```
+    "function-url-quotes", style, fix = fix;
+    pub struct FunctionUrlQuotes {
+        pub mode: UrlQuoteMode,
+        except_empty: bool,
+    }
 }
 
 impl FunctionUrlQuotes {
@@ -195,7 +208,7 @@ fn is_ident_char(b: u8) -> bool {
 
 impl Rule for FunctionUrlQuotes {
     fn name(&self) -> &'static str {
-        "function-url-quotes"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

@@ -10,8 +10,23 @@ use crate::{
 use oxc_css_parser::ast::{AtRule, Declaration, Statement, Stylesheet};
 use std::collections::HashSet;
 
-#[derive(Debug, Default)]
-pub struct NoUnknownAnimations;
+crate::define_stx_lint! {
+    /// Report animation identifiers that have no matching keyframes in the stylesheet.
+    ///
+    /// Reference: <https://stylelint.io/user-guide/rules/no-unknown-animations>
+    ///
+    /// Enable with `true`; there are no rule-specific options. The rule checks
+    /// `animation` and `animation-name`, skipping keywords and function contents.
+    /// Both `@keyframes` and `@-webkit-keyframes` definitions count, regardless of
+    /// order. Definitions in other stylesheets are not considered.
+    ///
+    /// ```css
+    /// .notice { animation: fade 1s ease; } /* Needs @keyframes fade */
+    /// ```
+    "no-unknown-animations", correctness;
+    #[derive(Debug, Default)]
+    pub struct NoUnknownAnimations;
+}
 
 fn collect<'a>(at_rules: &mut Vec<&'a AtRule<'a>>, statements: &'a [Statement<'a>]) {
     for st in statements {
@@ -46,7 +61,7 @@ fn collect_decls<'a>(decls: &mut Vec<&'a Declaration<'a>>, statements: &'a [Stat
 
 impl Rule for NoUnknownAnimations {
     fn name(&self) -> &'static str {
-        "no-unknown-animations"
+        Self::NAME
     }
     fn check_stylesheet<'a>(&self, _ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {
         let stylesheet = ctx.stylesheet;

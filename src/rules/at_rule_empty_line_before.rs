@@ -9,21 +9,11 @@ use oxc_css_parser::ast::Stylesheet;
 
 use crate::config::RuleSetting;
 use crate::context::LintContext;
-use crate::declare_stx_lint;
 use crate::fix::Fix;
 use crate::rules::Rule;
 use crate::utils::{
     OptionMatcher, has_interpolation, options_matches, parse_option_matchers, secondary_has_flag,
 };
-
-declare_stx_lint! {
-    /// Require or disallow an empty line before at-rules.
-    AtRuleEmptyLineBefore,
-    "at-rule-empty-line-before",
-    style,
-    fix = fix,
-    recommended = false,
-}
 
 /// Primary expectation mode for [`AtRuleEmptyLineBefore`].
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -53,9 +43,30 @@ pub struct AtRuleEmptyLineBeforeConfig {
     ignore_at_rules: Vec<OptionMatcher>,
 }
 
-/// Requires or disallows an empty line before standard-syntax at-rules.
-#[derive(Default)]
-pub struct AtRuleEmptyLineBefore(AtRuleEmptyLineBeforeConfig);
+crate::define_stx_lint! {
+    /// Require or forbid a blank line before at-rules.
+    ///
+    /// Set the primary option to `"always"` to require a blank line or `"never"`
+    /// to forbid one. The first top-level node and nonstandard at-rules are skipped.
+    /// Autofix changes the whitespace before the at-rule.
+    ///
+    /// - `except` reverses the expectation for `after-same-name`, `inside-block`,
+    ///   `first-nested`, `blockless-after-blockless`, or `blockless-after-same-name-blockless`.
+    /// - `ignore` skips `after-comment`, `inside-block`, `first-nested`,
+    ///   `blockless-after-blockless`, or `blockless-after-same-name-blockless`.
+    /// - `ignoreAtRules` skips names or slash-delimited regex matches without `@`.
+    ///
+    /// With `"always"`, the blank line before `@media` is required here:
+    ///
+    /// ```css
+    /// @import "base.css";
+    ///
+    /// @media print { a { color: black; } }
+    /// ```
+    "at-rule-empty-line-before", style, fix = fix;
+    #[derive(Default)]
+    pub struct AtRuleEmptyLineBefore(AtRuleEmptyLineBeforeConfig);
+}
 
 impl Deref for AtRuleEmptyLineBefore {
     type Target = AtRuleEmptyLineBeforeConfig;

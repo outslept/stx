@@ -7,14 +7,33 @@ use crate::{
     },
 };
 use oxc_css_parser::ast::{AtRule, QualifiedRule, Statement};
-pub struct MaxNestingDepth {
-    max: u64,
-    ignore_at_rules: Vec<OptionMatcher>,
-    ignore_rules: Vec<OptionMatcher>,
-    ignore_pseudo_classes: Vec<OptionMatcher>,
-    ignore_blockless_at_rules: bool,
-    ignore_pseudo_only_rules: bool,
+
+crate::define_stx_lint! {
+    /// Limit how deeply style rules and at-rules can be nested.
+    ///
+    /// Set the primary option to a non-negative integer. A top-level at-rule
+    /// does not add to the depth. `ignoreAtRules` matches names without `@` and
+    /// exempts their subtrees. `ignoreRules` matches full selectors, and
+    /// `ignorePseudoClasses` matches pseudo-class names without `:`. All three
+    /// options accept a string or array of literals and `/regex/` patterns.
+    /// A selector list is ignored only if each selector matches `ignoreRules`
+    /// or has an exempt pseudo-class. The `ignore` option accepts `"pseudo-classes"`
+    /// to exempt any pseudo-class and `"blockless-at-rules"` to exempt at-rule
+    /// blocks without direct declarations. Ignored style rules do not add depth
+    /// to their descendants.
+    ///
+    /// With `1`, `a { b { c { top: 0; } } }` is reported at `c`.
+    "max-nesting-depth", restriction;
+    pub struct MaxNestingDepth {
+        max: u64,
+        ignore_at_rules: Vec<OptionMatcher>,
+        ignore_rules: Vec<OptionMatcher>,
+        ignore_pseudo_classes: Vec<OptionMatcher>,
+        ignore_blockless_at_rules: bool,
+        ignore_pseudo_only_rules: bool,
+    }
 }
+
 impl MaxNestingDepth {
     pub fn from_config(
         p: &serde_json::Value,
@@ -84,7 +103,7 @@ impl MaxNestingDepth {
 }
 impl Rule for MaxNestingDepth {
     fn name(&self) -> &'static str {
-        "max-nesting-depth"
+        Self::NAME
     }
     fn check_qualified_rule<'a>(&self, rule: &'a QualifiedRule<'a>, ctx: &mut LintContext<'a>) {
         if self.ignored_rule(rule, ctx) {

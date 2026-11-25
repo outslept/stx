@@ -107,9 +107,24 @@ pub fn rejected_message(property: &str, keyword: &str) -> String {
     format!("Deprecated keyword \"{keyword}\" for property \"{property}\"")
 }
 
-#[derive(Debug, Default)]
-pub struct DeclarationPropertyValueKeywordNoDeprecated {
-    ignore_keywords: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Reports deprecated CSS keywords for the properties that accept them.
+    ///
+    /// Set the primary option to `true`. The secondary option `ignoreKeywords`
+    /// accepts a literal string, a `/regex/`, or an array of either. It matches
+    /// the entire declaration value, not each keyword separately.
+    ///
+    /// Auto-fix replaces keywords with known alternatives; keywords such as
+    /// `blink` in `text-decoration` are reported without a fix.
+    ///
+    /// ```css
+    /// a { overflow: overlay; } /* fixes to overflow: auto */
+    /// ```
+    "declaration-property-value-keyword-no-deprecated", restriction, fix = conditional;
+    #[derive(Debug, Default)]
+    pub struct DeclarationPropertyValueKeywordNoDeprecated {
+        ignore_keywords: Vec<OptionMatcher>,
+    }
 }
 
 impl DeclarationPropertyValueKeywordNoDeprecated {
@@ -122,7 +137,7 @@ impl DeclarationPropertyValueKeywordNoDeprecated {
 
 impl Rule for DeclarationPropertyValueKeywordNoDeprecated {
     fn name(&self) -> &'static str {
-        "declaration-property-value-keyword-no-deprecated"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

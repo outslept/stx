@@ -11,9 +11,20 @@ use crate::{
 
 const DELAY_PROPERTIES: &[&str] = &["animation-delay", "transition-delay"];
 
-pub struct TimeMinMilliseconds {
-    minimum: f64,
-    ignore_delay: bool,
+crate::define_stx_lint! {
+    /// Reports positive animation and transition times below a minimum.
+    ///
+    /// Set to a number of milliseconds. Checks `ms` and `s` dimensions and exempts
+    /// zero and negative values. Use `ignore: ["delay"]` to skip delay longhands and
+    /// check only the first dimension of each comma-separated shorthand item.
+    /// Does not fix violations.
+    ///
+    /// Example: `a { animation-duration: 80ms; }` is reported with a minimum of `100`.
+    "time-min-milliseconds", restriction;
+    pub struct TimeMinMilliseconds {
+        minimum: f64,
+        ignore_delay: bool,
+    }
 }
 
 impl TimeMinMilliseconds {
@@ -47,7 +58,7 @@ fn is_acceptable(unit: &str, number: f64, minimum: f64) -> bool {
 
 impl Rule for TimeMinMilliseconds {
     fn name(&self) -> &'static str {
-        "time-min-milliseconds"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

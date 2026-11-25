@@ -11,7 +11,7 @@ use crate::{
 use oxc_css_parser::ast::Declaration;
 use serde_json::{Map, Value};
 
-const NAME: &str = "function-name-case";
+const NAME: &str = FunctionNameCase::NAME;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CaseMode {
@@ -19,9 +19,22 @@ pub enum CaseMode {
     Upper,
 }
 
-pub struct FunctionNameCase {
-    mode: CaseMode,
-    ignore_functions: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Enforces lowercase or uppercase CSS function names in declaration values.
+    ///
+    /// Set the primary option to `"lower"` or `"upper"`. In `"lower"` mode,
+    /// known camel-case spellings such as `translateX` are preserved. Use
+    /// `ignoreFunctions` with a literal name, a `/regex/`, or an array of
+    /// either. Auto-fix rewrites the name without changing its arguments.
+    ///
+    /// ```css
+    /// a { transform: TranslateX(0); } /* fixes to translateX(0) with "lower" */
+    /// ```
+    "function-name-case", style, fix = fix;
+    pub struct FunctionNameCase {
+        mode: CaseMode,
+        ignore_functions: Vec<OptionMatcher>,
+    }
 }
 
 impl FunctionNameCase {
@@ -35,7 +48,7 @@ impl FunctionNameCase {
 
 impl Rule for FunctionNameCase {
     fn name(&self) -> &'static str {
-        NAME
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

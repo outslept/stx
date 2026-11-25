@@ -6,8 +6,23 @@ use oxc_css_parser::ast::Stylesheet;
 use crate::context::LintContext;
 use crate::rules::Rule;
 
-#[derive(Debug, Default)]
-pub struct CustomPropertyNoMissingVarFunction;
+crate::define_stx_lint! {
+    /// Flag references to known custom properties that omit `var()`.
+    ///
+    /// Enable with `true`; there are no rule-specific secondary options. The
+    /// rule only knows names declared or registered in the same stylesheet.
+    /// It skips properties that accept dashed identifiers, such as `animation-name`,
+    /// and dashed names in special function positions, such as an `anchor()` name.
+    ///
+    /// ```css
+    /// :root { --accent: red; }
+    /// a { color: --accent; }      /* reported */
+    /// a { color: var(--accent); } /* accepted */
+    /// ```
+    "custom-property-no-missing-var-function", correctness, recommended = true;
+    #[derive(Debug, Default)]
+    pub struct CustomPropertyNoMissingVarFunction;
+}
 
 pub fn rejected_message(custom_property: &str) -> String {
     format!("Missing var function for \"{custom_property}\"")
@@ -340,7 +355,7 @@ fn check_node<'a>(
 
 impl Rule for CustomPropertyNoMissingVarFunction {
     fn name(&self) -> &'static str {
-        "custom-property-no-missing-var-function"
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, _ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {

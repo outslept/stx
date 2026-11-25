@@ -41,9 +41,23 @@ impl StringOrRegex {
     }
 }
 
-pub struct ColorNoHex {
-    ignore_functions: Vec<StringOrRegex>,
-    pub severity: Severity,
+crate::define_stx_lint! {
+    /// Forbid hex color notation in declaration values.
+    ///
+    /// Enable with `true`. The secondary `ignoreFunctions` list takes names
+    /// or slash-delimited regexes and skips the contents of matching calls.
+    /// `url()` contents are also skipped. The rule reports alphanumeric
+    /// hash tokens even if they are not valid hex colors.
+    ///
+    /// ```css
+    /// a { color: #f00; } /* reported */
+    /// a { color: red; }  /* accepted */
+    /// ```
+    "color-no-hex", restriction;
+    pub struct ColorNoHex {
+        ignore_functions: Vec<StringOrRegex>,
+        pub severity: Severity,
+    }
 }
 
 impl ColorNoHex {
@@ -86,7 +100,7 @@ pub fn rejected_msg(hex: &str) -> String {
 
 impl Rule for ColorNoHex {
     fn name(&self) -> &'static str {
-        "color-no-hex"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

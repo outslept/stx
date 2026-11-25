@@ -5,12 +5,22 @@ use oxc_css_parser::ast::*;
 use regex::Regex;
 use serde_json::{Map, Value};
 
-pub struct SelectorMaxId {
-    max: usize,
-    ignore_functions: Vec<String>,
-    ignore_functions_regexes: Vec<Regex>,
-    ignore_context_functional_pseudo_classes: Vec<String>,
-    ignore_context_regexes: Vec<Regex>,
+crate::define_stx_lint! {
+    /// Limits the number of ID selectors in each selector.
+    ///
+    /// Set to a non-negative integer. `ignoreFunctions` takes an array of names or
+    /// `/regex/` patterns and skips arguments of matching functions. It does not
+    /// exempt pseudo-class arguments. Does not fix violations.
+    ///
+    /// Example: `#foo {}` exceeds a maximum of `0`.
+    "selector-max-id", restriction;
+    pub struct SelectorMaxId {
+        max: usize,
+        ignore_functions: Vec<String>,
+        ignore_functions_regexes: Vec<Regex>,
+        ignore_context_functional_pseudo_classes: Vec<String>,
+        ignore_context_regexes: Vec<Regex>,
+    }
 }
 
 impl SelectorMaxId {
@@ -200,7 +210,7 @@ impl SelectorMaxId {
 
 impl Rule for SelectorMaxId {
     fn name(&self) -> &'static str {
-        "selector-max-id"
+        Self::NAME
     }
 
     fn check_qualified_rule<'a>(&self, rule: &'a QualifiedRule<'a>, ctx: &mut LintContext<'a>) {
@@ -389,7 +399,7 @@ mod tests {
 
     use crate::tester::{Tester, reject, reject_warnings};
 
-    const NAME: &str = "selector-max-id";
+    const NAME: &str = super::SelectorMaxId::NAME;
 
     fn expected(selector: &str, max: usize) -> String {
         format!("Too many ID selectors in \"{selector}\", maximum {max}")

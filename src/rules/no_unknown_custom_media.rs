@@ -5,8 +5,22 @@ use oxc_css_parser::{
 };
 use std::collections::HashSet;
 
-#[derive(Debug, Default)]
-pub struct NoUnknownCustomMedia;
+crate::define_stx_lint! {
+    /// Report custom media references in `@media` without a matching `@custom-media`.
+    ///
+    /// Reference: <https://stylelint.io/user-guide/rules/no-unknown-custom-media>
+    ///
+    /// Enable with `true`; there are no rule-specific options. Names are matched
+    /// case-sensitively against definitions anywhere in the same stylesheet.
+    /// Definitions in other stylesheets are not considered.
+    ///
+    /// ```css
+    /// @media (--narrow) { .layout { display: block; } } /* Needs @custom-media --narrow */
+    /// ```
+    "no-unknown-custom-media", correctness;
+    #[derive(Debug, Default)]
+    pub struct NoUnknownCustomMedia;
+}
 
 fn custom_media_name(raw: &str) -> Option<&str> {
     let trimmed = raw.trim_start();
@@ -37,7 +51,7 @@ fn collect<'a>(at_rules: &mut Vec<&'a AtRule<'a>>, statements: &'a [Statement<'a
 
 impl Rule for NoUnknownCustomMedia {
     fn name(&self) -> &'static str {
-        "no-unknown-custom-media"
+        Self::NAME
     }
     fn check_stylesheet<'a>(&self, _ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {
         let stylesheet = ctx.stylesheet;

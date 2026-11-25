@@ -9,97 +9,25 @@ use crate::context::LintContext;
 use crate::rules::Rule;
 use crate::utils::{is_configuration_comment, secondary_has_flag};
 
-/// ## `block-no-empty`
-///
-/// Disallow empty blocks in style rules, at-rules, and keyframe blocks.
-///
-/// ### What it does
-///
-/// Reports a diagnostic whenever a block `{ ... }` contains no statements,
-/// declarations, or non-whitespace content.
-///
-/// ### Why is this bad?
-///
-/// Empty blocks are typically leftovers from refactoring or incomplete edits.
-/// They add unnecessary bytes to stylesheets and clutter the codebase without
-/// having any effect on rendering.
-///
-/// ### Options
-///
-/// #### Primary
-///
-/// - `true`: Enable the rule.
-///
-/// ```json
-/// {
-///   "block-no-empty": true
-/// }
-/// ```
-///
-/// #### Secondary (optional)
-///
-/// - `"ignore": ["comments"]`: Exclude regular comments from being treated as
-///   content inside a block. Note that configuration comments (such as
-///   `/* stylelint-disable */` or `/* stx-disable */`) are always ignored
-///   regardless of this setting.
-///
-/// ```json
-/// {
-///   "block-no-empty": [true, { "ignore": ["comments"] }]
-/// }
-/// ```
-///
-/// ### Examples
-///
-/// #### Default (`true`)
-///
-/// **Incorrect:**
-/// ```css
-/// a {}
-///
-/// a { }
-///
-/// @media print {
-///   a {}
-/// }
-/// ```
-///
-/// **Correct:**
-/// ```css
-/// a {
-///   /* foo */
-/// }
-///
-/// @media print {
-///   a {
-///     color: pink;
-///   }
-/// }
-/// ```
-///
-/// #### With `{ "ignore": ["comments"] }`
-///
-/// **Incorrect:**
-/// ```css
-/// a {
-///   /* foo */
-/// }
-///
-/// @media print {
-///   a {
-///     /* foo */
-///   }
-/// }
-/// ```
-///
-/// ### References
-///
-/// - [Stylelint Documentation: `block-no-empty`](https://stylelint.io/user-guide/rules/block-no-empty)
-#[derive(Default)]
-pub struct BlockNoEmpty {
-    /// When `true`, blocks containing only non-configuration comments are also
-    /// reported as empty (`"ignore": ["comments"]`).
-    pub ignore_comments: bool,
+crate::define_stx_lint! {
+    /// Flag empty blocks in style rules, at-rules, and keyframes.
+    ///
+    /// Enable with `true`. Linter configuration comments never count as content.
+    /// Set the secondary option `ignore: ["comments"]` to treat ordinary comments
+    /// the same way. Other non-whitespace text, including a lone `;`, makes a
+    /// block nonempty for this check.
+    ///
+    /// ```css
+    /// a {}               /* reported */
+    /// a { color: red; }  /* accepted */
+    /// ```
+    "block-no-empty", suspicious, recommended = true;
+    #[derive(Default)]
+    pub struct BlockNoEmpty {
+        /// When `true`, blocks containing only non-configuration comments are also
+        /// reported as empty (`"ignore": ["comments"]`).
+        pub ignore_comments: bool,
+    }
 }
 
 impl BlockNoEmpty {
@@ -113,7 +41,7 @@ impl BlockNoEmpty {
 
 impl Rule for BlockNoEmpty {
     fn name(&self) -> &'static str {
-        "block-no-empty"
+        Self::NAME
     }
 
     fn check_simple_block<'a>(&self, block: &'a SimpleBlock<'a>, ctx: &mut LintContext<'a>) {

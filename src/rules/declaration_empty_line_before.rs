@@ -11,18 +11,40 @@ use crate::{
     utils::{is_single_line_string, secondary_has_flag},
 };
 
-const NAME: &str = "declaration-empty-line-before";
+const NAME: &str = DeclarationEmptyLineBefore::NAME;
 
-pub struct DeclarationEmptyLineBefore {
-    mode: EmptyLineMode,
-    ignore_after_comment: bool,
-    ignore_after_declaration: bool,
-    ignore_first_nested: bool,
-    ignore_inside_single_line_block: bool,
-    except_first_nested: bool,
-    except_after_block: bool,
-    except_after_comment: bool,
-    except_after_declaration: bool,
+crate::define_stx_lint! {
+    /// Requires or forbids an empty line before standard declarations.
+    ///
+    /// Set the primary option to `"always"` to require an empty line or `"never"`
+    /// to forbid it. Custom properties are not checked.
+    ///
+    /// - `ignore` skips `after-comment`, `after-declaration`, `first-nested`,
+    ///   or `inside-single-line-block` declarations.
+    /// - `except` reverses the choice for `after-comment`, `after-declaration`,
+    ///   `first-nested`, or `after-block` declarations.
+    ///
+    /// Each option accepts a string or an array of strings. Auto-fix inserts
+    /// or removes the empty line.
+    ///
+    /// ```css
+    /// a {
+    ///
+    ///   color: red; /* passes with "always" */
+    /// }
+    /// ```
+    "declaration-empty-line-before", style, fix = fix;
+    pub struct DeclarationEmptyLineBefore {
+        mode: EmptyLineMode,
+        ignore_after_comment: bool,
+        ignore_after_declaration: bool,
+        ignore_first_nested: bool,
+        ignore_inside_single_line_block: bool,
+        except_first_nested: bool,
+        except_after_block: bool,
+        except_after_comment: bool,
+        except_after_declaration: bool,
+    }
 }
 
 impl DeclarationEmptyLineBefore {
@@ -48,7 +70,7 @@ impl DeclarationEmptyLineBefore {
 
 impl Rule for DeclarationEmptyLineBefore {
     fn name(&self) -> &'static str {
-        NAME
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {

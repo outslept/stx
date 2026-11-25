@@ -40,9 +40,21 @@ impl IgnoreMatcher {
     }
 }
 
-#[derive(Debug, Default)]
-pub struct DeclarationBlockNoDuplicateCustomProperties {
-    ignore_properties: Vec<IgnoreMatcher>,
+crate::define_stx_lint! {
+    /// Disallows repeated custom property names within the same declaration block.
+    ///
+    /// Set the primary option to `true`. Set `ignoreProperties` to a name, a
+    /// `/regex/` (optionally with `i`), or an array of either. Literal names are
+    /// case-sensitive.
+    ///
+    /// ```css
+    /// a { --accent: red; --accent: blue; } /* reported */
+    /// ```
+    "declaration-block-no-duplicate-custom-properties", suspicious, recommended = true;
+    #[derive(Debug, Default)]
+    pub struct DeclarationBlockNoDuplicateCustomProperties {
+        ignore_properties: Vec<IgnoreMatcher>,
+    }
 }
 
 impl DeclarationBlockNoDuplicateCustomProperties {
@@ -119,7 +131,7 @@ fn skip_braces(bytes: &[u8], mut i: usize) -> usize {
 
 impl Rule for DeclarationBlockNoDuplicateCustomProperties {
     fn name(&self) -> &'static str {
-        "declaration-block-no-duplicate-custom-properties"
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, _ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {

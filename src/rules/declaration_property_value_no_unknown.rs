@@ -15,8 +15,21 @@ use oxc_css_parser::{
 };
 use serde_json::{Map, Value};
 
-pub struct DeclarationPropertyValueNoUnknown {
-    ignore_properties: Vec<(OptionMatcher, Vec<OptionMatcher>)>,
+crate::define_stx_lint! {
+    /// Reports values that do not match the known syntax of supported CSS properties.
+    ///
+    /// Set the primary option to `true`. Use `ignoreProperties` to map a
+    /// property name or `/regex/` pattern to a value matcher or an array
+    /// of matchers. Value matchers are literal strings or `/regex/` patterns
+    /// applied to the declaration value. Custom properties are not checked.
+    ///
+    /// ```css
+    /// a { display: fixed; } /* reported */
+    /// ```
+    "declaration-property-value-no-unknown", correctness;
+    pub struct DeclarationPropertyValueNoUnknown {
+        ignore_properties: Vec<(OptionMatcher, Vec<OptionMatcher>)>,
+    }
 }
 
 impl DeclarationPropertyValueNoUnknown {
@@ -480,7 +493,7 @@ fn font_mismatch(prop: &str, tokens: &[ValueToken<'_>]) -> Option<Span> {
 
 impl Rule for DeclarationPropertyValueNoUnknown {
     fn name(&self) -> &'static str {
-        "declaration-property-value-no-unknown"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

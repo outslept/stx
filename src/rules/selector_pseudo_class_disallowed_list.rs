@@ -16,8 +16,18 @@ fn reject_msg(value: &str) -> String {
     format!("Disallowed pseudo-class \"{value}\"")
 }
 
-pub struct SelectorPseudoClassDisallowedList {
-    disallowed: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Disallows listed pseudo-classes in selectors and `@page` preludes.
+    ///
+    /// Set to a name or a list of names and `/regex/` patterns, without the leading
+    /// colon or any arguments. Literal name matching is case-sensitive.
+    /// Does not fix violations.
+    ///
+    /// Example: `a:has(> img) {}` is disallowed by `"has"`.
+    "selector-pseudo-class-disallowed-list", restriction;
+    pub struct SelectorPseudoClassDisallowedList {
+        disallowed: Vec<OptionMatcher>,
+    }
 }
 
 impl SelectorPseudoClassDisallowedList {
@@ -50,7 +60,7 @@ impl SelectorPseudoClassDisallowedList {
 
 impl Rule for SelectorPseudoClassDisallowedList {
     fn name(&self) -> &'static str {
-        "selector-pseudo-class-disallowed-list"
+        Self::NAME
     }
 
     fn check_complex_selector<'a>(&self, sel: &'a ComplexSelector<'a>, ctx: &mut LintContext<'a>) {

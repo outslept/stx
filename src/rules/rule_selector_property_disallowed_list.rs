@@ -5,9 +5,29 @@ use crate::{
 };
 use oxc_css_parser::ast::{Declaration, QualifiedRule, SimpleBlock, Statement};
 
-pub struct RuleSelectorPropertyDisallowedList {
-    entries: Vec<(OptionMatcher, Vec<OptionMatcher>)>,
+crate::define_stx_lint! {
+    /// Disallow configured properties for matching selectors.
+    ///
+    /// Reference: <https://stylelint.io/user-guide/rules/rule-selector-property-disallowed-list>
+    ///
+    /// Set the primary option to an object mapping selector patterns to a
+    /// property pattern or array of patterns. Both use exact strings or
+    /// slash-delimited Rust regexes (no lookaround). Only the first match
+    /// against the full selector text applies. The restriction reaches nested
+    /// at-rules but does not carry over to nested style rules. There is no
+    /// rule-specific `ignore` option.
+    ///
+    /// With `{"a": ["color"]}`, this declaration is reported:
+    ///
+    /// ```css
+    /// a { color: red; }
+    /// ```
+    "rule-selector-property-disallowed-list", restriction;
+    pub struct RuleSelectorPropertyDisallowedList {
+        entries: Vec<(OptionMatcher, Vec<OptionMatcher>)>,
+    }
 }
+
 impl RuleSelectorPropertyDisallowedList {
     pub fn from_config(primary: &serde_json::Value) -> Option<Self> {
         let object = primary.as_object()?;
@@ -65,7 +85,7 @@ impl RuleSelectorPropertyDisallowedList {
 }
 impl Rule for RuleSelectorPropertyDisallowedList {
     fn name(&self) -> &'static str {
-        "rule-selector-property-disallowed-list"
+        Self::NAME
     }
     fn check_qualified_rule<'a>(&self, rule: &'a QualifiedRule<'a>, ctx: &mut LintContext<'a>) {
         let selector = ctx.slice(rule.selector.span);

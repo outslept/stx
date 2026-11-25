@@ -17,8 +17,22 @@ enum Mode {
     Never,
 }
 
-pub struct ColorHexAlpha {
-    mode: Mode,
+crate::define_stx_lint! {
+    /// Require or forbid an explicit alpha channel in hex colors.
+    ///
+    /// Use `"always"` for four or eight digits and `"never"` for three or six
+    /// digits. There are no secondary options. The rule checks valid hex
+    /// colors, not malformed hashes, URL fragments, or Sass interpolation.
+    ///
+    /// With `"always"`, even fully opaque colors need an alpha digit:
+    /// ```css
+    /// a { color: #123; }  /* reported */
+    /// a { color: #123f; } /* accepted */
+    /// ```
+    "color-hex-alpha", style;
+    pub struct ColorHexAlpha {
+        mode: Mode,
+    }
 }
 
 impl Default for ColorHexAlpha {
@@ -55,7 +69,7 @@ impl ColorHexAlpha {
 
 impl Rule for ColorHexAlpha {
     fn name(&self) -> &'static str {
-        "color-hex-alpha"
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, _ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {

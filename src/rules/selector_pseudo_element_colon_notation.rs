@@ -12,8 +12,18 @@ pub enum ColonNotationMode {
     Double,
 }
 
-pub struct SelectorPseudoElementColonNotation {
-    pub mode: ColonNotationMode,
+crate::define_stx_lint! {
+    /// Enforces single- or double-colon notation for pseudo-elements.
+    ///
+    /// Set to `"double"` or `"single"`. Single-colon mode applies only to `before`,
+    /// `after`, `first-line`, and `first-letter`; newer pseudo-elements keep `::`.
+    /// Auto-fix changes the colon count without changing the name.
+    ///
+    /// Example: `"double"` changes `a:before {}` to `a::before {}`.
+    "selector-pseudo-element-colon-notation", style, fix = fix;
+    pub struct SelectorPseudoElementColonNotation {
+        pub mode: ColonNotationMode,
+    }
 }
 
 impl Default for SelectorPseudoElementColonNotation {
@@ -28,7 +38,7 @@ const LEGACY_PSEUDO_ELEMENTS: &[&str] = &["before", "after", "first-letter", "fi
 
 impl Rule for SelectorPseudoElementColonNotation {
     fn name(&self) -> &'static str {
-        "selector-pseudo-element-colon-notation"
+        Self::NAME
     }
 
     fn check_selector_list<'a>(&self, list: &'a SelectorList<'a>, ctx: &mut LintContext<'a>) {

@@ -1,3 +1,8 @@
+//! STX lints and fixes CSS, SCSS, Sass, and Less stylesheets.
+//!
+//! See [`rules`] for rule configuration and CSS examples, and [`utils`] for the
+//! source, AST, and configuration helpers used by rule implementations.
+
 pub mod cli;
 pub mod config;
 mod context;

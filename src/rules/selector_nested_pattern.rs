@@ -24,10 +24,20 @@ fn compile(primary: &serde_json::Value) -> Option<(Regex, String)> {
     Regex::new(raw).ok().map(|r| (r, raw.to_string()))
 }
 
-pub struct SelectorNestedPattern {
-    regex: Option<Regex>,
-    raw: String,
-    split_list: bool,
+crate::define_stx_lint! {
+    /// Requires selectors nested directly inside another style rule to match a regular expression.
+    ///
+    /// Set to a bare regex string or `/regex/i`. Matches the whole trimmed selector list
+    /// by default; set `splitList: true` to check each selector separately. Interpolated
+    /// text is skipped. Does not fix violations.
+    ///
+    /// Example: `a { b {} }` does not match `"/^[A-Z]+$/"` because `b` is lowercase.
+    "selector-nested-pattern", style;
+    pub struct SelectorNestedPattern {
+        regex: Option<Regex>,
+        raw: String,
+        split_list: bool,
+    }
 }
 impl SelectorNestedPattern {
     pub fn from_config(
@@ -60,7 +70,7 @@ impl SelectorNestedPattern {
 }
 impl Rule for SelectorNestedPattern {
     fn name(&self) -> &'static str {
-        "selector-nested-pattern"
+        Self::NAME
     }
     fn check_qualified_rule<'a>(&self, rule: &'a QualifiedRule<'a>, ctx: &mut LintContext<'a>) {
         if !matches!(ctx.ancestors.last(), Some(AstParent::QualifiedRule(_))) {

@@ -7,8 +7,21 @@ use oxc_css_parser::{Span, ast::Stylesheet};
 use crate::context::LintContext;
 use crate::rules::Rule;
 
-#[derive(Default)]
-pub struct BlockNoRedundantNestedStyleRules;
+crate::define_stx_lint! {
+    /// Flag nested style rules whose selector is only `&`.
+    ///
+    /// Enable with `true`; there are no rule-specific secondary options. The
+    /// check ignores whitespace and comments after `&`, but does not flag selectors
+    /// that add a qualifier or combine `&` with another selector.
+    ///
+    /// ```css
+    /// a { & { color: red; } }       /* reported */
+    /// a { &:hover { color: red; } } /* accepted */
+    /// ```
+    "block-no-redundant-nested-style-rules", suspicious, recommended = true;
+    #[derive(Default)]
+    pub struct BlockNoRedundantNestedStyleRules;
+}
 
 impl BlockNoRedundantNestedStyleRules {
     /// Diagnostic message reported when a redundant nested `&` style rule is found.
@@ -17,7 +30,7 @@ impl BlockNoRedundantNestedStyleRules {
 
 impl Rule for BlockNoRedundantNestedStyleRules {
     fn name(&self) -> &'static str {
-        "block-no-redundant-nested-style-rules"
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, _ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {

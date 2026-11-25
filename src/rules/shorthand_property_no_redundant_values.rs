@@ -10,8 +10,19 @@ use crate::{
 use oxc_css_parser::ast::Declaration;
 use serde_json::{Map, Value};
 
-pub struct ShorthandPropertyNoRedundantValues {
-    ignore_four_into_three: bool,
+crate::define_stx_lint! {
+    /// Removes redundant values from supported shorthand properties.
+    ///
+    /// Set to `true`. Use `ignore: ["four-into-three-edge-values"]` to keep four values
+    /// in directional shorthands when exactly three suffice. Auto-fix removes duplicates
+    /// while keeping comments. Values with `var()` are not condensed; for slash-separated
+    /// `border-radius`, this applies independently to each side of the slash.
+    ///
+    /// Example: `a { overflow: scroll scroll; }` is fixed to `a { overflow: scroll; }`.
+    "shorthand-property-no-redundant-values", style, fix = fix;
+    pub struct ShorthandPropertyNoRedundantValues {
+        ignore_four_into_three: bool,
+    }
 }
 
 impl ShorthandPropertyNoRedundantValues {
@@ -197,7 +208,7 @@ fn value_of<'a>(node: &Node<'a>) -> Option<&'a str> {
 
 impl Rule for ShorthandPropertyNoRedundantValues {
     fn name(&self) -> &'static str {
-        "shorthand-property-no-redundant-values"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

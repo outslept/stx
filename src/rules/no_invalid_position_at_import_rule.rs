@@ -6,8 +6,25 @@ use crate::{
 use oxc_css_parser::ast::{Statement, Stylesheet};
 use serde_json::{Map, Value};
 
-pub struct NoInvalidPositionAtImportRule {
-    ignore_at_rules: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Require top-level `@import` rules to precede style rules and most at-rules.
+    ///
+    /// Reference: <https://stylelint.io/user-guide/rules/no-invalid-position-at-import-rule>
+    ///
+    /// Enable with `true`. `@charset`, blockless `@layer`, `@use`, and `@forward`
+    /// may precede imports. `ignoreAtRules` accepts exact names or slash-delimited
+    /// regexes without `@` for additional at-rules that may precede imports.
+    /// Only top-level statements are inspected; declarations and Sass variable
+    /// declarations do not mark the end of the import section.
+    ///
+    /// ```css
+    /// a { color: red; }
+    /// @import "base.css"; /* Too late */
+    /// ```
+    "no-invalid-position-at-import-rule", correctness, recommended = true;
+    pub struct NoInvalidPositionAtImportRule {
+        ignore_at_rules: Vec<OptionMatcher>,
+    }
 }
 
 impl NoInvalidPositionAtImportRule {
@@ -20,7 +37,7 @@ impl NoInvalidPositionAtImportRule {
 
 impl Rule for NoInvalidPositionAtImportRule {
     fn name(&self) -> &'static str {
-        "no-invalid-position-at-import-rule"
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, stylesheet: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {

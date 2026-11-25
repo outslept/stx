@@ -9,8 +9,19 @@ use crate::{
 use oxc_css_parser::{Span, ast::AtRule};
 use serde_json::{Map, Value};
 
-pub struct MediaFeatureNameNoUnknown {
-    ignore: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Disallow unknown media feature names in `@media` queries.
+    ///
+    /// Enable with `true`. `ignoreMediaFeatureNames` accepts a name or array
+    /// of names and `/regex/` patterns matched against the original spelling.
+    /// Built-in names are recognized case-insensitively. Vendor-prefixed
+    /// features and custom media names beginning with `--` are skipped.
+    ///
+    /// Example: `@media (10em < unknown <= 50em) {}` is reported.
+    "media-feature-name-no-unknown", correctness, recommended = true;
+    pub struct MediaFeatureNameNoUnknown {
+        ignore: Vec<OptionMatcher>,
+    }
 }
 
 impl MediaFeatureNameNoUnknown {
@@ -23,7 +34,7 @@ impl MediaFeatureNameNoUnknown {
 
 impl Rule for MediaFeatureNameNoUnknown {
     fn name(&self) -> &'static str {
-        "media-feature-name-no-unknown"
+        Self::NAME
     }
 
     fn check_at_rule<'a>(&self, at_rule: &'a AtRule<'a>, ctx: &mut LintContext<'a>) {

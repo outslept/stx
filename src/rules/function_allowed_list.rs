@@ -12,10 +12,27 @@ use crate::{
     },
 };
 
-#[derive(Debug, Default)]
-pub struct FunctionAllowedList {
-    allowed: Vec<OptionMatcher>,
-    except_without_property_fallback: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Restricts function calls in declaration values to an allow list.
+    ///
+    /// The primary option accepts a function name, a `/regex/`, or an array
+    /// of either. Literal names are case-sensitive; omit the parentheses.
+    /// `exceptWithoutPropertyFallback` takes the same kind of matchers and
+    /// requires a prior declaration of the same property in the same block
+    /// for matching allowed functions. Custom properties cannot satisfy this
+    /// fallback requirement. To use both a list and secondary options, use
+    /// `[["rgb", "calc"], {"exceptWithoutPropertyFallback": "calc"}]`.
+    ///
+    /// ```css
+    /// a { width: 8px; width: calc(4px + 4px); } /* passes with that setting */
+    /// a { width: calc(4px + 4px); } /* reported: no fallback */
+    /// ```
+    "function-allowed-list", restriction;
+    #[derive(Debug, Default)]
+    pub struct FunctionAllowedList {
+        allowed: Vec<OptionMatcher>,
+        except_without_property_fallback: Vec<OptionMatcher>,
+    }
 }
 
 impl FunctionAllowedList {
@@ -39,7 +56,7 @@ pub fn rejected_message(name: &str) -> String {
 
 impl Rule for FunctionAllowedList {
     fn name(&self) -> &'static str {
-        "function-allowed-list"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

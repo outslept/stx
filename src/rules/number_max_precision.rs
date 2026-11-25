@@ -9,11 +9,30 @@ use crate::{
 use oxc_css_parser::ast::{Declaration, InterpolableIdent};
 use serde_json::{Map, Value};
 
-pub struct NumberMaxPrecision {
-    pub max: usize,
-    ignore_properties: Vec<OptionMatcher>,
-    ignore_units: Vec<OptionMatcher>,
-    inside_functions: Vec<(OptionMatcher, usize)>,
+crate::define_stx_lint! {
+    /// Limit the number of decimal places in declaration values.
+    ///
+    /// Reference: <https://stylelint.io/user-guide/rules/number-max-precision>
+    ///
+    /// Set the primary option to a nonnegative integer. If it is not an unsigned
+    /// integer, the rule uses `4`. `ignoreProperties` and `ignoreUnits` accept
+    /// exact strings or slash-delimited regexes; use `%` for percentages.
+    /// `insideFunctions` maps function names or slash-delimited regexes to
+    /// per-function limits, inherited by nested functions without an override.
+    /// The check skips `url()` contents and does not inspect at-rule preludes.
+    ///
+    /// With `4`, this reports `1.23456` and suggests `1.2346` without changing the source:
+    ///
+    /// ```css
+    /// a { width: 1.23456px; }
+    /// ```
+    "number-max-precision", restriction;
+    pub struct NumberMaxPrecision {
+        pub max: usize,
+        ignore_properties: Vec<OptionMatcher>,
+        ignore_units: Vec<OptionMatcher>,
+        inside_functions: Vec<(OptionMatcher, usize)>,
+    }
 }
 
 impl Default for NumberMaxPrecision {
@@ -74,7 +93,7 @@ impl NumberMaxPrecision {
 
 impl Rule for NumberMaxPrecision {
     fn name(&self) -> &'static str {
-        "number-max-precision"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

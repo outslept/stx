@@ -5,14 +5,23 @@ use crate::{
 };
 use oxc_css_parser::ast::SelectorList;
 
-#[derive(Default)]
-pub struct SelectorClassPattern {
-    pub matcher: PatternMatcher,
+crate::define_stx_lint! {
+    /// Requires class selector names to match a regular expression.
+    ///
+    /// Set to a regex string such as `"^[A-Z]+$"` or `"/^[A-Z]+$/"`. Match against the
+    /// class name without its leading dot. Does not fix violations.
+    ///
+    /// Example: `.foo {}` does not match `^[A-Z]+$`.
+    "selector-class-pattern", style;
+    #[derive(Default)]
+    pub struct SelectorClassPattern {
+        pub matcher: PatternMatcher,
+    }
 }
 
 impl Rule for SelectorClassPattern {
     fn name(&self) -> &'static str {
-        "selector-class-pattern"
+        Self::NAME
     }
 
     fn check_selector_list<'a>(&self, list: &'a SelectorList<'a>, ctx: &mut LintContext<'a>) {

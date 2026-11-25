@@ -23,70 +23,24 @@ enum Mode {
     WithoutAlpha,
 }
 
-/// [`color-function-alias-notation`](https://stylelint.io/user-guide/rules/color-function-alias-notation)
-///
-/// Specify alias notation for color-functions with an identical syntax.
-///
-/// ### What it does
-///
-/// Enforces consistent usage of either the `a`-suffixed legacy aliases (`rgba`,
-/// `hsla`) or the canonical function names (`rgb`, `hsl`).
-///
-/// In CSS Color Module Level 4, `rgb()` and `rgba()` (as well as `hsl()` and
-/// `hsla()`) are exact syntactic aliases of one another: both accept an
-/// optional alpha channel regardless of whether the trailing `a` is present.
-///
-/// ### Why is this bad?
-///
-/// Mixing `rgb()` and `rgba()` (or `hsl()` and `hsla()`) across a codebase
-/// introduces unnecessary stylistic inconsistency when both forms support the
-/// exact same arguments.
-///
-/// ### Autofix
-///
-/// This rule automatically adds or removes the trailing `a` on matching color
-/// function calls while preserving the original casing of the function name.
-///
-/// ### Primary Option
-///
-/// - `"with-alpha"`: require `rgba()` and `hsla()`.
-/// - `"without-alpha"`: require `rgb()` and `hsl()`.
-///
-/// ### Examples
-///
-/// #### `"without-alpha"`
-///
-/// ##### Incorrect
-///
-/// ```css
-/// a { color: rgba(0 0 0 / 50%); }
-/// a { color: hsla(270 60% 70%); }
-/// ```
-///
-/// ##### Correct
-///
-/// ```css
-/// a { color: rgb(0 0 0 / 50%); }
-/// a { color: hsl(270 60% 70%); }
-/// ```
-///
-/// #### `"with-alpha"`
-///
-/// ##### Incorrect
-///
-/// ```css
-/// a { color: rgb(0 0 0); }
-/// a { color: hsl(270 60% 70%); }
-/// ```
-///
-/// ##### Correct
-///
-/// ```css
-/// a { color: rgba(0 0 0); }
-/// a { color: hsla(270 60% 70%); }
-/// ```
-pub struct ColorFunctionAliasNotation {
-    mode: Mode,
+crate::define_stx_lint! {
+    /// Require consistent names for the `rgb()` and `hsl()` color function aliases.
+    ///
+    /// Set the primary option to `"with-alpha"` for `rgba()` and `hsla()` or
+    /// `"without-alpha"` for `rgb()` and `hsl()`. There are no secondary options.
+    /// The rule checks the name, not whether the arguments include alpha. It
+    /// skips calls with a top-level hex color or Sass variable argument.
+    /// Autofix adds or removes the suffix without changing arguments.
+    ///
+    /// With `"without-alpha"`:
+    /// ```css
+    /// a { color: rgba(0 0 0 / 50%); } /* reported */
+    /// a { color: rgb(0 0 0 / 50%); }  /* accepted */
+    /// ```
+    "color-function-alias-notation", style, fix = fix;
+    pub struct ColorFunctionAliasNotation {
+        mode: Mode,
+    }
 }
 
 impl Default for ColorFunctionAliasNotation {
@@ -119,7 +73,7 @@ impl ColorFunctionAliasNotation {
 
 impl Rule for ColorFunctionAliasNotation {
     fn name(&self) -> &'static str {
-        "color-function-alias-notation"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &Declaration<'a>, ctx: &mut LintContext<'a>) {

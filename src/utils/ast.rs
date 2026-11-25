@@ -1,4 +1,7 @@
-//! Typed `oxc_css_parser` AST and byte-`Span` inspection utilities.
+//! Inspects `oxc_css_parser` nodes and recovers source text for names, values, and preludes.
+//!
+//! Pass the same `source` the nodes were parsed from. Spans use zero-based UTF-8
+//! byte offsets into that source, with an exclusive end.
 
 use oxc_css_parser::{
     Span,
@@ -27,8 +30,8 @@ pub fn ident_span(ident: &InterpolableIdent<'_>) -> Span {
     }
 }
 
-/// Extracts the static string slice of a literal identifier, returning `None`
-/// if the identifier contains preprocessor interpolation.
+/// Returns the parser's decoded name for a literal identifier, or `None`
+/// for an interpolated identifier or placeholder.
 #[inline]
 pub fn ident_name<'a>(ident: &'a InterpolableIdent<'a>) -> Option<&'a str> {
     match ident {
@@ -39,7 +42,14 @@ pub fn ident_name<'a>(ident: &'a InterpolableIdent<'a>) -> Option<&'a str> {
     }
 }
 
-/// Returns the raw source slice covered by `ident`.
+/// Returns the raw source slice covered by `ident`, preserving escapes.
+///
+/// For example, the identifier written as `co\lor` has raw text `co\lor`
+/// but [`ident_name`] returns `color`.
+///
+/// # Panics
+///
+/// Panics if the identifier span is not a valid slice of `source`.
 #[inline]
 pub fn ident_raw<'a>(ident: &'a InterpolableIdent<'a>, source: &'a str) -> &'a str {
     let sp = ident_span(ident);
@@ -66,8 +76,8 @@ pub fn str_literal<'a>(s: &'a InterpolableStr<'a>) -> Option<&'a Str<'a>> {
     }
 }
 
-/// Extracts the literal [`Ident`] of a CSS function call, returning `None` if the
-/// function name is interpolated.
+/// Extracts the literal [`Ident`] of a function call. Returns `None` for
+/// interpolated or namespaced calls, such as `math.div(1, 2)`.
 #[inline]
 pub fn function_ident<'a>(func: &'a Function<'a>) -> Option<&'a Ident<'a>> {
     match &func.name {
@@ -78,7 +88,10 @@ pub fn function_ident<'a>(func: &'a Function<'a>) -> Option<&'a Ident<'a>> {
 
 /// Splits a raw function call span (`name(args)`) into `(name_str, name_span, args_span)`.
 ///
-/// Returns `None` if `func_span` is out of bounds or does not contain balanced parentheses.
+/// Splits at the first `(` and excludes the final `)` from the argument span.
+/// The slices are not trimmed, and parentheses are not checked for balance.
+/// Returns `None` if `func_span` is not a valid slice of `source`, contains no
+/// `(`, or does not end in `)`.
 pub fn extract_function_name_and_args(source: &str, func_span: Span) -> Option<(&str, Span, Span)> {
     let raw = source.get(func_span.start as usize..func_span.end as usize)?;
     let open_rel = raw.find('(')?;
@@ -106,8 +119,11 @@ pub fn is_standard_syntax_declaration(decl: &Declaration<'_>) -> bool {
     is_standard_syntax_property(name) || is_custom_property(name)
 }
 
-/// Returns `true` if `at_rule` is a standard CSS at-rule rather than a preprocessor
-/// construct or interpolated directive.
+/// Screens out interpolated names and preludes, as well as Less-style calls
+/// that have neither a parsed prelude nor a block.
+///
+/// This does not check whether the at-rule name is known to CSS: SCSS
+/// `@include foo;` passes the check.
 pub fn is_standard_syntax_at_rule(source: &str, at_rule: &AtRule<'_>) -> bool {
     let name = at_rule.name.name;
     if has_interpolation(name) {
@@ -143,6 +159,9 @@ pub fn is_standard_syntax_rule(source: &str, rule: &QualifiedRule<'_>) -> bool {
 /// Returns `true` if a declaration with the given `ancestry` is an at-rule descriptor
 /// (e.g. inside `@font-face`, `@counter-style`, `@property`, `@page`, `@view-transition`)
 /// rather than a standard style property declaration.
+///
+/// Returns `true` if any ancestor at-rule is absent from the list of at-rules
+/// that support nesting. Intervening rules or blocks do not stop the search.
 pub fn is_descriptor_declaration(ancestry: &[AstParent<'_>]) -> bool {
     for parent in ancestry.iter().rev() {
         if let AstParent::AtRule(at) = parent
@@ -154,7 +173,11 @@ pub fn is_descriptor_declaration(ancestry: &[AstParent<'_>]) -> bool {
     false
 }
 
-/// Returns `true` if the current declaration is a `unicode-range` descriptor inside `@font-face`.
+/// Checks that `prop_name` is `unicode-range` and the nearest at-rule ancestor
+/// is `@font-face`, comparing both names ASCII case-insensitively.
+///
+/// Pass `ancestry` from outermost to innermost. A nested `@media` inside
+/// `@font-face` prevents a match.
 pub fn is_unicode_range_descriptor(prop_name: &str, ancestry: &[AstParent<'_>]) -> bool {
     if !prop_name.eq_ignore_ascii_case("unicode-range") {
         return false;
@@ -169,6 +192,15 @@ pub fn is_unicode_range_descriptor(prop_name: &str, ancestry: &[AstParent<'_>]) 
 
 /// Computes the trimmed byte [`Span`] of a declaration's value from raw offsets,
 /// excluding the leading `:` and any trailing `!important` annotation or `;`.
+///
+/// Pass the exclusive ends of the name and declaration as `name_end` and
+/// `decl_end`. If supplied, `important_start` replaces `decl_end` as the scan
+/// limit. Returns `None` if there is no colon before that limit or the value
+/// cannot be sliced. An empty value returns a zero-length span after the colon.
+///
+/// # Panics
+///
+/// May panic if the scan limit is beyond the end of `source`.
 pub fn declaration_value_span(
     source: &str,
     name_end: u32,
@@ -209,6 +241,7 @@ pub fn decl_value_span(source: &str, decl: &Declaration<'_>) -> Option<Span> {
 }
 
 /// The value [`Span`] of a `$variable: value` declaration, trimmed and without the `;`.
+/// Returns `None` if the value is empty or the source range cannot be sliced.
 pub fn sass_variable_value_span(
     source: &str,
     decl: &oxc_css_parser::ast::SassVariableDeclaration<'_>,
@@ -229,8 +262,9 @@ pub fn decl_value_raw<'a>(source: &'a str, decl: &Declaration<'a>) -> Option<(&'
     Some((raw, span))
 }
 
-/// Computes the byte [`Span`] of an at-rule's prelude (the text between `@name`
-/// and `{` or `;`), returning `None` if the prelude is empty.
+/// Returns the trimmed byte [`Span`] of the text between `@name` and the block,
+/// semicolon, or end of the at-rule. Returns `None` if that text is empty or
+/// cannot be sliced. Internal whitespace and comments are preserved.
 pub fn at_rule_prelude_span(source: &str, at_rule: &AtRule<'_>) -> Option<Span> {
     let name_end = at_rule.name.span.end as usize;
     let end_limit = if let Some(block) = &at_rule.block {

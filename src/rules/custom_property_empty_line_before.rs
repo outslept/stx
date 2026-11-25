@@ -26,10 +26,31 @@ struct SecondaryOptions {
     ignore_inside_single_line_block: bool,
 }
 
-#[derive(Debug)]
-pub struct CustomPropertyEmptyLineBefore {
-    mode: EmptyLineMode,
-    options: SecondaryOptions,
+crate::define_stx_lint! {
+    /// Require or forbid a blank line before custom property declarations.
+    ///
+    /// Set the primary option to `"always"` to require a blank line or `"never"`
+    /// to forbid one. This checks declarations within blocks, not `var()` uses.
+    ///
+    /// - `except` reverses the expectation for `after-block`, `after-comment`,
+    ///   `after-custom-property`, or `first-nested`.
+    /// - `ignore` skips `after-comment`, `after-custom-property`, `first-nested`,
+    ///   or `inside-single-line-block`.
+    ///
+    /// With `"always"`, keep the blank line before `--accent`:
+    /// ```css
+    /// :root {
+    ///   color: black;
+    ///
+    ///   --accent: red;
+    /// }
+    /// ```
+    "custom-property-empty-line-before", style, fix = fix;
+    #[derive(Debug)]
+    pub struct CustomPropertyEmptyLineBefore {
+        mode: EmptyLineMode,
+        options: SecondaryOptions,
+    }
 }
 
 impl CustomPropertyEmptyLineBefore {
@@ -351,7 +372,7 @@ impl CustomPropertyEmptyLineBefore {
 
 impl Rule for CustomPropertyEmptyLineBefore {
     fn name(&self) -> &'static str {
-        "custom-property-empty-line-before"
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, _ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {

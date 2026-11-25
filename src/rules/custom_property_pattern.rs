@@ -6,10 +6,26 @@ use serde_json::{Map, Value};
 use crate::context::LintContext;
 use crate::rules::Rule;
 
-#[derive(Debug)]
-pub struct CustomPropertyPattern {
-    regex: Regex,
-    raw_pattern: String,
+crate::define_stx_lint! {
+    /// Require custom property names to match a regular expression.
+    ///
+    /// Supply a bare regex string or `/pattern/` with optional `i` as the
+    /// primary option. There are no secondary options. The match excludes
+    /// the initial `--` and checks declarations, `@property` registrations,
+    /// and names used as the first argument to `var()`. Nonstandard property
+    /// syntax, such as preprocessor interpolation, is skipped.
+    ///
+    /// With `"^[a-z-]+$"`:
+    /// ```css
+    /// :root { --AccentColor: red; } /* reported */
+    /// :root { --accent-color: red; } /* accepted */
+    /// ```
+    "custom-property-pattern", style;
+    #[derive(Debug)]
+    pub struct CustomPropertyPattern {
+        regex: Regex,
+        raw_pattern: String,
+    }
 }
 
 impl CustomPropertyPattern {
@@ -289,7 +305,7 @@ impl CustomPropertyPattern {
 
 impl Rule for CustomPropertyPattern {
     fn name(&self) -> &'static str {
-        "custom-property-pattern"
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, _ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {

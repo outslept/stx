@@ -1,8 +1,9 @@
-//! Lexical classification and standard CSS vs. preprocessor syntax validation.
+//! Lexical checks and scans for CSS fragments.
 //!
-//! Provides predicates to distinguish standard W3C CSS constructs from SCSS, Sass, Less,
-//! and CSS-in-JS extensions (such as variables, mixins, and interpolations), as well as
-//! low-level validators for identifiers, hex colors, dimensions, and URLs.
+//! The `is_standard_syntax_*` predicates screen out preprocessor and template
+//! constructs; they do not validate the CSS grammar. The URL, media feature, and
+//! selector scanners return zero-based byte ranges relative to the input fragment,
+//! with exclusive ends.
 
 use std::borrow::Cow;
 
@@ -33,6 +34,10 @@ pub fn has_tpl_interpolation(s: &str) -> bool {
 }
 
 /// Returns `true` if `s` contains any supported preprocessor or template interpolation.
+///
+/// These are delimiter checks, not a parser: they look for a closing delimiter
+/// at least one byte past the first opening delimiter of each form. For example,
+/// `.a{}` is not considered interpolated, but `.a{b}` is.
 pub fn has_interpolation(s: &str) -> bool {
     has_less_interpolation(s)
         || has_scss_interpolation(s)
@@ -94,7 +99,13 @@ pub fn is_custom_selector(selector: &str) -> bool {
     selector.starts_with(":--")
 }
 
-/// Returns `true` if `word` starts with an ASCII case-insensitive `var(` call.
+/// Returns `true` if `word` starts with `var(`, ignoring ASCII case.
+/// Does not trim the input or check for a closing parenthesis.
+///
+/// # Panics
+///
+/// Panics if `word` is at least four bytes long and byte offset 4 is not a
+/// UTF-8 character boundary.
 #[inline]
 pub fn is_variable(word: &str) -> bool {
     word.len() >= 4 && word[..4].eq_ignore_ascii_case("var(")
@@ -302,8 +313,12 @@ pub fn is_valid_hex(value: &str) -> bool {
     matches!(hex.len(), 3 | 4 | 6 | 8) && hex.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
-/// Returns `true` if `ident` is a valid CSS level 2 identifier, accounting for ISO 10646
-/// hex escapes and single-character backslash escapes.
+/// Checks an identifier using ASCII name rules after trimming whitespace and
+/// skipping hex and single-byte backslash escapes.
+///
+/// The remaining bytes must be ASCII letters, digits, `_`, or `-`, and must
+/// not start with a digit or `-` followed by a digit. Unescaped non-ASCII
+/// letters are rejected, so `foö` does not pass this check.
 pub fn is_valid_identifier(ident: &str) -> bool {
     let s = ident.trim();
     if s.is_empty() {
@@ -355,10 +370,13 @@ pub fn is_valid_identifier(ident: &str) -> bool {
     true
 }
 
-/// Extracts the lowercase URI scheme from `url_str` if present and valid.
+/// Extracts the ASCII-lowercase scheme from a raw URL, without quotes or `url()`.
 ///
-/// Returns `None` for protocol-relative URLs (`//example.com`), `host:port` pairs,
-/// relative paths, or malformed URLs.
+/// The scheme must start with an ASCII letter and may contain ASCII letters,
+/// digits, `+`, `-`, or `.`. Requires `://` except for `data:`. For `http`,
+/// `https`, `ws`, `wss`, and `ftp`, the text after `://` must be nonempty and
+/// must not start with `/` or `:`. Returns `None` when these checks fail;
+/// the rest of the URL is not validated.
 pub fn get_scheme_from_url(url_str: &str) -> Option<String> {
     let colon_idx = url_str.find(':')?;
     if colon_idx == 0 {
@@ -392,9 +410,11 @@ pub fn get_scheme_from_url(url_str: &str) -> Option<String> {
 }
 
 /// Splits a numeric word token into `(number_literal, unit_suffix)` after stripping
-/// legacy IE backslash hacks (`\0`, `\9`).
+/// legacy IE backslash hacks (`\0`, `\9`) and interpolation sigils.
 ///
-/// Returns `None` for hex colors, non-standard syntax tokens, or words without a leading number.
+/// The suffix is the rest of the cleaned word, unchanged in case and not
+/// validated as a CSS unit. It can be empty or `%`. Returns `None` for words
+/// beginning with `#`, non-standard syntax tokens, or words without a leading number.
 pub fn get_dimension(word: &str) -> Option<(String, String)> {
     if word.is_empty() || word.starts_with('#') || !is_standard_syntax_value(word) {
         return None;
@@ -457,7 +477,9 @@ pub fn get_dimension(word: &str) -> Option<(String, String)> {
 
 /// Returns the byte ranges of the arguments inside each `url(...)` call in `raw`.
 ///
-/// The range excludes the function name, the parentheses, and any trailing `)`.
+/// Matches `url(` ASCII case-insensitively and skips calls with no closing
+/// parenthesis. Each range excludes the name and enclosing parentheses but
+/// preserves quotes and whitespace inside them. `url()` yields `(4, 4)`.
 pub fn url_arguments(raw: &str) -> Vec<(usize, usize)> {
     let bytes = raw.as_bytes();
     let len = bytes.len();
@@ -622,17 +644,36 @@ fn is_range_operator(token: &ValueToken<'_>) -> bool {
     token.kind == ValueTokenKind::Other && matches!(token.raw, "<" | ">" | "=")
 }
 
-/// A media feature `(...)` group: its name token and the dimension/value tokens
-/// that belong to it, as byte ranges relative to the media params string.
+/// Tokens in one media feature group, with byte offsets relative to the media
+/// parameters and exclusive range ends.
 pub struct MediaFeatureGroup {
+    /// Start of the feature name.
     pub name_start: usize,
+    /// Exclusive end of the feature name.
     pub name_end: usize,
-    /// `(start, end, unit_start)` ranges for dimension tokens.
+    /// `(start, end, unit_start)` for each dimension, where `unit_start` is the
+    /// first byte after the numeric prefix.
     pub dimensions: Vec<(usize, usize, usize)>,
-    /// `(start, end)` ranges for value tokens (idents, numbers, dimensions).
+    /// `(start, end)` for identifiers other than the feature name, numbers,
+    /// percentages, and dimensions. Dimensions appear in both lists.
     pub values: Vec<(usize, usize)>,
 }
 
+/// Finds feature groups in the raw media query parameters, without `@media` or its block.
+///
+/// Returns one entry per recognized parenthesized group, in source order. Each
+/// entry uses the first name candidate in boolean, colon, or range form. Groups
+/// without a candidate are skipped, as are tokens inside function arguments.
+///
+/// ```
+/// use stx::utils::syntax::media_feature_groups;
+///
+/// let groups = media_feature_groups("(min-width: 100px)");
+/// let group = &groups[0];
+/// assert_eq!((group.name_start, group.name_end), (1, 10));
+/// assert_eq!(group.dimensions, [(12, 17, 15)]);
+/// assert_eq!(group.values, [(12, 17)]);
+/// ```
 pub fn media_feature_groups(params: &str) -> Vec<MediaFeatureGroup> {
     let bytes = params.as_bytes();
     let len = bytes.len();
@@ -761,7 +802,8 @@ pub fn media_feature_groups(params: &str) -> Vec<MediaFeatureGroup> {
     out
 }
 
-/// Returns `(inner_start, inner_end)` ranges inside each `[...]` attribute block.
+/// Returns `(inner_start, inner_end)` byte ranges inside closed `[...]` attribute
+/// blocks, excluding brackets and skipping blocks inside parentheses.
 pub fn selector_attribute_blocks(selector: &str) -> Vec<(usize, usize)> {
     let bytes = selector.as_bytes();
     let len = bytes.len();
@@ -804,7 +846,10 @@ pub fn selector_attribute_blocks(selector: &str) -> Vec<(usize, usize)> {
     out
 }
 
-/// Returns `(start, end, normalized_value)` for each combinator in `selector`.
+/// Returns `(start, end, normalized_value)` for each combinator in `selector`,
+/// skipping parenthesized arguments, attribute blocks, and slash-delimited combinators.
+/// The range covers only the operator or whitespace run. A descendant combinator
+/// is normalized to one ASCII space.
 pub fn selector_combinators(selector: &str) -> Vec<(usize, usize, String)> {
     let bytes = selector.as_bytes();
     let len = bytes.len();
@@ -923,7 +968,9 @@ fn skip_balanced_paren(selector: &str, open: usize) -> usize {
 }
 
 /// Returns `(value_start, value_end, name_start, name_end, is_element)` for each
-/// pseudo selector. `value` includes the leading colon(s) but excludes arguments.
+/// pseudo selector outside parentheses and attribute blocks. `value` includes
+/// the leading colon(s) but excludes arguments; `name` excludes the colons.
+/// `is_element` is true only for `::`, not for legacy single-colon spellings.
 pub fn selector_pseudos(selector: &str) -> Vec<(usize, usize, usize, usize, bool)> {
     let bytes = selector.as_bytes();
     let len = bytes.len();
@@ -1052,6 +1099,10 @@ fn scan_selector<F: FnMut(usize, u8, &mut usize, &mut u8)>(selector: &str, mut f
     }
 }
 
+/// Counts class occurrences in raw selector text, including inside pseudo arguments.
+///
+/// Skips comments, attribute blocks, quoted strings, and escaped dots. A dot
+/// must be followed by a letter, hyphen, underscore, or non-ASCII byte.
 pub fn count_selector_classes(selector: &str) -> usize {
     let bytes = selector.as_bytes();
     let mut count = 0;
@@ -1069,6 +1120,8 @@ pub fn count_selector_classes(selector: &str) -> usize {
     count
 }
 
+/// Counts unescaped `*` bytes in raw selector text, including inside pseudo
+/// arguments, but excluding comments, attribute blocks, and quoted strings.
 pub fn count_selector_universals(selector: &str) -> usize {
     let mut count = 0;
     scan_selector(selector, |_, b, _, _| {
@@ -1079,6 +1132,10 @@ pub fn count_selector_universals(selector: &str) -> usize {
     count
 }
 
+/// Returns the half-open byte ranges inside closed `[...]` blocks in `selector`,
+/// including blocks inside pseudo arguments, in source order.
+///
+/// Unlike [`selector_attribute_blocks`], this scans inside parentheses.
 pub fn selector_attribute_blocks_nested(selector: &str) -> Vec<(usize, usize)> {
     let bytes = selector.as_bytes();
     let len = bytes.len();
@@ -1135,6 +1192,12 @@ pub fn selector_attribute_blocks_nested(selector: &str) -> Vec<(usize, usize)> {
     out
 }
 
+/// Returns `(start, end, normalized_value)` for combinators in raw selector
+/// text, including inside parentheses, in source order.
+///
+/// The half-open byte range covers only the operator or the whitespace run.
+/// Descendant whitespace normalizes to `" "`; slash-delimited combinators such
+/// as `/deep/` are skipped.
 pub fn selector_combinators_nested(selector: &str) -> Vec<(usize, usize, String)> {
     let bytes = selector.as_bytes();
     let len = bytes.len();
@@ -1223,6 +1286,13 @@ pub fn selector_combinators_nested(selector: &str) -> Vec<(usize, usize, String)
     out
 }
 
+/// Returns `(value_start, value_end, name_start, name_end, is_element)` for
+/// pseudo selectors in source order, including those inside pseudo arguments.
+///
+/// The value range includes the leading colon(s); the name range excludes them.
+/// Neither range includes arguments. `is_element` means the prefix was `::`,
+/// so `:before` has `is_element == false`. This scan does not consume escapes
+/// as part of pseudo names.
 pub fn selector_pseudos_nested(selector: &str) -> Vec<(usize, usize, usize, usize, bool)> {
     let bytes = selector.as_bytes();
     let len = bytes.len();
@@ -1292,6 +1362,11 @@ pub fn selector_pseudos_nested(selector: &str) -> Vec<(usize, usize, usize, usiz
     out
 }
 
+/// Counts identifier-like type selectors in raw selector text, including inside
+/// pseudo arguments. Namespace prefixes are not counted.
+///
+/// This scan recognizes explicit combinators but not descendant whitespace:
+/// `a > b` counts as two, while `a b` counts as one.
 pub fn count_selector_types(selector: &str) -> usize {
     let bytes = selector.as_bytes();
     let len = bytes.len();

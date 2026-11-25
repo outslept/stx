@@ -3,9 +3,19 @@ use crate::{context::LintContext, rules::Rule, utils::*};
 use oxc_css_parser::ast::{ComplexSelector, QualifiedRule, SimpleSelector, TypeSelector};
 use serde_json::{Map, Value};
 
-pub struct R {
-    max: u64,
-    ignore_after: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Limits the number of universal selectors in each selector.
+    ///
+    /// Set to a non-negative integer. `ignoreAfterCombinators` takes combinator strings
+    /// or `/regex/` patterns; use `" "` for a descendant combinator. A leading `*`
+    /// has no preceding combinator to ignore. Does not fix violations.
+    ///
+    /// Example: `* {}` exceeds a maximum of `0`.
+    "selector-max-universal", restriction;
+    pub struct R {
+        max: u64,
+        ignore_after: Vec<OptionMatcher>,
+    }
 }
 impl R {
     pub fn from_config(p: &Value, secondary: Option<&Map<String, Value>>) -> Option<Self> {
@@ -37,7 +47,7 @@ impl R {
 }
 impl Rule for R {
     fn name(&self) -> &'static str {
-        "selector-max-universal"
+        Self::NAME
     }
     fn check_qualified_rule<'a>(&self, rule: &'a QualifiedRule<'a>, ctx: &mut LintContext<'a>) {
         for sel in &rule.selector.selectors {

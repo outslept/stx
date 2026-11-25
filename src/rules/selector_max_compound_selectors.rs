@@ -8,9 +8,20 @@ use oxc_css_parser::{
 };
 use serde_json::{Map, Value};
 
-pub struct R {
-    max: u64,
-    ignore: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Limits the number of compound selectors in each selector.
+    ///
+    /// Set to a non-negative integer. Simple selectors with no intervening combinator
+    /// form one compound. `ignoreSelectors` matches simple selectors by string or
+    /// `/regex/` pattern before counting compounds. Selectors with interpolation
+    /// are skipped. Does not fix violations.
+    ///
+    /// Example: `a b c {}` has three compounds and exceeds a maximum of `2`.
+    "selector-max-compound-selectors", restriction;
+    pub struct R {
+        max: u64,
+        ignore: Vec<OptionMatcher>,
+    }
 }
 impl R {
     pub fn from_config(p: &Value, secondary: Option<&Map<String, Value>>) -> Option<Self> {
@@ -126,7 +137,7 @@ fn walk_compound(compound: &CompoundSelector<'_>, visit: &mut impl FnMut(Selecto
 }
 impl Rule for R {
     fn name(&self) -> &'static str {
-        "selector-max-compound-selectors"
+        Self::NAME
     }
     fn check_qualified_rule<'a>(&self, rule: &'a QualifiedRule<'a>, ctx: &mut LintContext<'a>) {
         for sel in &rule.selector.selectors {

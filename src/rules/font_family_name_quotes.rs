@@ -16,8 +16,27 @@ pub enum FontFamilyQuoteMode {
     AlwaysWhereRequired,
 }
 
-pub struct FontFamilyNameQuotes {
-    pub mode: FontFamilyQuoteMode,
+crate::define_stx_lint! {
+    /// Enforces a quoting convention for family names in `font-family` and `font`.
+    ///
+    /// Primary options:
+    ///
+    /// - `"always-unless-keyword"`: quote all family names other than keywords.
+    /// - `"always-where-required"`: leave valid sequences of unquoted identifiers
+    ///   unquoted, including multiword names such as `Times New Roman`.
+    /// - `"always-where-recommended"`: also quote multiword names and names with
+    ///   characters beyond ASCII letters and interior single hyphens.
+    ///
+    /// Keywords such as `serif` are unquoted in every mode. Auto-fix adds or
+    /// removes quotes; violations in names split by comments are not fixed.
+    ///
+    /// ```css
+    /// a { font-family: Times New Roman, serif; } /* quotes Times New Roman with "always-where-recommended" */
+    /// ```
+    "font-family-name-quotes", style, fix = conditional;
+    pub struct FontFamilyNameQuotes {
+        pub mode: FontFamilyQuoteMode,
+    }
 }
 
 impl Default for FontFamilyNameQuotes {
@@ -210,7 +229,7 @@ impl FontFamilyNameQuotes {
 
 impl Rule for FontFamilyNameQuotes {
     fn name(&self) -> &'static str {
-        "font-family-name-quotes"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {
@@ -359,8 +378,13 @@ mod tests {
                 "Expected no quotes around \"-moz-button\"".into(),
             ],
         )];
-        Tester::new("font-family-name-quotes", json!("always-unless-keyword"), [], fail)
-            .with_fix(true)
-            .test();
+        Tester::new(
+            "font-family-name-quotes",
+            json!("always-unless-keyword"),
+            [],
+            fail,
+        )
+        .with_fix(true)
+        .test();
     }
 }

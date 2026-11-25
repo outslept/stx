@@ -9,13 +9,25 @@ use crate::{
     utils::{ValueToken, ValueTokenKind, is_math_function, is_only_whitespace, tokenize_value},
 };
 
-const NAME: &str = "function-calc-no-unspaced-operator";
+const NAME: &str = FunctionCalcNoUnspacedOperator::NAME;
 
-pub struct FunctionCalcNoUnspacedOperator;
+crate::define_stx_lint! {
+    /// Requires whitespace around binary `+` and `-` operators in CSS math functions.
+    ///
+    /// Set the primary option to `true`. This applies to functions such as
+    /// `calc()` and `min()`. Unary signs and the `*` and `/` operators are not
+    /// checked. Auto-fix inserts the missing space.
+    ///
+    /// ```css
+    /// a { width: calc(100% -10px); } /* fixes to calc(100% - 10px) */
+    /// ```
+    "function-calc-no-unspaced-operator", correctness, fix = fix, recommended = true;
+    pub struct FunctionCalcNoUnspacedOperator;
+}
 
 impl Rule for FunctionCalcNoUnspacedOperator {
     fn name(&self) -> &'static str {
-        NAME
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

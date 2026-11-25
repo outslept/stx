@@ -17,9 +17,26 @@ use oxc_css_parser::{
 };
 use serde_json::{Map, Value};
 
-pub struct NoDuplicateSelectors {
-    disallow_in_list: bool,
-    ignore_selectors: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Report duplicate selectors within the same at-rule context.
+    ///
+    /// Reference: <https://stylelint.io/user-guide/rules/no-duplicate-selectors>
+    ///
+    /// Enable with `true`. Without `disallowInList`, the rule checks for
+    /// repetitions within each list and compares normalized, nested-expanded
+    /// lists across rules. With `disallowInList: true`, it instead compares
+    /// individual expanded selectors across rules. `ignoreSelectors` accepts
+    /// exact selectors or slash-delimited regexes. Keyframe blocks are skipped.
+    ///
+    /// ```css
+    /// a, b { color: red; }
+    /// b, a { color: blue; } /* Duplicate list */
+    /// ```
+    "no-duplicate-selectors", suspicious, recommended = true;
+    pub struct NoDuplicateSelectors {
+        disallow_in_list: bool,
+        ignore_selectors: Vec<OptionMatcher>,
+    }
 }
 
 impl NoDuplicateSelectors {
@@ -389,7 +406,7 @@ fn check_statements<'a>(
 
 impl Rule for NoDuplicateSelectors {
     fn name(&self) -> &'static str {
-        "no-duplicate-selectors"
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, stylesheet: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {

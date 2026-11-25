@@ -1,8 +1,19 @@
 use crate::{context::LintContext, rules::Rule, utils::scan_direct_declarations};
 use oxc_css_parser::ast::SimpleBlock;
 
-pub struct DeclarationBlockSingleLineMaxDeclarations {
-    pub max: usize,
+crate::define_stx_lint! {
+    /// Limits how many declarations may appear in a single-line block.
+    ///
+    /// Set the primary option to a non-negative integer. Only declarations
+    /// directly in the block count; blocks spanning multiple lines are exempt.
+    ///
+    /// ```css
+    /// a { color: red; background: blue; } /* reported with 1 */
+    /// ```
+    "declaration-block-single-line-max-declarations", style;
+    pub struct DeclarationBlockSingleLineMaxDeclarations {
+        pub max: usize,
+    }
 }
 
 impl Default for DeclarationBlockSingleLineMaxDeclarations {
@@ -13,7 +24,7 @@ impl Default for DeclarationBlockSingleLineMaxDeclarations {
 
 impl Rule for DeclarationBlockSingleLineMaxDeclarations {
     fn name(&self) -> &'static str {
-        "declaration-block-single-line-max-declarations"
+        Self::NAME
     }
 
     fn check_simple_block<'a>(&self, block: &'a SimpleBlock<'a>, ctx: &mut LintContext<'a>) {

@@ -1,6 +1,5 @@
 use crate::{
     context::LintContext,
-    declare_stx_lint,
     fix::Fix,
     rules::Rule,
     utils::{
@@ -15,15 +14,6 @@ use oxc_css_parser::{
 };
 use serde::Deserialize;
 use serde_json::{Map, Value};
-declare_stx_lint!(
-    /// Specify percentage or number notation for alpha-values (`alpha-value-notation`).
-    AlphaValueNotation,
-    "alpha-value-notation",
-    style,
-    fix = fix,
-    recommended = false,
-    short_description = "Specify percentage or number notation for alpha-values.",
-);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AlphaMode {
@@ -31,10 +21,28 @@ pub enum AlphaMode {
     Number,
     Percentage,
 }
-#[derive(Debug, Default)]
-pub struct AlphaValueNotation {
-    pub mode: AlphaMode,
-    pub except_properties: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Require numbers or percentages for literal alpha values.
+    ///
+    /// Set the primary option to `"number"` or `"percentage"`. The secondary
+    /// `exceptProperties` list reverses that choice for matching property names
+    /// or slash-delimited regexes. The rule checks opacity properties and alpha
+    /// channels in recognized color functions, including in Sass variable values.
+    /// It fixes numeric literals, not expressions such as `var(--alpha)`.
+    ///
+    /// With `"percentage"`:
+    ///
+    /// ```css
+    /// a { opacity: 0.5; } /* reported */
+    /// a { opacity: 50%; } /* accepted */
+    /// ```
+    "alpha-value-notation", style, fix = fix,
+    short_description = "Specify percentage or number notation for alpha-values.";
+    #[derive(Debug, Default)]
+    pub struct AlphaValueNotation {
+        pub mode: AlphaMode,
+        pub except_properties: Vec<OptionMatcher>,
+    }
 }
 const ALPHA_PROPS: &[&str] = &[
     "opacity",

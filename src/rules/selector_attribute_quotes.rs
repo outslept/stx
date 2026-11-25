@@ -6,8 +6,18 @@ use crate::{
 };
 use oxc_css_parser::{Span, ast::SelectorList};
 
-pub struct SelectorAttributeQuotes {
-    pub mode: UrlQuoteMode,
+crate::define_stx_lint! {
+    /// Enforces whether attribute selector values use quotes.
+    ///
+    /// Set to `"always"` to require single or double quotes, or `"never"` to unquote
+    /// values that are valid CSS identifiers. Presence selectors are not checked.
+    /// Auto-fix adds double quotes or removes existing quotes as appropriate.
+    ///
+    /// Example: `"always"` changes `[href=\'test\'] {}` to `[href="'test'"] {}`.
+    "selector-attribute-quotes", style, fix = fix;
+    pub struct SelectorAttributeQuotes {
+        pub mode: UrlQuoteMode,
+    }
 }
 
 impl Default for SelectorAttributeQuotes {
@@ -43,7 +53,7 @@ fn has_hex_escape(raw: &str) -> bool {
 
 impl Rule for SelectorAttributeQuotes {
     fn name(&self) -> &'static str {
-        "selector-attribute-quotes"
+        Self::NAME
     }
 
     fn check_selector_list<'a>(&self, list: &'a SelectorList<'a>, ctx: &mut LintContext<'a>) {

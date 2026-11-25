@@ -9,20 +9,10 @@ use oxc_css_parser::ast::Stylesheet;
 
 use crate::config::RuleSetting;
 use crate::context::LintContext;
-use crate::declare_stx_lint;
 use crate::rules::Rule;
 use crate::utils::{
     OptionMatcher, has_interpolation, options_matches, parse_primary_option_matchers,
 };
-
-declare_stx_lint! {
-    /// Specify a list of disallowed at-rules.
-    AtRuleDisallowedList,
-    "at-rule-disallowed-list",
-    restriction,
-    fix = none,
-    recommended = false,
-}
 
 #[derive(Default)]
 pub struct AtRuleDisallowedListConfig {
@@ -30,10 +20,23 @@ pub struct AtRuleDisallowedListConfig {
     disallowed: Vec<OptionMatcher>,
 }
 
-/// Enforces that standard-syntax at-rules do not match a configured disallowed
-/// list of at-rule names or regular expressions.
-#[derive(Default)]
-pub struct AtRuleDisallowedList(AtRuleDisallowedListConfig);
+crate::define_stx_lint! {
+    /// Forbid at-rules whose names match a configured list.
+    ///
+    /// The primary setting is a name, a slash-delimited regex string, or a list of
+    /// either, matched without `@`. There are no secondary options. An empty list
+    /// does not enable the rule, and Less variables and mixin calls are skipped.
+    ///
+    /// With `["import", "/^-[a-z]+-keyframes$/"]`:
+    ///
+    /// ```css
+    /// @import "base.css";                         /* reported */
+    /// @keyframes fade { to { opacity: 0; } }      /* accepted */
+    /// ```
+    "at-rule-disallowed-list", restriction;
+    #[derive(Default)]
+    pub struct AtRuleDisallowedList(AtRuleDisallowedListConfig);
+}
 
 impl Deref for AtRuleDisallowedList {
     type Target = AtRuleDisallowedListConfig;

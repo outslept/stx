@@ -11,10 +11,19 @@ use crate::{
     },
 };
 
-const NAME: &str = "selector-pseudo-element-no-unknown";
+const NAME: &str = SelectorPseudoElementNoUnknown::NAME;
 
-pub struct SelectorPseudoElementNoUnknown {
-    ignore: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Reports unknown pseudo-elements in standard CSS style rules.
+    ///
+    /// Set to `true`. `ignorePseudoElements` accepts names without colons or `/regex/`
+    /// patterns. Vendor-prefixed names are exempt. Does not fix violations.
+    ///
+    /// Example: `a:not(::Mystery) {}` is reported for `::Mystery`.
+    "selector-pseudo-element-no-unknown", correctness, recommended = true;
+    pub struct SelectorPseudoElementNoUnknown {
+        ignore: Vec<OptionMatcher>,
+    }
 }
 
 impl SelectorPseudoElementNoUnknown {
@@ -27,7 +36,7 @@ impl SelectorPseudoElementNoUnknown {
 
 impl Rule for SelectorPseudoElementNoUnknown {
     fn name(&self) -> &'static str {
-        NAME
+        Self::NAME
     }
 
     fn check_qualified_rule<'a>(&self, rule: &'a QualifiedRule<'a>, ctx: &mut LintContext<'a>) {

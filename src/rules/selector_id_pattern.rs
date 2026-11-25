@@ -5,14 +5,23 @@ use crate::{
 };
 use oxc_css_parser::ast::SelectorList;
 
-#[derive(Default)]
-pub struct SelectorIdPattern {
-    pub matcher: PatternMatcher,
+crate::define_stx_lint! {
+    /// Requires ID selector names to match a regular expression.
+    ///
+    /// Set to a regex string, either bare or slash-delimited. Match against the ID
+    /// without its leading `#`. Does not fix violations.
+    ///
+    /// Example: `#foo {}` matches `^[a-z]+$` but does not match `^[A-Z]+$`.
+    "selector-id-pattern", style;
+    #[derive(Default)]
+    pub struct SelectorIdPattern {
+        pub matcher: PatternMatcher,
+    }
 }
 
 impl Rule for SelectorIdPattern {
     fn name(&self) -> &'static str {
-        "selector-id-pattern"
+        Self::NAME
     }
 
     fn check_selector_list<'a>(&self, list: &'a SelectorList<'a>, ctx: &mut LintContext<'a>) {
@@ -42,7 +51,7 @@ mod tests {
 
     use crate::tester::{Tester, reject, reject_start, reject_warnings};
 
-    const NAME: &str = "selector-id-pattern";
+    const NAME: &str = super::SelectorIdPattern::NAME;
     const CSS_PASS: &[&str] = &[
         "a {}",
         ".foo {}",

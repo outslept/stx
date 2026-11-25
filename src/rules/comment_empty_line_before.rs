@@ -15,14 +15,33 @@ use crate::{
     },
 };
 
-const NAME: &str = "comment-empty-line-before";
+const NAME: &str = CommentEmptyLineBefore::NAME;
 
-pub struct CommentEmptyLineBefore {
-    mode: EmptyLineMode,
-    except_first_nested: bool,
-    ignore_commands: bool,
-    ignore_after_comment: bool,
-    ignore_comments: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Require or forbid a blank line before standalone block comments.
+    ///
+    /// Use `"always"` to require a blank line or `"never"` to forbid one.
+    /// With `"always"`, `except: ["first-nested"]` forbids a blank line before
+    /// the first nested comment. `ignore` accepts `after-comment` and `stylelint-commands`
+    /// (for linter configuration comments). `ignoreComments` matches trimmed
+    /// comment text against strings or slash-delimited regexes.
+    /// Line comments and block comments that share a line are skipped.
+    ///
+    /// With `"always"`, keep the blank line before the comment:
+    /// ```css
+    /// a { color: red; }
+    ///
+    /// /* Print styles */
+    /// @media print { a { color: black; } }
+    /// ```
+    "comment-empty-line-before", style, fix = fix;
+    pub struct CommentEmptyLineBefore {
+        mode: EmptyLineMode,
+        except_first_nested: bool,
+        ignore_commands: bool,
+        ignore_after_comment: bool,
+        ignore_comments: Vec<OptionMatcher>,
+    }
 }
 
 impl CommentEmptyLineBefore {
@@ -44,7 +63,7 @@ impl CommentEmptyLineBefore {
 
 impl Rule for CommentEmptyLineBefore {
     fn name(&self) -> &'static str {
-        NAME
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {

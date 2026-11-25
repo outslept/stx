@@ -9,9 +9,26 @@ use crate::{
     },
 };
 
-#[derive(Debug, Default)]
-pub struct PropertyAllowedList {
-    allowed: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Allow only configured property names.
+    ///
+    /// Reference: <https://stylelint.io/user-guide/rules/property-allowed-list>
+    ///
+    /// Set the primary option to a string or an array of strings. Entries are
+    /// case-sensitive exact names or slash-delimited regexes. Custom and
+    /// vendor-prefixed properties participate; nonstandard syntax is skipped.
+    /// An empty list allows none of the names this rule checks.
+    ///
+    /// With `["color"]`, `margin` is reported here:
+    ///
+    /// ```css
+    /// a { color: red; margin: 0; }
+    /// ```
+    "property-allowed-list", restriction;
+    #[derive(Debug, Default)]
+    pub struct PropertyAllowedList {
+        allowed: Vec<OptionMatcher>,
+    }
 }
 
 impl PropertyAllowedList {
@@ -28,7 +45,7 @@ pub fn rejected_message(property: &str) -> String {
 
 impl Rule for PropertyAllowedList {
     fn name(&self) -> &'static str {
-        "property-allowed-list"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

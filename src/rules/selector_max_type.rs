@@ -7,14 +7,25 @@ use oxc_css_parser::ast::{
 use super::selector_max_specificity::is_nested;
 use crate::{context::LintContext, rules::Rule, utils::*};
 
-pub struct R {
-    max: u64,
-    ignore_types: Vec<OptionMatcher>,
-    ignore_descendant: bool,
-    ignore_child: bool,
-    ignore_compounded: bool,
-    ignore_next_sibling: bool,
-    ignore_custom_elements: bool,
+crate::define_stx_lint! {
+    /// Limits the number of type selectors in each selector.
+    ///
+    /// Set to a non-negative integer. `ignoreTypes` takes names or `/regex/` patterns.
+    /// `ignore` takes `"descendant"`, `"child"`, `"next-sibling"`, `"compounded"`,
+    /// or `"custom-elements"` to omit types in those cases. Does not fix violations.
+    ///
+    /// Example: `:nth-child(2n of div) {}` exceeds a maximum of `0`; `2n` itself
+    /// does not count as a type selector.
+    "selector-max-type", restriction;
+    pub struct R {
+        max: u64,
+        ignore_types: Vec<OptionMatcher>,
+        ignore_descendant: bool,
+        ignore_child: bool,
+        ignore_compounded: bool,
+        ignore_next_sibling: bool,
+        ignore_custom_elements: bool,
+    }
 }
 impl R {
     pub fn from_config(
@@ -159,7 +170,7 @@ impl R {
 }
 impl Rule for R {
     fn name(&self) -> &'static str {
-        "selector-max-type"
+        Self::NAME
     }
     fn check_qualified_rule<'a>(&self, rule: &'a QualifiedRule<'a>, ctx: &mut LintContext<'a>) {
         if !is_standard_syntax_rule(ctx.source, rule) || ctx.in_keyframes() {

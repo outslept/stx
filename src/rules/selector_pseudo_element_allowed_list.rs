@@ -10,8 +10,18 @@ fn reject_msg(value: &str) -> String {
     format!("Disallowed pseudo-element \"{value}\"")
 }
 
-pub struct SelectorPseudoElementAllowedList {
-    allowed: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Allows only listed pseudo-elements in selectors.
+    ///
+    /// Set to a name or a list of names and `/regex/` patterns, without leading
+    /// colons or arguments. Checks double-colon notation only, with case-sensitive
+    /// literal name matching. Does not fix violations.
+    ///
+    /// Example: `a::after {}` is disallowed if only `"before"` is listed.
+    "selector-pseudo-element-allowed-list", restriction;
+    pub struct SelectorPseudoElementAllowedList {
+        allowed: Vec<OptionMatcher>,
+    }
 }
 
 impl SelectorPseudoElementAllowedList {
@@ -24,7 +34,7 @@ impl SelectorPseudoElementAllowedList {
 
 impl Rule for SelectorPseudoElementAllowedList {
     fn name(&self) -> &'static str {
-        "selector-pseudo-element-allowed-list"
+        Self::NAME
     }
 
     fn check_complex_selector<'a>(&self, sel: &'a ComplexSelector<'a>, ctx: &mut LintContext<'a>) {

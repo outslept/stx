@@ -6,8 +6,22 @@ use oxc_css_parser::Span;
 use oxc_css_parser::ast::Declaration;
 use serde_json::Value;
 
-pub struct ColorNoInvalidHex {
-    pub severity: Severity,
+crate::define_stx_lint! {
+    /// Flag malformed hex colors in declaration values.
+    ///
+    /// Enable with `true`; there are no rule-specific secondary options. An
+    /// alphanumeric color token after `#` must have three, four, six, or eight
+    /// hex digits. Functions whose names end in `url` and values ending in `]`
+    /// are skipped, so the rule does not validate every hash token.
+    ///
+    /// ```css
+    /// a { color: #12x; } /* reported */
+    /// a { color: #123; } /* accepted */
+    /// ```
+    "color-no-invalid-hex", correctness, recommended = true;
+    pub struct ColorNoInvalidHex {
+        pub severity: Severity,
+    }
 }
 
 impl ColorNoInvalidHex {
@@ -25,7 +39,7 @@ pub fn rejected_msg(hex: &str) -> String {
 
 impl Rule for ColorNoInvalidHex {
     fn name(&self) -> &'static str {
-        "color-no-invalid-hex"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

@@ -1,7 +1,21 @@
 use crate::{context::LintContext, rules::Rule};
 use oxc_css_parser::{Span, ast::Stylesheet};
 
-pub struct NoEmptySource;
+crate::define_stx_lint! {
+    /// Report empty stylesheets, including those with only whitespace or
+    /// Stylelint configuration comments.
+    ///
+    /// Reference: <https://stylelint.io/user-guide/rules/no-empty-source>
+    ///
+    /// Enable with `true`; there are no rule-specific options. An ordinary
+    /// comment counts as content, so this stylesheet passes:
+    ///
+    /// ```css
+    /// /* Styles will be added here. */
+    /// ```
+    "no-empty-source", suspicious, recommended = true;
+    pub struct NoEmptySource;
+}
 
 fn is_configuration_comment(content: &str) -> bool {
     let trimmed = content.trim();
@@ -27,7 +41,7 @@ fn is_configuration_comment(content: &str) -> bool {
 
 impl Rule for NoEmptySource {
     fn name(&self) -> &'static str {
-        "no-empty-source"
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {

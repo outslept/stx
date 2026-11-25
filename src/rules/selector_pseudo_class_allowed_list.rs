@@ -16,8 +16,18 @@ fn reject_msg(value: &str) -> String {
     format!("Disallowed pseudo-class \"{value}\"")
 }
 
-pub struct SelectorPseudoClassAllowedList {
-    allowed: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Allows only listed pseudo-classes in selectors and `@page` preludes.
+    ///
+    /// Set to a name or a list of names and `/regex/` patterns, without the leading
+    /// colon or any arguments. Literal name matching is case-sensitive.
+    /// Does not fix violations.
+    ///
+    /// Example: `a:focus {}` is disallowed if only `"hover"` is listed.
+    "selector-pseudo-class-allowed-list", restriction;
+    pub struct SelectorPseudoClassAllowedList {
+        allowed: Vec<OptionMatcher>,
+    }
 }
 
 impl SelectorPseudoClassAllowedList {
@@ -52,7 +62,7 @@ impl SelectorPseudoClassAllowedList {
 
 impl Rule for SelectorPseudoClassAllowedList {
     fn name(&self) -> &'static str {
-        "selector-pseudo-class-allowed-list"
+        Self::NAME
     }
 
     fn check_complex_selector<'a>(&self, sel: &'a ComplexSelector<'a>, ctx: &mut LintContext<'a>) {

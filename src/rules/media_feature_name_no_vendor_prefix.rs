@@ -10,8 +10,21 @@ use oxc_css_parser::{Span, ast::AtRule};
 use regex::Regex;
 use serde_json::{Map, Value};
 
-pub struct MediaFeatureNameNoVendorPrefix {
-    ignore_media_feature_names: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Disallow legacy vendor-prefixed device pixel ratio features in `@media`.
+    ///
+    /// Enable with `true`. `ignoreMediaFeatureNames` accepts a name or array
+    /// of names and `/regex/` patterns matched against the original spelling.
+    /// Only recognized Mozilla, Opera, and WebKit device pixel ratio variants
+    /// are checked. The fix strips the vendor prefix from the first occurrence
+    /// of each matched spelling; it does not convert the feature to `resolution`.
+    ///
+    /// Example: `@media (-webkit-min-device-pixel-ratio: 1) {}` is fixed to
+    /// `@media (min-device-pixel-ratio: 1) {}`.
+    "media-feature-name-no-vendor-prefix", style, fix = fix;
+    pub struct MediaFeatureNameNoVendorPrefix {
+        ignore_media_feature_names: Vec<OptionMatcher>,
+    }
 }
 
 impl MediaFeatureNameNoVendorPrefix {
@@ -42,7 +55,7 @@ fn prefix() -> &'static Regex {
 
 impl Rule for MediaFeatureNameNoVendorPrefix {
     fn name(&self) -> &'static str {
-        "media-feature-name-no-vendor-prefix"
+        Self::NAME
     }
 
     fn check_at_rule<'a>(&self, at_rule: &'a AtRule<'a>, ctx: &mut LintContext<'a>) {

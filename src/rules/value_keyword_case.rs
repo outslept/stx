@@ -18,15 +18,27 @@ use oxc_css_parser::{
 };
 use serde_json::{Map, Value};
 
-const NAME: &str = "value-keyword-case";
+const NAME: &str = ValueKeywordCase::NAME;
 const IGNORED_FUNCTIONS: &[&str] = &["url", "var", "counter", "counters", "attr"];
 
-pub struct ValueKeywordCase {
-    mode: CaseMode,
-    camel_case_svg_keywords: bool,
-    ignore_properties: Vec<OptionMatcher>,
-    ignore_keywords: Vec<OptionMatcher>,
-    ignore_functions: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Enforces the case of value keywords.
+    ///
+    /// Set to `"lower"` or `"upper"`. `camelCaseSvgKeywords: true` uses canonical
+    /// camel case for recognized SVG keywords in `"lower"` mode only. Use
+    /// `ignoreProperties`, `ignoreKeywords`, and `ignoreFunctions` with names or
+    /// `/regex/` patterns. System colors and arguments of `url()`, `var()`, `attr()`,
+    /// `counter()`, and `counters()` are exempt. Auto-fix rewrites the reported keyword.
+    ///
+    /// Example: `"lower"` changes `a { display: Flex; }` to `a { display: flex; }`.
+    "value-keyword-case", style, fix = fix;
+    pub struct ValueKeywordCase {
+        mode: CaseMode,
+        camel_case_svg_keywords: bool,
+        ignore_properties: Vec<OptionMatcher>,
+        ignore_keywords: Vec<OptionMatcher>,
+        ignore_functions: Vec<OptionMatcher>,
+    }
 }
 
 impl ValueKeywordCase {
@@ -65,7 +77,7 @@ fn is_keyword(property: &str, word: &str) -> bool {
 
 impl Rule for ValueKeywordCase {
     fn name(&self) -> &'static str {
-        NAME
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

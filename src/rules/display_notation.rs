@@ -80,8 +80,20 @@ fn keyword_order(keyword: &str) -> u8 {
     }
 }
 
-pub struct DisplayNotation {
-    mode: DisplayMode,
+crate::define_stx_lint! {
+    /// Enforces short or expanded keyword notation for `display` values.
+    ///
+    /// Set the primary option to `"short"` or `"full"`. Auto-fix rewrites
+    /// recognized equivalents and leaves other values, such as `none`, alone.
+    ///
+    /// ```css
+    /// a { display: inline flex; } /* fixes to inline-flex with "short" */
+    /// a { display: inline-flex; } /* fixes to inline flex with "full" */
+    /// ```
+    "display-notation", style, fix = fix;
+    pub struct DisplayNotation {
+        mode: DisplayMode,
+    }
 }
 
 impl DisplayNotation {
@@ -97,7 +109,7 @@ impl DisplayNotation {
 
 impl Rule for DisplayNotation {
     fn name(&self) -> &'static str {
-        "display-notation"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

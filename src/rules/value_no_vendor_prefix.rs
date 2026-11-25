@@ -37,9 +37,19 @@ impl IgnorePattern {
     }
 }
 
-#[derive(Default)]
-pub struct ValueNoVendorPrefix {
-    ignore_values: Vec<IgnorePattern>,
+crate::define_stx_lint! {
+    /// Disallows vendor prefixes on a known set of value keywords and functions.
+    ///
+    /// Set to `true`. `ignoreValues` accepts a string or a list of strings and `/regex/`
+    /// patterns; use function names without parentheses. Auto-fix removes the prefix
+    /// from reported keywords and function names, not from property names.
+    ///
+    /// Example: `.foo { display: -webkit-flex; }` is fixed to `.foo { display: flex; }`.
+    "value-no-vendor-prefix", restriction, fix = fix;
+    #[derive(Default)]
+    pub struct ValueNoVendorPrefix {
+        ignore_values: Vec<IgnorePattern>,
+    }
 }
 
 const PREFIXED_VALUES: &[&str] = &[
@@ -205,7 +215,7 @@ impl ValueNoVendorPrefix {
 
 impl Rule for ValueNoVendorPrefix {
     fn name(&self) -> &'static str {
-        "value-no-vendor-prefix"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {
@@ -277,7 +287,7 @@ mod tests {
 
     use crate::tester::{Tester, reject};
 
-    const NAME: &str = "value-no-vendor-prefix";
+    const NAME: &str = super::ValueNoVendorPrefix::NAME;
 
     fn rejected(value: &str) -> String {
         format!("Vendor-prefixed value \"{value}\"")

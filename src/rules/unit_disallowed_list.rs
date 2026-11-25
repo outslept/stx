@@ -50,12 +50,26 @@ fn parse_ignore_map(
     }
     out
 }
-pub struct UnitDisallowedList {
-    disallowed: Vec<String>,
-    ignore_functions: Vec<OptionMatcher>,
-    ignore_properties: Vec<(String, Vec<OptionMatcher>)>,
-    ignore_media: Vec<(String, Vec<OptionMatcher>)>,
+
+crate::define_stx_lint! {
+    /// Disallows listed units in declaration values and media feature values.
+    ///
+    /// Set to a unit or list of units, matched case-insensitively; use `"%"` for
+    /// percentages. `ignoreFunctions` skips matching functions in declarations.
+    /// `ignoreProperties` and `ignoreMediaFeatureNames` map units to the names or
+    /// `/regex/` patterns to exempt in declarations and media queries, respectively.
+    /// Skips `@font-face` `unicode-range` descriptors. Does not fix violations.
+    ///
+    /// Example: `@media (min-width: 10px) {}` is disallowed when `"px"` is listed.
+    "unit-disallowed-list", restriction;
+    pub struct UnitDisallowedList {
+        disallowed: Vec<String>,
+        ignore_functions: Vec<OptionMatcher>,
+        ignore_properties: Vec<(String, Vec<OptionMatcher>)>,
+        ignore_media: Vec<(String, Vec<OptionMatcher>)>,
+    }
 }
+
 impl UnitDisallowedList {
     pub fn from_config(
         primary: &serde_json::Value,
@@ -148,7 +162,7 @@ impl UnitDisallowedList {
 }
 impl Rule for UnitDisallowedList {
     fn name(&self) -> &'static str {
-        "unit-disallowed-list"
+        Self::NAME
     }
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {
         let Some(prop) = ident_name(&decl.name) else {

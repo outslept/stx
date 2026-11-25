@@ -10,8 +10,24 @@ use crate::{
 use oxc_css_parser::ast::{Declaration, InterpolableIdent};
 use serde_json::{Map, Value};
 
-pub struct PropertyNoVendorPrefix {
-    ignore_properties: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Disallow vendor prefixes on properties known to Autoprefixer.
+    ///
+    /// Reference: <https://stylelint.io/user-guide/rules/property-no-vendor-prefix>
+    ///
+    /// Enable with `true`. `ignoreProperties` matches the full prefixed name
+    /// using exact strings or slash-delimited regexes. Custom properties are
+    /// skipped. `-webkit-background-size` is reported only when each
+    /// comma-separated part has two values or a single `auto` or CSS-wide keyword.
+    /// Autofix removes the prefix from reported properties.
+    ///
+    /// ```css
+    /// a { -o-columns: 2; } /* Fixes to columns */
+    /// ```
+    "property-no-vendor-prefix", restriction, fix = fix;
+    pub struct PropertyNoVendorPrefix {
+        ignore_properties: Vec<OptionMatcher>,
+    }
 }
 
 impl PropertyNoVendorPrefix {
@@ -47,7 +63,7 @@ fn is_safe_webkit_background_size(value: &str) -> bool {
 
 impl Rule for PropertyNoVendorPrefix {
     fn name(&self) -> &'static str {
-        "property-no-vendor-prefix"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

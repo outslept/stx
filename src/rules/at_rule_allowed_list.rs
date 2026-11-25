@@ -7,7 +7,6 @@ use serde_json::Value;
 
 use crate::{
     context::LintContext,
-    declare_stx_lint,
     rules::Rule,
     utils::{OptionMatcher, has_interpolation, options_matches, parse_primary_option_matchers},
 };
@@ -16,71 +15,24 @@ fn disallowed_at_rule_diagnostic(name: &str) -> String {
     format!("Disallowed at-rule \"@{name}\"")
 }
 
-#[derive(Debug, Default, Clone)]
-pub struct AtRuleAllowedList {
-    allowed: Vec<OptionMatcher>,
-}
-
-declare_stx_lint! {
-    /// Specify a list of allowed at-rules.
+crate::define_stx_lint! {
+    /// Allow only at-rules whose names match a configured list.
     ///
-    /// ### What it does
+    /// The primary setting is a name, a slash-delimited regex string, or a list of
+    /// either, matched without `@`. There are no secondary options. An empty list
+    /// allows no checked at-rules. Less variables and detached ruleset calls are skipped.
     ///
-    /// Restricts the at-rules permitted in a stylesheet to an explicit allowlist of names
-    /// or regular expression patterns.
+    /// With `["media", "/^(-webkit-)?keyframes$/"]`:
     ///
-    /// ### Why is this bad?
-    ///
-    /// Projects may want to restrict the use of certain preprocessor directives (such as
-    /// `@mixin` or `@Debug`) or limit stylesheets to a specific subset of CSS at-rules
-    /// (`@media`, `@keyframes`, `@import`).
-    ///
-    /// ### Options
-    ///
-    /// #### Primary
-    ///
-    /// `string | RegExp | Array<string | RegExp>`: Allowed at-rule names (without the leading `@`)
-    /// or regex strings.
-    ///
-    /// ```json
-    /// {
-    ///   "at-rule-allowed-list": ["extend", "import", "/^(-webkit-|-moz-)?keyframes$/i"]
-    /// }
-    /// ```
-    ///
-    /// ### Examples
-    ///
-    /// #### With `["extend", "import", "/^(-webkit-|-moz-)?keyframes$/i"]`
-    ///
-    /// **Incorrect:**
-    /// ```scss
-    /// @mixin name() {}
-    /// ```
     /// ```css
-    /// @media screen and (max-width: 1000px) {}
+    /// @import "base.css"; /* reported */
+    /// @media print { a { color: black; } } /* accepted */
     /// ```
-    ///
-    /// **Correct:**
-    /// ```scss
-    /// a {
-    ///   @extend %placeholder;
-    /// }
-    /// ```
-    /// ```css
-    /// @keyframes name {
-    ///   from { top: 10px; }
-    ///   to { top: 20px; }
-    /// }
-    /// ```
-    ///
-    /// ### References
-    ///
-    /// - [Stylelint Documentation: `at-rule-allowed-list`](https://stylelint.io/user-guide/rules/at-rule-allowed-list)
-    AtRuleAllowedList,
-    "at-rule-allowed-list",
-    restriction,
-    fix = none,
-    recommended = false,
+    "at-rule-allowed-list", restriction;
+    #[derive(Debug, Default, Clone)]
+    pub struct AtRuleAllowedList {
+        allowed: Vec<OptionMatcher>,
+    }
 }
 
 impl AtRuleAllowedList {

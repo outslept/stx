@@ -13,8 +13,21 @@ use serde_json::{Map, Value};
 
 use super::media_feature_name_no_unknown::for_each_media_feature;
 
-pub struct MediaFeatureNameValueNoUnknown {
-    ignore: Vec<(OptionMatcher, Vec<OptionMatcher>)>,
+crate::define_stx_lint! {
+    /// Disallow unsupported keywords and value types for known media features.
+    ///
+    /// Enable with `true`. The secondary `ignoreMediaFeatureNameValues` object
+    /// maps feature names or `/regex/` keys to a keyword string or array of
+    /// keyword strings and `/regex/` patterns. It matches lowercase names and
+    /// keywords without vendor prefixes and strips `min-` or `max-` from names.
+    /// This is not a full query validator: unknown features and unrecognized
+    /// multi-token values are skipped, and `env()` is accepted as a value.
+    ///
+    /// Example: `@media (orientation: sideways) {}` is reported.
+    "media-feature-name-value-no-unknown", correctness;
+    pub struct MediaFeatureNameValueNoUnknown {
+        ignore: Vec<(OptionMatcher, Vec<OptionMatcher>)>,
+    }
 }
 
 impl MediaFeatureNameValueNoUnknown {
@@ -95,7 +108,7 @@ fn is_ratio_part(token: &ValueToken<'_>) -> bool {
 
 impl Rule for MediaFeatureNameValueNoUnknown {
     fn name(&self) -> &'static str {
-        "media-feature-name-value-no-unknown"
+        Self::NAME
     }
 
     fn check_at_rule<'a>(&self, at_rule: &'a AtRule<'a>, ctx: &mut LintContext<'a>) {

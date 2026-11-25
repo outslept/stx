@@ -6,9 +6,19 @@ use crate::{
 };
 use oxc_css_parser::ast::SelectorList;
 
-pub struct SelectorTypeCase {
-    pub mode: CaseMode,
-    pub ignore_types: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Enforces the case of type selectors.
+    ///
+    /// Set to `"lower"` or `"upper"`. `ignoreTypes` accepts names and `/regex/`
+    /// patterns. Canonical camel-case SVG tags, keyframes, and `An+B` formulas are
+    /// exempt. Auto-fix converts the reported type name to the configured case.
+    ///
+    /// Example: `"lower"` changes `:nth-child(2N of DIV) {}` to `:nth-child(2N of div) {}`.
+    "selector-type-case", style, fix = fix;
+    pub struct SelectorTypeCase {
+        pub mode: CaseMode,
+        pub ignore_types: Vec<OptionMatcher>,
+    }
 }
 
 const CAMEL_CASE_SVG_TAGS: &[&str] = &[
@@ -96,7 +106,7 @@ fn is_nth_anb_item(source: &str, position: usize) -> bool {
 
 impl Rule for SelectorTypeCase {
     fn name(&self) -> &'static str {
-        "selector-type-case"
+        Self::NAME
     }
 
     fn check_selector_list<'a>(&self, list: &'a SelectorList<'a>, ctx: &mut LintContext<'a>) {
@@ -165,7 +175,12 @@ mod tests {
         Tester::new(
             "selector-type-case",
             json!("upper"),
-            [".foo { &-bar {} }", "#{$variable} {}", "%foo {}", ".foo, %foo {}"],
+            [
+                ".foo { &-bar {} }",
+                "#{$variable} {}",
+                "%foo {}",
+                ".foo, %foo {}",
+            ],
             [],
         )
         .with_custom_syntax("postcss-scss")

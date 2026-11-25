@@ -1,5 +1,7 @@
-//! Rule configuration parsing, regular expression compilation, and Stylelint
-//! option matching utilities.
+//! Reads Stylelint rule options from JSON and matches them against source text.
+//!
+//! [`PatternMatcher`] treats bare patterns as regular expressions; [`OptionMatcher`]
+//! treats bare strings as literals. The JSON accessors do not coerce value types.
 
 use regex::Regex;
 use serde_json::{Map, Value};
@@ -53,8 +55,12 @@ impl Default for PatternMatcher {
 }
 
 impl PatternMatcher {
-    /// Compiles a pattern option (either a raw regex string or a `/regex/flags` literal),
-    /// falling back to [`DEFAULT_KEBAB_PATTERN`] if `None`.
+    /// Compiles a pattern option as a `/regex/flags` literal, then as a bare Rust
+    /// regex if slash-literal parsing fails.
+    ///
+    /// With `None` or if both compilations fail, matching uses
+    /// [`DEFAULT_KEBAB_PATTERN`]. If supplied, the original string remains in
+    /// [`Self::raw_pattern`] even on fallback. A bare `foo` matches `afoob`.
     pub fn new<S: AsRef<str>>(primary_str: Option<S>) -> Self {
         let Some(s_ref) = primary_str else {
             return Self::default();
@@ -89,15 +95,19 @@ impl PatternMatcher {
 /// string or a compiled regular expression).
 #[derive(Debug, Clone)]
 pub enum OptionMatcher {
-    /// Exact literal string comparison.
+    /// Exact comparison against the full literal string.
     Exact(String),
-    /// Compiled regular expression (from `/pattern/` or `/pattern/i` syntax).
+    /// Compiled regular expression applied without adding anchors.
     Regex(Regex),
 }
 
 impl OptionMatcher {
-    /// Parses a single string into either an [`OptionMatcher::Regex`] (if wrapped in `/.../`)
-    /// or an [`OptionMatcher::Exact`] matcher.
+    /// Parses a `/pattern/flags` string as a Rust regex, or keeps the full input
+    /// as an exact string if it is not a valid slash literal.
+    ///
+    /// Flags `i`, `m`, and `s` affect matching. `u`, `g`, and `y` are accepted
+    /// but do not change matching. For example, `/a/x` matches the literal
+    /// string `/a/x`, not `a`.
     pub fn parse(raw: &str) -> Self {
         if let Some(re) = parse_slash_regex(raw) {
             Self::Regex(re)
@@ -139,7 +149,8 @@ pub fn parse_option_matchers(
 }
 
 /// Parses a primary or secondary [`Value`] (either a single string or an array of strings)
-/// into a vector of [`OptionMatcher`]s.
+/// into a vector of [`OptionMatcher`]s. Non-string array elements are ignored;
+/// other value types return an empty vector.
 pub fn parse_primary_option_matchers(val: &Value) -> Vec<OptionMatcher> {
     match val {
         Value::String(s) => vec![OptionMatcher::parse(s)],
@@ -167,6 +178,10 @@ pub fn options_matches_ignore_case(matchers: &[OptionMatcher], input: &str) -> b
 
 /// Checks whether a key-value pair `(input_name, input_value)` matches an object map under
 /// `secondary[property_name]`.
+///
+/// Returns `true` if an entry's key matches `input_name` and any matcher in
+/// its string or string-array value matches `input_value`. Literal comparisons
+/// are case-sensitive. A missing or non-object option returns `false`.
 pub fn options_matches_entry(
     secondary: Option<&Map<String, Value>>,
     property_name: &str,
@@ -235,10 +250,12 @@ pub fn secondary_str<'a>(secondary: Option<&'a Map<String, Value>>, key: &str) -
     secondary.and_then(|m| m.get(key)).and_then(|v| v.as_str())
 }
 
-/// Checks whether `input` contains a literal string or array of strings from `comparison`.
+/// Returns the first string in `comparison` that occurs literally in `input`,
+/// using case-sensitive matching. Arrays, including nested arrays, are searched
+/// in order, not by match position in `input`.
 ///
-/// Returns the matched substring from `comparison` if found, or `None` otherwise.
-/// Regular expression strings (`/pattern/`) are ignored.
+/// Returns `None` if nothing matches. Empty strings and strings that start and
+/// end with `/` are skipped, but `/bar/i` is tested as literal text.
 pub fn contains_string<'a>(input: &str, comparison: &'a Value) -> Option<&'a str> {
     match comparison {
         Value::String(s) => {
@@ -263,8 +280,11 @@ pub fn contains_string<'a>(input: &str, comparison: &'a Value) -> Option<&'a str
     }
 }
 
-/// Parses a JSON map of `{ "key": ["val1", "val2"] }` from `primary` or `secondary`
-/// into a vector of `(lowercase_key, lowercase_values)` pairs.
+/// Parses a JSON object into `(key, values)` pairs, lowercased with ASCII rules.
+///
+/// Uses the primary option if it is an object, even if empty; otherwise uses
+/// `secondary`. Each value may be a string or an array of strings. Ignores
+/// non-string values and omits entries with no strings. Does not deduplicate.
 pub fn parse_string_set_map(
     primary: &Value,
     secondary: Option<&Map<String, Value>>,

@@ -17,13 +17,23 @@ use crate::{
     },
 };
 
-const NAME: &str = "selector-no-qualifying-type";
+const NAME: &str = SelectorNoQualifyingType::NAME;
 const MAX_ALTERNATIVES: usize = 10_000;
 
-pub struct SelectorNoQualifyingType {
-    ignore_id: bool,
-    ignore_class: bool,
-    ignore_attribute: bool,
+crate::define_stx_lint! {
+    /// Disallows qualifying an ID, class, or attribute selector with a type selector.
+    ///
+    /// Set to `true`. Use `ignore` with `"id"`, `"class"`, or `"attribute"` to exempt
+    /// those qualifiers. Checks compounds after resolving nesting; a type separated
+    /// by a combinator is not a qualifier. Does not fix violations.
+    ///
+    /// Example: `a[href='place']:hover {}` is reported, but `a:hover [attribute] {}` is not.
+    "selector-no-qualifying-type", restriction;
+    pub struct SelectorNoQualifyingType {
+        ignore_id: bool,
+        ignore_class: bool,
+        ignore_attribute: bool,
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -426,7 +436,7 @@ impl SelectorNoQualifyingType {
 
 impl Rule for SelectorNoQualifyingType {
     fn name(&self) -> &'static str {
-        NAME
+        Self::NAME
     }
 
     fn check_qualified_rule<'a>(&self, rule: &'a QualifiedRule<'a>, ctx: &mut LintContext<'a>) {

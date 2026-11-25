@@ -8,7 +8,17 @@ use crate::{
 };
 use oxc_css_parser::{Span, ast::Declaration};
 
-pub struct ValueNoInvalid;
+crate::define_stx_lint! {
+    /// Reports selected syntax and arithmetic errors in declaration values.
+    ///
+    /// Set to `true`. Checks cases such as adding or subtracting a unitless number
+    /// and a dimension in math functions; it does not validate each property's value
+    /// grammar. Does not fix violations.
+    ///
+    /// Example: `a { width: calc(20px + 10); }` is reported for incompatible operands.
+    "value-no-invalid", correctness;
+    pub struct ValueNoInvalid;
+}
 
 fn is_dim(kind: &ValueTokenKind) -> bool {
     matches!(
@@ -42,7 +52,7 @@ fn is_numeric_random(tokens: &[ValueToken<'_>], start: usize) -> bool {
 
 impl Rule for ValueNoInvalid {
     fn name(&self) -> &'static str {
-        "value-no-invalid"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

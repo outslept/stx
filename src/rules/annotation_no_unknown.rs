@@ -7,7 +7,6 @@ use serde_json::{Map, Value};
 
 use crate::{
     context::LintContext,
-    declare_stx_lint,
     rules::Rule,
     utils::{
         OptionMatcher, decl_value_raw, is_standard_syntax_value, options_matches,
@@ -19,89 +18,22 @@ fn unknown_annotation_diagnostic(annotation: &str) -> String {
     format!("Unknown annotation \"{annotation}\"")
 }
 
-#[derive(Debug, Default, Clone)]
-pub struct AnnotationNoUnknown {
-    ignore_annotations: Vec<OptionMatcher>,
-}
-
-declare_stx_lint! {
-    /// Disallow unknown annotations in declaration values (such as `!imprtant` instead of `!important`).
+crate::define_stx_lint! {
+    /// Flag annotation words other than `!important` in declaration values.
     ///
-    /// ### What it does
+    /// Enable with `true`. The secondary `ignoreAnnotations` list accepts names
+    /// or slash-delimited regexes matched without `!`. Quoted text and nonstandard
+    /// declaration syntax are not checked. `!important` is accepted in any case.
     ///
-    /// Checks declaration values for annotation tokens (words starting with `!`) that are not
-    /// recognized as standard CSS `!important`.
-    ///
-    /// ### Why is this bad?
-    ///
-    /// Unknown annotations are almost always typos of `!important` (e.g. `!imprtant`) or leftover
-    /// preprocessor flags in plain CSS. Browsers ignore or invalidate declarations containing
-    /// unrecognized annotations.
-    ///
-    /// ### Options
-    ///
-    /// #### Primary
-    ///
-    /// - `true`: Enable the rule.
-    ///
-    /// ```json
-    /// {
-    ///   "annotation-no-unknown": true
-    /// }
-    /// ```
-    ///
-    /// #### Secondary (optional)
-    ///
-    /// - `"ignoreAnnotations": ["array", "of", "strings", "/or/", "/regex/"]`: Ignore specific
-    ///   annotations (matched without the leading `!`).
-    ///
-    /// ```json
-    /// {
-    ///   "annotation-no-unknown": [
-    ///     true,
-    ///     {
-    ///       "ignoreAnnotations": ["default", "/^--foo-/", "--bar"]
-    ///     }
-    ///   ]
-    /// }
-    /// ```
-    ///
-    /// ### Examples
-    ///
-    /// #### Default (`true`)
-    ///
-    /// **Incorrect:**
     /// ```css
-    /// a {
-    ///   color: green !imprtant;
-    /// }
+    /// a { color: green !imprtant; } /* reported */
+    /// a { color: green !important; } /* accepted */
     /// ```
-    ///
-    /// **Correct:**
-    /// ```css
-    /// a {
-    ///   color: green !important;
-    /// }
-    /// ```
-    ///
-    /// #### With `{ "ignoreAnnotations": ["/^--foo-/", "--bar"] }`
-    ///
-    /// **Correct:**
-    /// ```css
-    /// a {
-    ///   color: green !--foo--bar;
-    ///   color: green !--bar;
-    /// }
-    /// ```
-    ///
-    /// ### References
-    ///
-    /// - [Stylelint Documentation: `annotation-no-unknown`](https://stylelint.io/user-guide/rules/annotation-no-unknown)
-    AnnotationNoUnknown,
-    "annotation-no-unknown",
-    correctness,
-    fix = none,
-    recommended = true,
+    "annotation-no-unknown", correctness, recommended = true;
+    #[derive(Debug, Default, Clone)]
+    pub struct AnnotationNoUnknown {
+        ignore_annotations: Vec<OptionMatcher>,
+    }
 }
 
 impl AnnotationNoUnknown {

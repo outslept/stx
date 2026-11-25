@@ -6,9 +6,25 @@ use crate::{
     utils::{OptionMatcher, ValueTokenKind, decl_value_span, ident_name, tokenize_value},
 };
 
-#[derive(Debug, Default)]
-pub struct DeclarationPropertyUnitDisallowedList {
-    entries: Vec<(OptionMatcher, Vec<String>)>,
+crate::define_stx_lint! {
+    /// Disallows specified units in declarations for configured properties.
+    ///
+    /// The primary option maps property names or `/regex/` patterns to a unit
+    /// or an array of units. The first matching entry applies. Units are
+    /// case-insensitive; use `"%"` for percentages. Unitless numbers and
+    /// `url()` arguments are not checked.
+    ///
+    /// With `{"font-size": "px"}`:
+    ///
+    /// ```css
+    /// a { font-size: 1.2rem; } /* passes */
+    /// a { font-size: 12px; } /* reported */
+    /// ```
+    "declaration-property-unit-disallowed-list", restriction;
+    #[derive(Debug, Default)]
+    pub struct DeclarationPropertyUnitDisallowedList {
+        entries: Vec<(OptionMatcher, Vec<String>)>,
+    }
 }
 
 impl DeclarationPropertyUnitDisallowedList {
@@ -40,7 +56,7 @@ pub fn rejected_message(property: &str, unit: &str) -> String {
 
 impl Rule for DeclarationPropertyUnitDisallowedList {
     fn name(&self) -> &'static str {
-        "declaration-property-unit-disallowed-list"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

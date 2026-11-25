@@ -1,7 +1,17 @@
 use crate::{context::LintContext, rules::Rule, utils::is_standard_syntax_rule};
 use oxc_css_parser::ast::QualifiedRule;
 
-pub struct SelectorNoInvalid;
+crate::define_stx_lint! {
+    /// Reports malformed selector syntax and invalid selector constructs.
+    ///
+    /// Set to `true`. Checks standard CSS style-rule selectors for issues such as
+    /// malformed attribute selectors and invalid pseudo-class arguments. It is not
+    /// a full selector validator and does not fix violations.
+    ///
+    /// Example: `:dir(foo) {}` is invalid because `:dir()` expects `ltr` or `rtl`.
+    "selector-no-invalid", correctness;
+    pub struct SelectorNoInvalid;
+}
 
 fn invalid_reason(selector: &str) -> Option<(&'static str, Option<usize>)> {
     let bytes = selector.as_bytes();
@@ -258,7 +268,7 @@ fn selector_ident_end(bytes: &[u8], mut i: usize) -> usize {
 
 impl Rule for SelectorNoInvalid {
     fn name(&self) -> &'static str {
-        "selector-no-invalid"
+        Self::NAME
     }
 
     fn check_qualified_rule<'a>(&self, rule: &'a QualifiedRule<'a>, ctx: &mut LintContext<'a>) {

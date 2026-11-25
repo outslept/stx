@@ -8,11 +8,24 @@ use oxc_css_parser::{
     ast::{Declaration, InterpolableIdent},
 };
 
-pub struct NamedGridAreasNoInvalid;
+crate::define_stx_lint! {
+    /// Require named grid areas to form filled rectangles.
+    ///
+    /// Enable with `true`; there are no rule-specific secondary options. In
+    /// `grid-template-areas`, `grid-template`, and `grid`, each quoted row must
+    /// contain at least one cell and have the same number of cells as every
+    /// other row. Dot-only tokens are empty cells. Values with arrow-function
+    /// syntax are skipped.
+    ///
+    /// Example: `a { grid-template-areas: "x x" "x y"; }` is reported because
+    /// `x` forms an L shape rather than a rectangle.
+    "named-grid-areas-no-invalid", correctness, recommended = true;
+    pub struct NamedGridAreasNoInvalid;
+}
 
 impl Rule for NamedGridAreasNoInvalid {
     fn name(&self) -> &'static str {
-        "named-grid-areas-no-invalid"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

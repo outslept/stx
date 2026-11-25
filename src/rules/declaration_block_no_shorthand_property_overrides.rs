@@ -11,11 +11,23 @@ use crate::{
     },
 };
 
-pub struct DeclarationBlockNoShorthandPropertyOverrides;
+crate::define_stx_lint! {
+    /// Reports shorthand declarations that override an earlier property in the same block.
+    ///
+    /// Set the primary option to `true`. This includes properties reset by the
+    /// shorthand, such as `font-size-adjust` before `font`. Properties with
+    /// different vendor prefixes are checked separately.
+    ///
+    /// ```css
+    /// a { padding-inline: 5px; padding: 10px; } /* reports padding */
+    /// ```
+    "declaration-block-no-shorthand-property-overrides", suspicious, recommended = true;
+    pub struct DeclarationBlockNoShorthandPropertyOverrides;
+}
 
 impl Rule for DeclarationBlockNoShorthandPropertyOverrides {
     fn name(&self) -> &'static str {
-        "declaration-block-no-shorthand-property-overrides"
+        Self::NAME
     }
 
     fn check_simple_block<'a>(&self, block: &'a SimpleBlock<'a>, ctx: &mut LintContext<'a>) {

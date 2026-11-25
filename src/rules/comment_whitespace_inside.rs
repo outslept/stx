@@ -11,9 +11,24 @@ pub enum Mode {
     Never,
 }
 
-pub struct CommentWhitespaceInside {
-    pub mode: Mode,
-    pub severity: Severity,
+crate::define_stx_lint! {
+    /// Require or forbid whitespace at the inner edges of block comments.
+    ///
+    /// Use `"always"` to require whitespace after the opener and before the
+    /// closer, or `"never"` to forbid it. There are no secondary options.
+    /// Extra delimiter asterisks are treated as part of the delimiters. Line
+    /// comments and openers of the form `/*# ` or `/*! ` are skipped.
+    ///
+    /// With `"always"`:
+    /// ```css
+    /// /*note*/   /* reported */
+    /// /* note */ /* accepted */
+    /// ```
+    "comment-whitespace-inside", style, fix = fix;
+    pub struct CommentWhitespaceInside {
+        pub mode: Mode,
+        pub severity: Severity,
+    }
 }
 
 pub const EXPECTED_OPENING_MSG: &str = "Expected whitespace after \"/*\"";
@@ -34,7 +49,7 @@ impl CommentWhitespaceInside {
 
 impl Rule for CommentWhitespaceInside {
     fn name(&self) -> &'static str {
-        "comment-whitespace-inside"
+        Self::NAME
     }
 
     fn check_comment<'a>(&self, comment: &'a Comment<'a>, ctx: &mut LintContext<'a>) {

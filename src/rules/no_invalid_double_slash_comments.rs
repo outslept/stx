@@ -1,7 +1,23 @@
 use crate::{context::LintContext, rules::Rule};
 use oxc_css_parser::{Span, ast::Stylesheet, token::CommentKind};
 
-pub struct NoInvalidDoubleSlashComments;
+crate::define_stx_lint! {
+    /// Report double-slash comments where CSS does not support them.
+    ///
+    /// Reference: <https://stylelint.io/user-guide/rules/no-invalid-double-slash-comments>
+    ///
+    /// Enable with `true`; there are no rule-specific options. The source scan
+    /// looks for `//` at the start of input or after whitespace, `{`, or `;`.
+    /// It skips strings, block comments, and parser-recognized line comments
+    /// such as those in SCSS or Less.
+    ///
+    /// ```css
+    /// // Use a block comment instead.
+    /// a { color: red; }
+    /// ```
+    "no-invalid-double-slash-comments", correctness, recommended = true;
+    pub struct NoInvalidDoubleSlashComments;
+}
 
 fn double_slash_spans(source: &str, line_comments: &[Span]) -> Vec<Span> {
     let bytes = source.as_bytes();
@@ -57,7 +73,7 @@ fn double_slash_spans(source: &str, line_comments: &[Span]) -> Vec<Span> {
 
 impl Rule for NoInvalidDoubleSlashComments {
     fn name(&self) -> &'static str {
-        "no-invalid-double-slash-comments"
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, _ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {

@@ -1,8 +1,7 @@
-//! String manipulation, comment stripping, vendor prefix extraction, and normalization.
+//! String manipulation for CSS fragments, including comment removal, vendor prefix
+//! extraction, and normalization. Offsets are zero-based UTF-8 byte offsets;
+//! range ends are exclusive.
 
-/// Extracts a leading CSS vendor prefix (e.g., `"-webkit-"`, `"-moz-"`, `"-ms-"`, `"-o-"`).
-///
-/// Returns `None` if the identifier is not vendor-prefixed or is a custom property (`--*`).
 const FONT_SIZE_KEYWORDS: &[&str] = &[
     "xx-small",
     "x-small",
@@ -19,6 +18,12 @@ const FONT_SIZE_UNITS: &[&str] = &[
     "px", "em", "rem", "%", "pt", "pc", "in", "cm", "mm", "vh", "vw", "ch", "ex",
 ];
 
+/// Finds the end of the first font-size token in a raw `font` shorthand value.
+///
+/// Checks ASCII-whitespace-separated tokens for a recognized size keyword or
+/// a number with a supported unit, including `%`. Returns `None` when no token
+/// matches. The returned byte offset also skips a line height attached to the
+/// same token: `"bold 12px/1.5 serif"` returns `Some(13)`.
 pub fn font_size_end(value: &str) -> Option<usize> {
     let bytes = value.as_bytes();
     let mut i = 0;
@@ -48,6 +53,12 @@ pub fn font_size_end(value: &str) -> Option<usize> {
     None
 }
 
+/// Extracts a leading CSS vendor prefix (e.g., `"-webkit-"`, `"-moz-"`, `"-ms-"`, `"-o-"`).
+///
+/// The result includes both hyphens and preserves the original case. The text
+/// between them must contain only ASCII letters, digits, or underscores and need
+/// not name a known vendor. Returns `None` for custom properties (`--*`) or
+/// when the prefix shape does not match.
 pub fn vendor_prefix(s: &str) -> Option<&str> {
     let bytes = s.as_bytes();
     if bytes.len() < 3 || bytes[0] != b'-' || bytes[1] == b'-' {
@@ -176,7 +187,9 @@ pub fn strip_comments(raw: &str) -> String {
 /// Splits `raw` by a top-level byte `delimiter`, ignoring occurrences nested inside parentheses,
 /// brackets, braces, string literals, or block comments.
 ///
-/// Each returned tuple contains `(start_offset, end_offset, slice)`.
+/// Use an ASCII separator such as `b','`. Each tuple contains `(start, end, slice)`
+/// in byte offsets relative to `raw`. Slices are untrimmed, and empty parts are
+/// retained: `"a,"` split on `b','` yields `(0, 1, "a")` and `(2, 2, "")`.
 pub fn split_top_level(raw: &str, delimiter: u8) -> Vec<(usize, usize, &str)> {
     let bytes = raw.as_bytes();
     let mut parts = Vec::new();
@@ -230,6 +243,12 @@ pub fn split_top_level(raw: &str, delimiter: u8) -> Vec<(usize, usize, &str)> {
 }
 
 /// Trims ASCII whitespace from `&raw[start..end]` and returns `(trimmed_start, trimmed_end, slice)`.
+///
+/// An all-whitespace range returns `(end, end, "")`.
+///
+/// # Panics
+///
+/// Panics unless `start..end` is an in-bounds range on UTF-8 character boundaries.
 pub fn trim_subslice(raw: &str, start: usize, end: usize) -> (usize, usize, &str) {
     let bytes = raw.as_bytes();
     let mut s = start;

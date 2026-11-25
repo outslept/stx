@@ -8,8 +8,22 @@ use oxc_css_parser::{
     ast::{Declaration, InterpolableIdent},
 };
 
-pub struct FontFamilyNoMissingGenericFamilyKeyword {
-    ignore_font_families: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Requires a generic fallback in `font-family` lists and `font` shorthands.
+    ///
+    /// Set the primary option to `true`. `ignoreFontFamilies` accepts a literal
+    /// name, a `/regex/`, or an array of either, matched against the last family
+    /// with its quotes removed. Quoted names do not count as generic keywords.
+    /// Declarations in `@font-face` and `@font-palette-values` are exempt.
+    ///
+    /// ```css
+    /// a { font-family: Arial; } /* reported */
+    /// a { font-family: Arial, sans-serif; } /* passes */
+    /// ```
+    "font-family-no-missing-generic-family-keyword", suspicious, recommended = true;
+    pub struct FontFamilyNoMissingGenericFamilyKeyword {
+        ignore_font_families: Vec<OptionMatcher>,
+    }
 }
 
 impl FontFamilyNoMissingGenericFamilyKeyword {
@@ -39,7 +53,7 @@ const GENERIC_FAMILIES: &[&str] = &[
 const GLOBAL_KEYWORDS: &[&str] = &["inherit", "initial", "unset", "revert", "revert-layer"];
 impl Rule for FontFamilyNoMissingGenericFamilyKeyword {
     fn name(&self) -> &'static str {
-        "font-family-no-missing-generic-family-keyword"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

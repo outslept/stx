@@ -9,11 +9,23 @@ use crate::{
 };
 use oxc_css_parser::Span;
 
-pub struct ValueKeywordLayoutMappings {
-    physical: bool,
-    ignore_properties: Vec<OptionMatcher>,
-    ignore_keywords: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Enforces physical or flow-relative value keywords for properties with layout mappings.
+    ///
+    /// Set to `"physical"` to disallow mapped flow-relative keywords, or `"flow-relative"`
+    /// to disallow physical keywords with logical equivalents. `ignoreProperties` and
+    /// `ignoreKeywords` accept names or `/regex/` patterns. Properties without a mapping
+    /// are not checked. Does not fix violations.
+    ///
+    /// Example: `a { float: left; }` is reported in `"flow-relative"` mode.
+    "value-keyword-layout-mappings", restriction;
+    pub struct ValueKeywordLayoutMappings {
+        physical: bool,
+        ignore_properties: Vec<OptionMatcher>,
+        ignore_keywords: Vec<OptionMatcher>,
+    }
 }
+
 impl ValueKeywordLayoutMappings {
     pub fn from_config(
         primary: &serde_json::Value,
@@ -33,7 +45,7 @@ impl ValueKeywordLayoutMappings {
 }
 impl Rule for ValueKeywordLayoutMappings {
     fn name(&self) -> &'static str {
-        "value-keyword-layout-mappings"
+        Self::NAME
     }
     fn check_declaration<'a>(
         &self,

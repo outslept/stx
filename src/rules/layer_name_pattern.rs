@@ -8,14 +8,30 @@ use oxc_css_parser::{
     ast::{AtRule, AtRulePrelude, ComponentValue, ImportPreludeHref, ImportPreludeLayer},
 };
 
-#[derive(Default)]
-pub struct LayerNamePattern {
-    pub matcher: PatternMatcher,
+crate::define_stx_lint! {
+    /// Require named cascade layers to match a regular expression.
+    ///
+    /// The primary option is a pattern string. STX checks each name in an
+    /// `@layer` list and each name in `@import ... layer(...)`. A dotted name
+    /// is checked as a whole. Anonymous layers are ignored.
+    ///
+    /// With `"/^[a-z][a-z0-9-]*$/"`:
+    ///
+    /// ```css
+    /// @layer components; /* accepted */
+    /// @layer Bad, components.buttons; /* reported */
+    /// ```
+    "layer-name-pattern", style;
+    #[derive(Default)]
+    pub struct LayerNamePattern {
+        /// Pattern applied to each layer name, including any dots.
+        pub matcher: PatternMatcher,
+    }
 }
 
 impl Rule for LayerNamePattern {
     fn name(&self) -> &'static str {
-        "layer-name-pattern"
+        Self::NAME
     }
 
     fn check_at_rule<'a>(&self, at_rule: &'a AtRule<'a>, ctx: &mut LintContext<'a>) {

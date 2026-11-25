@@ -6,9 +6,26 @@ use crate::{
     utils::{OptionMatcher, decl_value_span, ident_name},
 };
 
-#[derive(Debug, Default)]
-pub struct DeclarationPropertyValueAllowedList {
-    entries: Vec<(OptionMatcher, Vec<OptionMatcher>)>,
+crate::define_stx_lint! {
+    /// Restricts declaration values to an allow list for each configured property.
+    ///
+    /// The primary option maps property names or `/regex/` patterns to a
+    /// value matcher or an array of matchers. Use literal strings or
+    /// `/regex/` patterns. A literal matches the whole value, not individual
+    /// tokens. A match under any applicable entry is enough; properties
+    /// with no matching entry are unrestricted.
+    ///
+    /// With `{"color": "green"}`:
+    ///
+    /// ```css
+    /// a { color: green; } /* passes */
+    /// a { color: pink; } /* reported */
+    /// ```
+    "declaration-property-value-allowed-list", restriction;
+    #[derive(Debug, Default)]
+    pub struct DeclarationPropertyValueAllowedList {
+        entries: Vec<(OptionMatcher, Vec<OptionMatcher>)>,
+    }
 }
 
 impl DeclarationPropertyValueAllowedList {
@@ -40,7 +57,7 @@ pub fn rejected_message(property: &str, value: &str) -> String {
 
 impl Rule for DeclarationPropertyValueAllowedList {
     fn name(&self) -> &'static str {
-        "declaration-property-value-allowed-list"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

@@ -9,9 +9,21 @@ use crate::{
     },
 };
 
-#[derive(Debug, Default)]
-pub struct MediaFeatureNameAllowedList {
-    allowed: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Allow only configured media feature names in `@media` queries.
+    ///
+    /// Supply a string or array of strings as the primary option. Entries are
+    /// case-sensitive literal names or `/regex/` patterns. Names are checked
+    /// as written, including `min-`, `max-`, and vendor prefixes. Custom media
+    /// names beginning with `--` are skipped. No rule-specific secondary options.
+    ///
+    /// With `["max-width"]`, `@media (max-width: 50em) {}` passes and
+    /// `@media (min-width: 50em) {}` is reported.
+    "media-feature-name-allowed-list", restriction;
+    #[derive(Debug, Default)]
+    pub struct MediaFeatureNameAllowedList {
+        allowed: Vec<OptionMatcher>,
+    }
 }
 
 impl MediaFeatureNameAllowedList {
@@ -28,7 +40,7 @@ pub fn rejected_message(name: &str) -> String {
 
 impl Rule for MediaFeatureNameAllowedList {
     fn name(&self) -> &'static str {
-        "media-feature-name-allowed-list"
+        Self::NAME
     }
 
     fn check_at_rule<'a>(&self, at_rule: &'a AtRule<'a>, ctx: &mut LintContext<'a>) {

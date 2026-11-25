@@ -16,7 +16,7 @@ use crate::{
     },
 };
 
-const NAME: &str = "selector-pseudo-class-no-unknown";
+const NAME: &str = SelectorPseudoClassNoUnknown::NAME;
 
 fn has_scrollbar_ancestor(ctx: &LintContext<'_>) -> bool {
     ctx.ancestors.iter().rev().any(|ancestor| {
@@ -39,8 +39,18 @@ fn has_scrollbar_ancestor(ctx: &LintContext<'_>) -> bool {
     })
 }
 
-pub struct SelectorPseudoClassNoUnknown {
-    ignore: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Reports unknown pseudo-classes in selectors and `@page` preludes.
+    ///
+    /// Set to `true`. `ignorePseudoClasses` accepts names without colons or `/regex/` patterns.
+    /// Vendor-prefixed names are exempt in style selectors, but not in `@page`.
+    /// Does not fix violations.
+    ///
+    /// Example: `a:unknown {}` is reported unless `"unknown"` is ignored.
+    "selector-pseudo-class-no-unknown", correctness, recommended = true;
+    pub struct SelectorPseudoClassNoUnknown {
+        ignore: Vec<OptionMatcher>,
+    }
 }
 
 impl SelectorPseudoClassNoUnknown {
@@ -91,7 +101,7 @@ impl SelectorPseudoClassNoUnknown {
 
 impl Rule for SelectorPseudoClassNoUnknown {
     fn name(&self) -> &'static str {
-        NAME
+        Self::NAME
     }
 
     fn check_qualified_rule<'a>(&self, rule: &'a QualifiedRule<'a>, ctx: &mut LintContext<'a>) {

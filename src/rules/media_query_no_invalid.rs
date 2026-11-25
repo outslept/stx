@@ -1,8 +1,6 @@
 use crate::{context::LintContext, rules::Rule, utils::PatternMatcher};
 use oxc_css_parser::{Span, ast::Stylesheet};
 
-const RULE_NAME: &str = "media-query-no-invalid";
-
 const REASON_CUSTOM: &str = "custom media queries can only be used in boolean queries";
 const REASON_MIN_MAX_IN_RANGE: &str =
     "\"min-\" and \"max-\" prefixes are not needed when using range queries";
@@ -28,9 +26,22 @@ const RANGE_TYPE_MEDIA_FEATURE_NAMES: &[&str] = &[
     "width",
 ];
 
-#[derive(Default)]
-pub struct MediaQueryNoInvalid {
-    pub ignore_functions: Vec<PatternMatcher>,
+crate::define_stx_lint! {
+    /// Disallow invalid syntax and feature forms in `@media` queries.
+    ///
+    /// Enable with `true`. The secondary `ignoreFunctions` array accepts
+    /// literal function names or `/regex/` patterns (without parentheses).
+    /// A matching function can suppress generic invalid-query reports for its
+    /// comma-separated query, but not all feature-specific errors. This rule
+    /// checks query structure, not whether media type or feature names are known.
+    ///
+    /// Example: `@media (min-width < 500px) {}` is reported because comparison
+    /// syntax must use `width` rather than `min-width`.
+    "media-query-no-invalid", correctness, recommended = true;
+    #[derive(Default)]
+    pub struct MediaQueryNoInvalid {
+        pub ignore_functions: Vec<PatternMatcher>,
+    }
 }
 
 impl MediaQueryNoInvalid {
@@ -95,7 +106,7 @@ impl MediaQueryNoInvalid {
             Some(r) if !r.is_empty() => format!("Invalid media query \"{query}\", {r}"),
             _ => format!("Invalid media query \"{query}\""),
         };
-        ctx.report(RULE_NAME, span, msg);
+        ctx.report(Self::NAME, span, msg);
     }
 
     fn check_single_media_query(
@@ -436,7 +447,7 @@ impl MediaQueryNoInvalid {
 
 impl Rule for MediaQueryNoInvalid {
     fn name(&self) -> &'static str {
-        RULE_NAME
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, _ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {
@@ -717,9 +728,11 @@ fn is_valid_plain_value(feature_name: &str, val: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::RULE_NAME;
+    use super::MediaQueryNoInvalid;
     use crate::tester::{Tester, reject, reject_warnings};
     use serde_json::json;
+
+    const RULE_NAME: &str = MediaQueryNoInvalid::NAME;
 
     fn rejected(query: &str) -> String {
         format!("Invalid media query \"{query}\"")

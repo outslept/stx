@@ -9,11 +9,28 @@ use oxc_css_parser::{
 };
 use serde_json::{Map, Value};
 
-pub struct PropertyNoUnknown {
-    ignore_properties: Vec<OptionMatcher>,
-    ignore_selectors: Vec<OptionMatcher>,
-    ignore_at_rules: Vec<OptionMatcher>,
-    check_prefixed: bool,
+crate::define_stx_lint! {
+    /// Report property names not found in STX's known-property tables.
+    ///
+    /// Reference: <https://stylelint.io/user-guide/rules/property-no-unknown>
+    ///
+    /// Enable with `true`. `ignoreProperties`, `ignoreSelectors`, and
+    /// `ignoreAtRules` accept exact strings or slash-delimited regexes. Selector
+    /// matches use the full selector text; at-rule names omit `@`. Vendor-prefixed
+    /// properties are skipped unless `checkPrefixed` is `true`. Custom properties,
+    /// declarations in `@font-face` or Less detached rulesets, and declarations
+    /// inside at-rules without an enclosing style rule are skipped.
+    ///
+    /// ```css
+    /// a { wdth: 10px; } /* Unknown property */
+    /// ```
+    "property-no-unknown", correctness, recommended = true;
+    pub struct PropertyNoUnknown {
+        ignore_properties: Vec<OptionMatcher>,
+        ignore_selectors: Vec<OptionMatcher>,
+        ignore_at_rules: Vec<OptionMatcher>,
+        check_prefixed: bool,
+    }
 }
 
 impl PropertyNoUnknown {
@@ -531,7 +548,7 @@ const KNOWN_PROPERTIES: &[&str] = &[
 
 impl Rule for PropertyNoUnknown {
     fn name(&self) -> &'static str {
-        "property-no-unknown"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

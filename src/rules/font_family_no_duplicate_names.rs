@@ -10,9 +10,22 @@ use oxc_css_parser::{
     ast::{Declaration, InterpolableIdent},
 };
 
-#[derive(Default)]
-pub struct FontFamilyNoDuplicateNames {
-    pub ignore_font_family_names: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Reports repeated family names in a `font-family` or `font` declaration.
+    ///
+    /// Set the primary option to `true`. `ignoreFontFamilyNames` accepts a
+    /// literal name, a `/regex/`, or an array of either. Unquoted generic
+    /// keywords compare case-insensitively and separately from quoted names;
+    /// other family names compare case-sensitively, ignoring surrounding quotes.
+    ///
+    /// ```css
+    /// a { font-family: Arial, "Arial", serif; } /* reports the second Arial */
+    /// ```
+    "font-family-no-duplicate-names", suspicious, recommended = true;
+    #[derive(Default)]
+    pub struct FontFamilyNoDuplicateNames {
+        pub ignore_font_family_names: Vec<OptionMatcher>,
+    }
 }
 
 impl FontFamilyNoDuplicateNames {
@@ -74,7 +87,7 @@ const FONT_SHORTHAND_PREFIX_KEYWORDS: &[&str] = &[
 
 impl Rule for FontFamilyNoDuplicateNames {
     fn name(&self) -> &'static str {
-        "font-family-no-duplicate-names"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

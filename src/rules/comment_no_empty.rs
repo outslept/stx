@@ -4,8 +4,20 @@ use crate::rules::Rule;
 use oxc_css_parser::token::Comment;
 use serde_json::Value;
 
-pub struct CommentNoEmpty {
-    pub severity: Severity,
+crate::define_stx_lint! {
+    /// Flag block comments that contain only whitespace or no text.
+    ///
+    /// Enable with `true`; there are no rule-specific secondary options.
+    /// Preprocessor line comments (`//`) are not checked.
+    ///
+    /// ```css
+    /// /* */               /* reported */
+    /// /* Print styles */  /* accepted */
+    /// ```
+    "comment-no-empty", suspicious, recommended = true;
+    pub struct CommentNoEmpty {
+        pub severity: Severity,
+    }
 }
 
 pub const REJECTED_MSG: &str = "Empty comment";
@@ -21,7 +33,7 @@ impl CommentNoEmpty {
 
 impl Rule for CommentNoEmpty {
     fn name(&self) -> &'static str {
-        "comment-no-empty"
+        Self::NAME
     }
 
     fn check_comment<'a>(&self, comment: &'a Comment<'a>, ctx: &mut LintContext<'a>) {

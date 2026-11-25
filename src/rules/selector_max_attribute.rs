@@ -7,10 +7,22 @@ use crate::{
     },
 };
 use oxc_css_parser::ast::QualifiedRule;
-pub struct SelectorMaxAttribute {
-    max: u64,
-    ignore: Vec<OptionMatcher>,
+
+crate::define_stx_lint! {
+    /// Limits the number of attribute selectors in each selector.
+    ///
+    /// Set to a non-negative integer. `ignoreAttributes` omits matching attribute names
+    /// using strings or `/regex/` patterns. Selectors with interpolation are skipped.
+    /// Does not fix violations.
+    ///
+    /// Example: `[foo] {}` exceeds a maximum of `0`.
+    "selector-max-attribute", restriction;
+    pub struct SelectorMaxAttribute {
+        max: u64,
+        ignore: Vec<OptionMatcher>,
+    }
 }
+
 impl SelectorMaxAttribute {
     pub fn from_config(
         p: &serde_json::Value,
@@ -39,7 +51,7 @@ impl SelectorMaxAttribute {
 }
 impl Rule for SelectorMaxAttribute {
     fn name(&self) -> &'static str {
-        "selector-max-attribute"
+        Self::NAME
     }
     fn check_qualified_rule<'a>(&self, rule: &'a QualifiedRule<'a>, ctx: &mut LintContext<'a>) {
         for sel in &rule.selector.selectors {

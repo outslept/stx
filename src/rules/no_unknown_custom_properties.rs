@@ -8,8 +8,23 @@ use crate::{
     utils::{ValueTokenKind, at_rule_prelude_span, decl_value_span, ident_name, tokenize_value},
 };
 
-#[derive(Debug, Default)]
-pub struct NoUnknownCustomProperties;
+crate::define_stx_lint! {
+    /// Report `var()` references to undeclared custom properties without a fallback.
+    ///
+    /// Reference: <https://stylelint.io/user-guide/rules/no-unknown-custom-properties>
+    ///
+    /// Enable with `true`; there are no rule-specific options. Custom property
+    /// declarations and `@property` registrations anywhere in the same stylesheet
+    /// count, regardless of selector scope or order. Other stylesheets are not checked.
+    ///
+    /// ```css
+    /// a { color: var(--link-color); } /* Reported if --link-color is undeclared */
+    /// b { color: var(--link-color, blue); } /* Has a fallback */
+    /// ```
+    "no-unknown-custom-properties", correctness;
+    #[derive(Debug, Default)]
+    pub struct NoUnknownCustomProperties;
+}
 
 pub fn rejected_message(property: &str) -> String {
     format!("Unknown custom property \"{property}\"")
@@ -17,7 +32,7 @@ pub fn rejected_message(property: &str) -> String {
 
 impl Rule for NoUnknownCustomProperties {
     fn name(&self) -> &'static str {
-        "no-unknown-custom-properties"
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, _ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {
@@ -122,7 +137,7 @@ fn check_statements<'a>(
                         continue;
                     }
                     ctx.report(
-                        "no-unknown-custom-properties",
+                        NoUnknownCustomProperties::NAME,
                         first.span,
                         rejected_message(first.raw),
                     );

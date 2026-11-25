@@ -8,20 +8,10 @@ use oxc_css_parser::{Span, ast::Stylesheet};
 use serde_json::{Map, Value};
 
 use crate::context::LintContext;
-use crate::declare_stx_lint;
 use crate::rules::Rule;
 use crate::utils::has_interpolation;
 use crate::utils::options::{OptionMatcher, options_matches, parse_option_matchers};
 use crate::utils::reference::is_css_wide_keyword;
-
-declare_stx_lint! {
-    /// Disallow invalid preludes for at-rules.
-    AtRulePreludeNoInvalid,
-    "at-rule-prelude-no-invalid",
-    correctness,
-    fix = none,
-    recommended = true,
-}
 
 #[derive(Default)]
 pub struct AtRulePreludeNoInvalidConfig {
@@ -29,11 +19,25 @@ pub struct AtRulePreludeNoInvalidConfig {
     ignore_at_rules: Vec<OptionMatcher>,
 }
 
-/// [`at-rule-prelude-no-invalid`](https://stylelint.io/user-guide/rules/at-rule-prelude-no-invalid)
-///
-/// Disallow invalid preludes for at-rules.
-#[derive(Default)]
-pub struct AtRulePreludeNoInvalid(AtRulePreludeNoInvalidConfig);
+crate::define_stx_lint! {
+    /// Check the text between selected at-rule names and their opening brace or semicolon.
+    ///
+    /// Enable with `true`. The secondary `ignoreAtRules` list accepts names or
+    /// slash-delimited regexes matched without `@`.
+    ///
+    /// This checks `@layer`, `@property`, `@scope`, `@font-palette-values`,
+    /// `@position-try`, `@color-profile`, `@counter-style`, and `@font-feature-values`.
+    /// It also requires empty preludes for `@font-face`, `@starting-style`,
+    /// `@view-transition`, and `@viewport`. Other at-rules and interpolated preludes are skipped.
+    ///
+    /// ```css
+    /// @font-face Body { font-family: Body; } /* reported */
+    /// @font-face { font-family: Body; }      /* accepted */
+    /// ```
+    "at-rule-prelude-no-invalid", correctness, recommended = true;
+    #[derive(Default)]
+    pub struct AtRulePreludeNoInvalid(AtRulePreludeNoInvalidConfig);
+}
 
 impl Deref for AtRulePreludeNoInvalid {
     type Target = AtRulePreludeNoInvalidConfig;

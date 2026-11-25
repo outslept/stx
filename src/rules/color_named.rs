@@ -47,12 +47,31 @@ impl StringOrRegex {
     }
 }
 
-pub struct ColorNamed {
-    pub mode: Mode,
-    pub ignore_inside_function: bool,
-    ignore_properties: Vec<StringOrRegex>,
-    ignore_functions: Vec<StringOrRegex>,
-    pub severity: Severity,
+crate::define_stx_lint! {
+    /// Forbid named colors or require them where an equivalent name is known.
+    ///
+    /// Use `"never"` to disallow color names or `"always-where-possible"` to
+    /// prefer names over equivalent hex colors and supported color functions.
+    /// The rule skips properties such as `animation-name` where a color word
+    /// may instead be a custom identifier.
+    ///
+    /// `ignoreProperties` and `ignoreFunctions` take names or slash-delimited
+    /// regexes. `ignore: ["inside-function"]` skips whole function calls,
+    /// including the call itself as a candidate for replacement.
+    ///
+    /// With `"always-where-possible"`:
+    /// ```css
+    /// a { color: #f00; } /* reported */
+    /// a { color: red; }  /* accepted */
+    /// ```
+    "color-named", style;
+    pub struct ColorNamed {
+        pub mode: Mode,
+        pub ignore_inside_function: bool,
+        ignore_properties: Vec<StringOrRegex>,
+        ignore_functions: Vec<StringOrRegex>,
+        pub severity: Severity,
+    }
 }
 
 impl ColorNamed {
@@ -127,7 +146,7 @@ pub fn rejected_msg(keyword: &str) -> String {
 
 impl Rule for ColorNamed {
     fn name(&self) -> &'static str {
-        "color-named"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

@@ -6,9 +6,22 @@ use crate::{
     utils::{OptionMatcher, at_rule_prelude_span, media_feature_groups},
 };
 
-#[derive(Debug, Default)]
-pub struct MediaFeatureNameUnitAllowedList {
-    entries: Vec<(OptionMatcher, Vec<String>)>,
+crate::define_stx_lint! {
+    /// Restrict the units used with configured media features in `@media` queries.
+    ///
+    /// The primary option is an object mapping feature names or `/regex/` keys
+    /// to a unit string or an array of unit strings. The first matching key
+    /// supplies the allowlist; literal names are case-sensitive, but units are
+    /// compared case-insensitively. Only dimensions outside function arguments
+    /// are checked; unitless values are not restricted. An empty list disallows
+    /// all checked units for that feature. No rule-specific secondary options.
+    ///
+    /// With `{"width": "em"}`, `@media (20em <= width <= 50rem) {}` reports `50rem`.
+    "media-feature-name-unit-allowed-list", restriction;
+    #[derive(Debug, Default)]
+    pub struct MediaFeatureNameUnitAllowedList {
+        entries: Vec<(OptionMatcher, Vec<String>)>,
+    }
 }
 
 impl MediaFeatureNameUnitAllowedList {
@@ -40,7 +53,7 @@ pub fn rejected_message(unit: &str, name: &str) -> String {
 
 impl Rule for MediaFeatureNameUnitAllowedList {
     fn name(&self) -> &'static str {
-        "media-feature-name-unit-allowed-list"
+        Self::NAME
     }
 
     fn check_at_rule<'a>(&self, at_rule: &'a AtRule<'a>, ctx: &mut LintContext<'a>) {

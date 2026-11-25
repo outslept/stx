@@ -1,3 +1,9 @@
+//! CSS reference tables and lookups used by lint rules.
+//!
+//! The tables contain literal spellings, not complete CSS grammars or browser
+//! support data. Name lookups compare strings without trimming whitespace or
+//! decoding CSS escapes. Case handling is documented per lookup.
+
 #![allow(dead_code)]
 
 /// Case-sensitive membership check in a slice.
@@ -12,6 +18,7 @@ pub fn in_set_ignore_case(set: &[&str], value: &str) -> bool {
     set.iter().any(|item| item.eq_ignore_ascii_case(value))
 }
 
+/// Length-like unit suffixes, including the grid flex unit `fr` but not `%`.
 pub const LENGTH_UNITS: &[&str] = &[
     // Font-relative length units
     "cap", "ch", "em", "ex", "ic", "lh", "rcap", "rch", "rem", "rex", "ric", "rlh",
@@ -24,9 +31,12 @@ pub const LENGTH_UNITS: &[&str] = &[
     "cqw", "cqh", "cqi", "cqb", "cqmin", "cqmax",
 ];
 
+/// Resolution unit suffixes, including `x` as an alias for `dppx`.
 pub const RESOLUTION_UNITS: &[&str] = &["dpi", "dpcm", "dppx", "x"];
 
-/// Returns `(horizontal_inline, vertical_inline)` flow-relative equivalents for a physical unit.
+/// Returns the flow-relative unit for horizontal writing mode followed by the
+/// one for vertical writing mode. Matches lowercase viewport and container
+/// width and height units exactly; returns `None` for unmapped units.
 pub fn physical_to_flow_relative_unit(unit: &str) -> Option<(&'static str, &'static str)> {
     match unit {
         "vw" => Some(("vi", "vb")),
@@ -43,10 +53,12 @@ pub fn physical_to_flow_relative_unit(unit: &str) -> Option<(&'static str, &'sta
     }
 }
 
+/// Inline- and block-axis unit suffixes returned by [`physical_to_flow_relative_unit`].
 pub const FLOW_RELATIVE_UNITS: &[&str] = &[
     "vi", "vb", "svi", "svb", "lvi", "lvb", "dvi", "dvb", "cqi", "cqb",
 ];
 
+/// Known unit suffixes, including `%` and mixed-case frequency units.
 pub const UNITS: &[&str] = &[
     // Font-relative length units
     "cap", "ch", "em", "ex", "ic", "lh", "rcap", "rch", "rem", "rex", "ric", "rlh",
@@ -64,8 +76,10 @@ pub const UNITS: &[&str] = &[
     "Hz", "kHz",
 ];
 
+/// Deprecated at-rule names, without `@`.
 pub const DEPRECATED_AT_KEYWORDS: &[&str] = &["document", "nest", "viewport"];
 
+/// At-rule names treated as supporting nesting, without `@`.
 pub const NESTING_SUPPORTED_AT_KEYWORDS: &[&str] = &[
     "apply",
     "container",
@@ -76,8 +90,10 @@ pub const NESTING_SUPPORTED_AT_KEYWORDS: &[&str] = &[
     "supports",
 ];
 
+/// At-rule names treated as declaration containers, without `@`.
 pub const DECLARATION_CONTAINING_AT_KEYWORDS: &[&str] = &["mixin", "scope"];
 
+/// Margin-box at-rule names allowed inside `@page`, without `@`.
 pub const PAGE_MARGIN_AT_KEYWORDS: &[&str] = &[
     "top-left-corner",
     "top-left",
@@ -97,6 +113,7 @@ pub const PAGE_MARGIN_AT_KEYWORDS: &[&str] = &[
     "right-bottom",
 ];
 
+/// Nested at-rule names in `@font-feature-values`, without `@`.
 pub const FONT_FEATURE_VALUE_TYPES: &[&str] = &[
     "annotation",
     "character-variant",
@@ -107,6 +124,7 @@ pub const FONT_FEATURE_VALUE_TYPES: &[&str] = &[
     "swash",
 ];
 
+/// Known at-rule names, including deprecated entries, without `@`.
 pub const AT_KEYWORDS: &[&str] = &[
     // deprecatedAtKeywords
     "document",
@@ -163,6 +181,7 @@ pub const AT_KEYWORDS: &[&str] = &[
     "view-transition",
 ];
 
+/// Transform function names with their conventional mixed-case spelling.
 pub const CAMEL_CASE_FUNCTIONS: &[&str] = &[
     "translateX",
     "translateY",
@@ -177,18 +196,28 @@ pub const CAMEL_CASE_FUNCTIONS: &[&str] = &[
     "skewY",
 ];
 
+/// Color function names with hue as the first color component.
 pub const HUE_AS_FIRST_COMPONENT_COLOR_FUNCTIONS: &[&str] = &["hsl", "hsla", "hwb"];
+/// Color function names with hue as the third color component.
 pub const HUE_AS_THIRD_COMPONENT_COLOR_FUNCTIONS: &[&str] = &["lch", "oklch"];
+/// Color function names with hue in either tracked position.
 pub const HUE_COLOR_FUNCTIONS: &[&str] = &["hsl", "hsla", "hwb", "lch", "oklch"];
 
+/// Color function names where numeric lightness from `0` to `1` corresponds to `0%` to `100%`.
 pub const LIGHTNESS_ZERO_TO_ONE_COLOR_FUNCTIONS: &[&str] = &["oklab", "oklch"];
+/// Color function names where numeric lightness from `0` to `100` corresponds to `0%` to `100%`.
 pub const LIGHTNESS_ZERO_TO_HUNDRED_COLOR_FUNCTIONS: &[&str] = &["lab", "lch"];
+/// Lab and LCH function names with numeric or percentage lightness.
 pub const LIGHTNESS_COLOR_FUNCTIONS: &[&str] = &["oklab", "oklch", "lab", "lch"];
 
+/// Color function aliases spelled with a trailing `a`; alpha is not required.
 pub const WITH_ALPHA_ALIAS_COLOR_FUNCTIONS: &[&str] = &["hsla", "rgba"];
+/// Base names for the HSL and RGB aliases; these also accept alpha.
 pub const WITHOUT_ALPHA_ALIAS_COLOR_FUNCTIONS: &[&str] = &["hsl", "rgb"];
+/// Color function names that accept legacy comma-separated notation.
 pub const LEGACY_NOTATION_COLOR_FUNCTIONS: &[&str] = &["hsla", "rgba", "hsl", "rgb"];
 
+/// Known CSS color function names, without parentheses.
 pub const COLOR_FUNCTIONS: &[&str] = &[
     "color",
     "color-contrast",
@@ -207,10 +236,12 @@ pub const COLOR_FUNCTIONS: &[&str] = &[
     "rgba",
 ];
 
+/// Math function names that take a single argument, which may be an expression.
 pub const SINGLE_ARGUMENT_MATH_FUNCTIONS: &[&str] = &[
     "abs", "acos", "asin", "atan", "calc", "cos", "exp", "sign", "sin", "sqrt", "tan",
 ];
 
+/// CSS math function names recognized by [`is_math_function`].
 pub const MATH_FUNCTIONS: &[&str] = &[
     "abs",
     "acos",
@@ -237,10 +268,12 @@ pub const MATH_FUNCTIONS: &[&str] = &[
     "round",
 ];
 
+/// Tests membership in [`MATH_FUNCTIONS`] using ASCII case-insensitive matching.
 pub fn is_math_function(name: &str) -> bool {
     in_set_ignore_case(MATH_FUNCTIONS, name)
 }
 
+/// Media type names classified as deprecated by the reference data.
 pub const DEPRECATED_MEDIA_TYPES_NAMES: &[&str] = &[
     "aural",
     "braille",
@@ -252,13 +285,16 @@ pub const DEPRECATED_MEDIA_TYPES_NAMES: &[&str] = &[
     "tv",
 ];
 
+/// Known vendor prefixes, including both delimiting hyphens.
 pub const PREFIXES: &[&str] = &[
     "-webkit-", "-moz-", "-ms-", "-o-", "-xv-", "-apple-", "-wap-", "-khtml-",
 ];
 
+/// Deprecated media feature names in their base form, without `min-` or `max-`.
 pub const DEPRECATED_MEDIA_FEATURE_NAMES: &[&str] =
     &["device-aspect-ratio", "device-height", "device-width"];
 
+/// Base names of range-type media features, including deprecated entries.
 pub const RANGE_TYPE_MEDIA_FEATURE_NAMES: &[&str] = &[
     "device-aspect-ratio",
     "device-height",
@@ -274,6 +310,7 @@ pub const RANGE_TYPE_MEDIA_FEATURE_NAMES: &[&str] = &[
     "width",
 ];
 
+/// `min-` and `max-` forms of the names in [`RANGE_TYPE_MEDIA_FEATURE_NAMES`].
 pub const RANGE_TYPE_MEDIA_FEATURE_NAMES_WITH_MIN_MAX_PREFIX: &[&str] = &[
     "min-device-aspect-ratio",
     "max-device-aspect-ratio",
@@ -301,6 +338,7 @@ pub const RANGE_TYPE_MEDIA_FEATURE_NAMES_WITH_MIN_MAX_PREFIX: &[&str] = &[
     "max-width",
 ];
 
+/// Media feature names that take discrete rather than range values.
 pub const DISCRETE_TYPE_MEDIA_FEATURE_NAMES: &[&str] = &[
     "any-hover",
     "any-pointer",
@@ -330,6 +368,7 @@ pub const DISCRETE_TYPE_MEDIA_FEATURE_NAMES: &[&str] = &[
     "video-dynamic-range",
 ];
 
+/// Discrete and range media feature names, including `min-` and `max-` forms.
 pub const MEDIA_FEATURE_NAMES: &[&str] = &[
     // rangeTypeMediaFeatureNames (includes deprecatedMediaFeatureNames)
     "device-aspect-ratio",
@@ -398,6 +437,8 @@ pub const MEDIA_FEATURE_NAMES: &[&str] = &[
     "video-dynamic-range",
 ];
 
+/// Returns the listed literal value keywords for an exact lowercase base feature name.
+/// Returns `None` if no keywords are listed; this does not rule out typed values.
 pub fn media_feature_name_allowed_value_keywords(
     feature_name: &str,
 ) -> Option<&'static [&'static str]> {
@@ -437,6 +478,8 @@ pub fn media_feature_name_allowed_value_keywords(
     }
 }
 
+/// Returns value-type labels such as `length` or `mq-boolean` for an exact lowercase
+/// base feature name. Returns `None` if no types are listed; keywords are tracked separately.
 pub fn media_feature_name_allowed_value_types(
     feature_name: &str,
 ) -> Option<&'static [&'static str]> {
@@ -458,20 +501,28 @@ pub fn media_feature_name_allowed_value_types(
     }
 }
 
+/// CSS-wide keywords shared by the property keyword tables.
 pub const BASIC_KEYWORDS: &[&str] = &["initial", "inherit", "revert", "revert-layer", "unset"];
+/// Alias for [`BASIC_KEYWORDS`].
 pub const CSS_WIDE_KEYWORDS: &[&str] = BASIC_KEYWORDS;
 
+/// Tests membership in [`CSS_WIDE_KEYWORDS`] using ASCII case-insensitive matching.
 pub fn is_css_wide_keyword(s: &str) -> bool {
     in_set_ignore_case(BASIC_KEYWORDS, s)
 }
 
+/// `display` keywords for the box's role in its parent's layout.
 pub const DISPLAY_OUTSIDE_KEYWORDS: &[&str] = &["block", "inline", "run-in"];
+/// `display` keywords for the layout of the box's contents.
 pub const DISPLAY_INSIDE_KEYWORDS: &[&str] =
     &["flow", "flow-root", "table", "flex", "grid", "ruby"];
+/// Single `display` keywords that combine an outside and an inside display type.
 pub const DISPLAY_LEGACY_KEYWORDS: &[&str] =
     &["inline-block", "inline-table", "inline-flex", "inline-grid"];
+/// The `display` keyword that generates a list-item marker.
 pub const DISPLAY_LIST_ITEM_KEYWORD: &[&str] = &["list-item"];
 
+/// System font keywords for the `font` shorthand, plus CSS-wide keywords.
 pub const SYSTEM_FONT_KEYWORDS: &[&str] = &[
     "initial",
     "inherit",
@@ -486,6 +537,7 @@ pub const SYSTEM_FONT_KEYWORDS: &[&str] = &[
     "status-bar",
 ];
 
+/// Generic `font-family` keywords and CSS-wide keywords, not named font families.
 pub const FONT_FAMILY_KEYWORDS: &[&str] = &[
     "initial",
     "inherit",
@@ -507,6 +559,7 @@ pub const FONT_FAMILY_KEYWORDS: &[&str] = &[
     "ui-serif",
 ];
 
+/// `-apple-` system font identifiers.
 pub const APPLE_SYSTEM_FONTS: &[&str] = &[
     "-apple-system",
     "-apple-system-headline",
@@ -528,6 +581,7 @@ pub const APPLE_SYSTEM_FONTS: &[&str] = &[
     "-apple-system-title4",
 ];
 
+/// `-moz-` system font identifiers.
 pub const MOZILLA_SYSTEM_FONTS: &[&str] = &[
     "-moz-button",
     "-moz-desktop",
@@ -542,6 +596,7 @@ pub const MOZILLA_SYSTEM_FONTS: &[&str] = &[
     "-moz-workspace",
 ];
 
+/// `-webkit-` system font identifiers.
 pub const WEBKIT_SYSTEM_FONTS: &[&str] = &[
     "-webkit-body",
     "-webkit-control",
@@ -551,6 +606,7 @@ pub const WEBKIT_SYSTEM_FONTS: &[&str] = &[
     "-webkit-standard",
 ];
 
+/// Combined Apple, Mozilla, and WebKit system font identifiers.
 pub const PREFIXED_SYSTEM_FONTS: &[&str] = &[
     // appleSystemFonts
     "-apple-system",
@@ -592,14 +648,20 @@ pub const PREFIXED_SYSTEM_FONTS: &[&str] = &[
     "-webkit-standard",
 ];
 
+/// `font-weight` keywords relative to the inherited weight.
 pub const FONT_WEIGHT_RELATIVE_KEYWORDS: &[&str] = &["bolder", "lighter"];
+/// Named `font-weight` values with fixed numeric equivalents.
 pub const FONT_WEIGHT_ABSOLUTE_KEYWORDS: &[&str] = &["normal", "bold"];
+/// Relative and absolute named weights, excluding CSS-wide keywords.
 pub const FONT_WEIGHT_NON_NUMERIC_KEYWORDS: &[&str] = &["bolder", "lighter", "normal", "bold"];
+/// Conventional numeric weight spellings from `100` to `900` in steps of `100`.
 pub const FONT_WEIGHT_NUMERIC_KEYWORDS: &[&str] = &[
     "100", "200", "300", "400", "500", "600", "700", "800", "900",
 ];
+/// Numeric weights equivalent to `normal` (`400`) and `bold` (`700`).
 pub const FONT_WEIGHT_NUMERIC_KEYWORDS_WITH_NAMED_EQUIVALENT: &[&str] = &["400", "700"];
 
+/// Named and conventional numeric weight spellings, plus CSS-wide keywords.
 pub const FONT_WEIGHT_KEYWORDS: &[&str] = &[
     "initial",
     "inherit",
@@ -621,6 +683,7 @@ pub const FONT_WEIGHT_KEYWORDS: &[&str] = &[
     "900",
 ];
 
+/// `font-style` keywords, including CSS-wide keywords but not oblique angles.
 pub const FONT_STYLE_KEYWORDS: &[&str] = &[
     "initial",
     "inherit",
@@ -632,6 +695,7 @@ pub const FONT_STYLE_KEYWORDS: &[&str] = &[
     "oblique",
 ];
 
+/// Tracked `font-variant` spellings for CSS2-style font shorthand and CSS-wide values.
 pub const FONT_VARIANT_CSS2_KEYWORDS: &[&str] = &[
     "initial",
     "inherit",
@@ -643,6 +707,7 @@ pub const FONT_VARIANT_CSS2_KEYWORDS: &[&str] = &[
     "small-caps",
 ];
 
+/// Named `font-stretch` values other than `normal`, plus CSS-wide keywords.
 pub const FONT_STRETCH_KEYWORDS: &[&str] = &[
     "initial",
     "inherit",
@@ -659,6 +724,7 @@ pub const FONT_STRETCH_KEYWORDS: &[&str] = &[
     "ultra-expanded",
 ];
 
+/// `font-size` keywords, including CSS-wide and legacy prefixed spellings.
 pub const FONT_SIZE_KEYWORDS: &[&str] = &[
     "initial",
     "inherit",
@@ -680,6 +746,7 @@ pub const FONT_SIZE_KEYWORDS: &[&str] = &[
     "-webkit-xxx-large",
 ];
 
+/// `normal` and CSS-wide keywords for `line-height`.
 pub const LINE_HEIGHT_KEYWORDS: &[&str] = &[
     "initial",
     "inherit",
@@ -689,6 +756,8 @@ pub const LINE_HEIGHT_KEYWORDS: &[&str] = &[
     "normal",
 ];
 
+/// Tracked `font` component spellings, including conventional numeric weights.
+/// System font shorthands are tracked separately in [`SYSTEM_FONT_KEYWORDS`].
 pub const FONT_SHORTHAND_KEYWORDS: &[&str] = &[
     "initial",
     "inherit",
@@ -747,6 +816,7 @@ pub const FONT_SHORTHAND_KEYWORDS: &[&str] = &[
     "ui-serif",
 ];
 
+/// Reserved `animation-name` values, excluding author-defined names.
 pub const ANIMATION_NAME_KEYWORDS: &[&str] = &[
     "initial",
     "inherit",
@@ -756,6 +826,7 @@ pub const ANIMATION_NAME_KEYWORDS: &[&str] = &[
     "none",
 ];
 
+/// `animation-timing-function` keywords and bare function names, plus CSS-wide keywords.
 pub const ANIMATION_TIMING_FUNCTION_KEYWORDS: &[&str] = &[
     "initial",
     "inherit",
@@ -773,8 +844,10 @@ pub const ANIMATION_TIMING_FUNCTION_KEYWORDS: &[&str] = &[
     "steps",
 ];
 
+/// The nonnumeric iteration count `infinite`, excluding CSS-wide keywords.
 pub const ANIMATION_ITERATION_COUNT_KEYWORDS: &[&str] = &["infinite"];
 
+/// `animation-direction` keywords, including CSS-wide keywords.
 pub const ANIMATION_DIRECTION_KEYWORDS: &[&str] = &[
     "initial",
     "inherit",
@@ -787,8 +860,10 @@ pub const ANIMATION_DIRECTION_KEYWORDS: &[&str] = &[
     "reverse",
 ];
 
+/// `animation-fill-mode` keywords, excluding CSS-wide keywords.
 pub const ANIMATION_FILL_MODE_KEYWORDS: &[&str] = &["none", "forwards", "backwards", "both"];
 
+/// `animation-play-state` keywords, including CSS-wide keywords.
 pub const ANIMATION_PLAY_STATE_KEYWORDS: &[&str] = &[
     "initial",
     "inherit",
@@ -799,6 +874,7 @@ pub const ANIMATION_PLAY_STATE_KEYWORDS: &[&str] = &[
     "paused",
 ];
 
+/// Tracked `animation` keywords and bare easing function names, excluding custom names.
 pub const ANIMATION_SHORTHAND_KEYWORDS: &[&str] = &[
     "initial",
     "inherit",
@@ -827,6 +903,7 @@ pub const ANIMATION_SHORTHAND_KEYWORDS: &[&str] = &[
     "paused",
 ];
 
+/// `grid-row` keywords, excluding custom grid-line names.
 pub const GRID_ROW_KEYWORDS: &[&str] = &[
     "initial",
     "inherit",
@@ -836,9 +913,12 @@ pub const GRID_ROW_KEYWORDS: &[&str] = &[
     "auto",
     "span",
 ];
+/// `grid-column` uses the same keywords as [`GRID_ROW_KEYWORDS`].
 pub const GRID_COLUMN_KEYWORDS: &[&str] = GRID_ROW_KEYWORDS;
+/// `grid-area` uses the same keywords as [`GRID_ROW_KEYWORDS`].
 pub const GRID_AREA_KEYWORDS: &[&str] = GRID_ROW_KEYWORDS;
 
+/// `none` and CSS-wide keywords for `counter-increment`, excluding counter names.
 pub const COUNTER_INCREMENT_KEYWORDS: &[&str] = &[
     "initial",
     "inherit",
@@ -847,8 +927,10 @@ pub const COUNTER_INCREMENT_KEYWORDS: &[&str] = &[
     "unset",
     "none",
 ];
+/// `counter-reset` uses the same reserved keywords as [`COUNTER_INCREMENT_KEYWORDS`].
 pub const COUNTER_RESET_KEYWORDS: &[&str] = COUNTER_INCREMENT_KEYWORDS;
 
+/// `list-style-type` keywords and tracked predefined counter style names.
 pub const LIST_STYLE_TYPE_KEYWORDS: &[&str] = &[
     "initial",
     "inherit",
@@ -953,6 +1035,7 @@ pub const LIST_STYLE_TYPE_KEYWORDS: &[&str] = &[
     "urdu",
 ];
 
+/// `list-style-position` keywords, including CSS-wide keywords.
 pub const LIST_STYLE_POSITION_KEYWORDS: &[&str] = &[
     "initial",
     "inherit",
@@ -963,6 +1046,7 @@ pub const LIST_STYLE_POSITION_KEYWORDS: &[&str] = &[
     "outside",
 ];
 
+/// `none` and CSS-wide keywords for `list-style-image`.
 pub const LIST_STYLE_IMAGE_KEYWORDS: &[&str] = &[
     "initial",
     "inherit",
@@ -972,6 +1056,8 @@ pub const LIST_STYLE_IMAGE_KEYWORDS: &[&str] = &[
     "none",
 ];
 
+/// Tracked `list-style` keywords and predefined counter style names, excluding URLs
+/// and image functions.
 pub const LIST_STYLE_SHORTHAND_KEYWORDS: &[&str] = &[
     "initial",
     "inherit",
@@ -1078,6 +1164,7 @@ pub const LIST_STYLE_SHORTHAND_KEYWORDS: &[&str] = &[
     "urdu",
 ];
 
+/// CSS value keywords in their conventional mixed-case spellings.
 pub const CAMEL_CASE_KEYWORDS: &[&str] = &[
     "optimizeSpeed",
     "optimizeQuality",
@@ -1092,8 +1179,10 @@ pub const CAMEL_CASE_KEYWORDS: &[&str] = &[
     "linearRGB",
 ];
 
+/// Named keyframe offsets: `from` (`0%`) and `to` (`100%`).
 pub const KEYFRAME_SELECTOR_KEYWORDS: &[&str] = &["from", "to"];
 
+/// Vendor-prefixed system color names.
 pub const PREFIXED_SYSTEM_COLOR_KEYWORDS: &[&str] = &[
     "-moz-buttondefault",
     "-moz-buttonhoverface",
@@ -1136,6 +1225,7 @@ pub const PREFIXED_SYSTEM_COLOR_KEYWORDS: &[&str] = &[
     "-ms-hotlight",
 ];
 
+/// Deprecated unprefixed system color names.
 pub const DEPRECATED_SYSTEM_COLOR_KEYWORDS: &[&str] = &[
     "activeborder",
     "activecaption",
@@ -1162,6 +1252,7 @@ pub const DEPRECATED_SYSTEM_COLOR_KEYWORDS: &[&str] = &[
     "windowtext",
 ];
 
+/// Standard, deprecated, and vendor-prefixed system color names.
 pub const SYSTEM_COLORS_KEYWORDS: &[&str] = &[
     // prefixedSystemColorKeywords
     "-moz-buttondefault",
@@ -1249,6 +1340,7 @@ pub const SYSTEM_COLORS_KEYWORDS: &[&str] = &[
     "visitedtext",
 ];
 
+/// CSS named colors with fixed color values, excluding `transparent` and `currentColor`.
 pub const NAMED_COLORS_KEYWORDS: &[&str] = &[
     "aliceblue",
     "antiquewhite",
@@ -1400,6 +1492,9 @@ pub const NAMED_COLORS_KEYWORDS: &[&str] = &[
     "yellowgreen",
 ];
 
+/// Maps a physical value keyword to its flow-relative counterpart for a property.
+/// Matches both names exactly and returns `None` for unmapped pairs. The mapping
+/// uses horizontal, left-to-right conventions; it does not resolve writing mode.
 pub fn physical_to_flow_relative_value_keyword(
     property: &str,
     keyword: &str,
@@ -1431,6 +1526,8 @@ pub fn physical_to_flow_relative_value_keyword(
     }
 }
 
+/// Returns the flow-relative keywords tracked for an exact lowercase property name,
+/// or `None` if the property has no entry.
 pub fn flow_relative_value_keywords_for_property(
     property: &str,
 ) -> Option<&'static [&'static str]> {
@@ -1445,6 +1542,7 @@ pub fn flow_relative_value_keywords_for_property(
     }
 }
 
+/// Properties whose custom identifiers are tracked by value lint rules.
 pub const ACCEPT_CUSTOM_IDENTS_PROPERTIES: &[&str] = &[
     "animation",
     "animation-name",
@@ -1458,9 +1556,12 @@ pub const ACCEPT_CUSTOM_IDENTS_PROPERTIES: &[&str] = &[
     "list-style-type",
 ];
 
+/// Properties whose values can refer to CSS property names.
 pub const ACCEPT_PROPERTY_NAMES_PROPERTIES: &[&str] =
     &["transition", "transition-property", "will-change"];
 
+/// Returns the tracked properties that `border` or `font` resets to their initial
+/// values without setting them explicitly. Returns `None` for any other spelling.
 pub fn shorthand_to_reset_to_initial_property(shorthand: &str) -> Option<&'static [&'static str]> {
     match shorthand {
         "border" => Some(&[
@@ -1490,6 +1591,9 @@ pub fn shorthand_to_reset_to_initial_property(shorthand: &str) -> Option<&'stati
     }
 }
 
+/// Returns tracked logical properties corresponding to an exact lowercase physical
+/// shorthand, or `None` if unmapped. The list can include logical shorthands and
+/// longhands; it is not a declaration expansion.
 pub fn physical_shorthand_to_flow_relative_properties(
     shorthand: &str,
 ) -> Option<&'static [&'static str]> {
@@ -1600,6 +1704,7 @@ pub fn physical_shorthand_to_flow_relative_properties(
     }
 }
 
+/// Shorthand names with entries in [`longhand_sub_properties_of_shorthand`].
 pub const SHORTHAND_PROPERTIES: &[&str] = &[
     "animation",
     "background",
@@ -1662,6 +1767,9 @@ pub const SHORTHAND_PROPERTIES: &[&str] = &[
     "transition",
 ];
 
+/// Returns tracked subproperties for an exact lowercase shorthand name, or `None`
+/// if unmapped. Entries can include nested shorthands; reset-only properties are
+/// tracked separately by [`shorthand_to_reset_to_initial_property`].
 pub fn longhand_sub_properties_of_shorthand(shorthand: &str) -> Option<&'static [&'static str]> {
     match shorthand {
         "animation" => Some(&[
@@ -1901,6 +2009,7 @@ pub fn longhand_sub_properties_of_shorthand(shorthand: &str) -> Option<&'static 
     }
 }
 
+/// Properties tracked as taking a single color, including SVG color properties.
 pub const SINGLE_VALUE_COLOR_PROPERTIES: &[&str] = &[
     "accent-color",
     "background-color",
@@ -1926,8 +2035,10 @@ pub const SINGLE_VALUE_COLOR_PROPERTIES: &[&str] = &[
     "stop-color",
 ];
 
+/// Properties tracked as accepting multiple color values.
 pub const MULTI_VALUE_COLOR_PROPERTIES: &[&str] = &["border-color", "scrollbar-color"];
 
+/// Combined single- and multiple-value color property tables.
 pub const COLOR_PROPERTIES: &[&str] = &[
     "accent-color",
     "background-color",
@@ -1954,6 +2065,7 @@ pub const COLOR_PROPERTIES: &[&str] = &[
     "scrollbar-color",
 ];
 
+/// Animation and transition duration and delay longhands.
 pub const LONGHAND_TIME_PROPERTIES: &[&str] = &[
     "transition-duration",
     "transition-delay",
@@ -1961,8 +2073,10 @@ pub const LONGHAND_TIME_PROPERTIES: &[&str] = &[
     "animation-delay",
 ];
 
+/// Shorthands whose components can include durations and delays.
 pub const SHORTHAND_TIME_PROPERTIES: &[&str] = &["transition", "animation"];
 
+/// Property names recognized in the `@page` context, apart from page descriptors.
 pub const PAGE_CONTEXT_PROPERTIES: &[&str] = &[
     "direction",
     "background-color",
@@ -2032,6 +2146,7 @@ pub const PAGE_CONTEXT_PROPERTIES: &[&str] = &[
     "max-width",
 ];
 
+/// Property names recognized in page margin-box at-rules.
 pub const MARGIN_CONTEXT_PROPERTIES: &[&str] = &[
     "direction",
     "unicode-bidi",
@@ -2106,6 +2221,7 @@ pub const MARGIN_CONTEXT_PROPERTIES: &[&str] = &[
     "z-index",
 ];
 
+/// Historical property names without a leading vendor prefix.
 pub const PREVIOUSLY_KNOWN_PROPERTIES: &[&str] = &[
     "accelerator",
     "alt",
@@ -2246,6 +2362,7 @@ pub const PREVIOUSLY_KNOWN_PROPERTIES: &[&str] = &[
     "volume",
 ];
 
+/// Historical property names retained with their vendor prefixes.
 pub const PREVIOUSLY_KNOWN_PREFIXED_PROPERTIES: &[&str] = &[
     "-epub-text-combine",
     "-internal-text-autosizing-status",
@@ -2407,6 +2524,8 @@ pub const PREVIOUSLY_KNOWN_PREFIXED_PROPERTIES: &[&str] = &[
     "-webkit-wrap",
 ];
 
+/// Returns the logical counterpart of an exact lowercase physical property name,
+/// or `None` if unmapped. Uses horizontal, left-to-right conventions.
 pub fn physical_to_flow_relative_property(prop: &str) -> Option<&'static str> {
     match prop {
         "margin-left" => Some("margin-inline-start"),
@@ -2465,7 +2584,9 @@ pub fn physical_to_flow_relative_property(prop: &str) -> Option<&'static str> {
     }
 }
 
-/// Returns `(block_prop, inline_prop, is_axes)` for a physical shorthand.
+/// Returns `(block_prop, inline_prop, is_axes)` for an exact lowercase physical
+/// shorthand, or `None` if unmapped. `is_axes` is `true` for two-axis shorthands
+/// (`overflow` and `overscroll-behavior`) and `false` for four-side shorthands.
 pub fn physical_shorthand_to_flow_relative_by_axis(
     prop: &str,
 ) -> Option<(&'static str, &'static str, bool)> {
@@ -2488,6 +2609,7 @@ pub fn physical_shorthand_to_flow_relative_by_axis(
     }
 }
 
+/// Tracked logical property names, including shorthands such as `inset`.
 pub const FLOW_RELATIVE_PROPERTIES: &[&str] = &[
     "margin-inline-start",
     "margin-inline-end",
@@ -2562,6 +2684,7 @@ pub const FLOW_RELATIVE_PROPERTIES: &[&str] = &[
     "scroll-padding-block",
 ];
 
+/// HTML element names classified as deprecated or obsolete.
 pub const DEPRECATED_HTML_TYPE_SELECTORS: &[&str] = &[
     "acronym",
     "applet",
@@ -2598,6 +2721,7 @@ pub const DEPRECATED_HTML_TYPE_SELECTORS: &[&str] = &[
     "xmp",
 ];
 
+/// HTML element names in the standard category of the selector tables.
 pub const STANDARD_HTML_TYPE_SELECTORS: &[&str] = &[
     "a",
     "abbr",
@@ -2716,6 +2840,7 @@ pub const STANDARD_HTML_TYPE_SELECTORS: &[&str] = &[
     "wbr",
 ];
 
+/// HTML element names classified as experimental by the selector tables.
 pub const EXPERIMENTAL_HTML_TYPE_SELECTORS: &[&str] = &[
     "fencedframe",
     "listbox",
@@ -2727,6 +2852,7 @@ pub const EXPERIMENTAL_HTML_TYPE_SELECTORS: &[&str] = &[
     "install",
 ];
 
+/// Combined standard, experimental, and deprecated HTML element names.
 pub const HTML_TYPE_SELECTORS: &[&str] = &[
     // deprecatedHtmlTypeSelectors
     "acronym",
@@ -2889,6 +3015,7 @@ pub const HTML_TYPE_SELECTORS: &[&str] = &[
     "install",
 ];
 
+/// Deprecated SVG element names stored in lowercase.
 pub const DEPRECATED_SVG_TYPE_SELECTORS: &[&str] = &[
     "altGlyph",
     "altGlyphDef",
@@ -2911,6 +3038,7 @@ pub const DEPRECATED_SVG_TYPE_SELECTORS: &[&str] = &[
     "vkern",
 ];
 
+/// Standard SVG element names stored in lowercase.
 pub const STANDARD_SVG_TYPE_SELECTORS: &[&str] = &[
     "a",
     "animate",
@@ -2977,8 +3105,10 @@ pub const STANDARD_SVG_TYPE_SELECTORS: &[&str] = &[
     "view",
 ];
 
+/// SVG element names classified as experimental, stored in lowercase.
 pub const EXPERIMENTAL_SVG_TYPE_SELECTORS: &[&str] = &["hatch", "hatchpath"];
 
+/// Combined standard, experimental, and deprecated SVG names in lowercase.
 pub const SVG_TYPE_SELECTORS: &[&str] = &[
     // deprecatedSvgTypeSelectors
     "altGlyph",
@@ -3069,6 +3199,7 @@ pub const SVG_TYPE_SELECTORS: &[&str] = &[
     "hatchpath",
 ];
 
+/// SVG element names with their conventional mixed-case spellings.
 pub const MIXED_CASE_SVG_TYPE_SELECTORS: &[&str] = &[
     "altGlyph",
     "altGlyphDef",
@@ -3110,6 +3241,7 @@ pub const MIXED_CASE_SVG_TYPE_SELECTORS: &[&str] = &[
     "textPath",
 ];
 
+/// MathML element names, including presentation and content elements.
 pub const MATHML_TYPE_SELECTORS: &[&str] = &[
     "abs",
     "and",
@@ -3313,6 +3445,7 @@ pub const MATHML_TYPE_SELECTORS: &[&str] = &[
     "xor",
 ];
 
+/// Hyphenated SVG and MathML names reserved from use as HTML custom elements.
 pub const HYPHEN_CONTAINING_TYPE_SELECTORS: &[&str] = &[
     "annotation-xml",
     "color-profile",
@@ -3324,19 +3457,25 @@ pub const HYPHEN_CONTAINING_TYPE_SELECTORS: &[&str] = &[
     "missing-glyph",
 ];
 
+/// Legacy pseudo-element names that may also be written with a single colon.
 pub const LEVEL_ONE_AND_TWO_PSEUDO_ELEMENTS: &[&str] =
     &["before", "after", "first-line", "first-letter"];
 
+/// The `::part()` pseudo-element name used to select exposed shadow parts.
 pub const SHADOW_TREE_PSEUDO_ELEMENTS: &[&str] = &["part"];
 
+/// Tracked pseudo-elements backed by an actual element.
 pub const ELEMENT_BACKED_PSEUDO_ELEMENTS: &[&str] =
     &["part", "details-content", "file-selector-button"];
 
+/// Tracked pseudo-element names that may follow another pseudo-element.
 pub const SUB_PSEUDO_ELEMENTS: &[&str] = &["marker", "scroll-marker"];
 
+/// Tracked element-backed pseudo-elements plus `::slotted()`.
 pub const ELEMENT_REPRESENTING_PSEUDO_ELEMENTS: &[&str] =
     &["part", "details-content", "file-selector-button", "slotted"];
 
+/// WebKit pseudo-element names for scrollbars and resize handles, without `::`.
 pub const WEBKIT_SCROLLBAR_PSEUDO_ELEMENTS: &[&str] = &[
     "-webkit-resizer",
     "-webkit-scrollbar",
@@ -3347,6 +3486,7 @@ pub const WEBKIT_SCROLLBAR_PSEUDO_ELEMENTS: &[&str] = &[
     "-webkit-scrollbar-track-piece",
 ];
 
+/// Vendor-specific pseudo-element names, without leading colons.
 pub const VENDOR_SPECIFIC_PSEUDO_ELEMENTS: &[&str] = &[
     "-webkit-resizer",
     "-webkit-scrollbar",
@@ -3431,8 +3571,11 @@ pub const VENDOR_SPECIFIC_PSEUDO_ELEMENTS: &[&str] = &[
     "-webkit-validation-bubble-text-block",
 ];
 
+/// Deprecated shadow DOM pseudo-element names, without leading colons.
 pub const DEPRECATED_PSEUDO_ELEMENTS: &[&str] = &["content", "shadow"];
 
+/// Known pseudo-element names, including vendor-specific and deprecated entries,
+/// without leading colons or arguments.
 pub const PSEUDO_ELEMENTS: &[&str] = &[
     // levelOneAndTwoPseudoElements
     "before",
@@ -3565,8 +3708,10 @@ pub const PSEUDO_ELEMENTS: &[&str] = &[
     "view-transition-old",
 ];
 
+/// Exact percentage spellings equivalent to the named keyframe offsets.
 pub const PERCENTAGE_KEYFRAME_WITH_NAMED_EQUIVALENT: &[&str] = &["0%", "100%"];
 
+/// Tracked pseudo-class names that take `An+B` without an `of` selector list.
 pub const AN_PLUS_B_NOTATION_PSEUDO_CLASSES: &[&str] = &[
     "nth-column",
     "nth-last-column",
@@ -3574,8 +3719,10 @@ pub const AN_PLUS_B_NOTATION_PSEUDO_CLASSES: &[&str] = &[
     "nth-of-type",
 ];
 
+/// Pseudo-class names that take `An+B` with an optional `of` selector list.
 pub const AN_PLUS_B_OF_S_NOTATION_PSEUDO_CLASSES: &[&str] = &["nth-child", "nth-last-child"];
 
+/// Pseudo-class names that match based on document tree structure.
 pub const TREE_STRUCTURAL_PSEUDO_CLASSES: &[&str] = &[
     "nth-child",
     "nth-last-child",
@@ -3591,14 +3738,20 @@ pub const TREE_STRUCTURAL_PSEUDO_CLASSES: &[&str] = &[
     "root",
 ];
 
+/// Pseudo-class names recognized in `@page` selectors, without `:`.
 pub const AT_RULE_PAGE_PSEUDO_CLASSES: &[&str] =
     &["first", "right", "left", "blank", "recto", "verso", "nth"];
 
+/// Pseudo-class names for matching directionality and language.
 pub const LINGUISTIC_PSEUDO_CLASSES: &[&str] = &["dir", "lang"];
+/// Direction identifiers accepted by `:dir()`.
 pub const DIR_IDENTIFIERS: &[&str] = &["ltr", "rtl"];
+/// Pseudo-class names that take forgiving selector lists.
 pub const FORGIVING_PSEUDO_CLASSES: &[&str] = &["is", "where"];
+/// Logical-combination pseudo-class names, including the legacy `matches` spelling.
 pub const LOGICAL_COMBINATIONS_PSEUDO_CLASSES: &[&str] = &["has", "is", "matches", "not", "where"];
 
+/// Deprecated pseudo-class names, without leading colons.
 pub const DEPRECATED_PSEUDO_CLASSES: &[&str] = &[
     "-moz-any",
     "-webkit-any",
@@ -3612,6 +3765,7 @@ pub const DEPRECATED_PSEUDO_CLASSES: &[&str] = &[
     "user-error",
 ];
 
+/// Vendor-specific pseudo-class names, without leading colons.
 pub const VENDOR_SPECIFIC_PSEUDO_CLASSES: &[&str] = &[
     "-khtml-drag",
     "-moz-any",
@@ -3652,6 +3806,7 @@ pub const VENDOR_SPECIFIC_PSEUDO_CLASSES: &[&str] = &[
     "-webkit-full-screen-ancestor",
 ];
 
+/// State pseudo-class names used with WebKit scrollbar pseudo-elements.
 pub const WEBKIT_SCROLLBAR_PSEUDO_CLASSES: &[&str] = &[
     "horizontal",
     "vertical",
@@ -3666,6 +3821,7 @@ pub const WEBKIT_SCROLLBAR_PSEUDO_CLASSES: &[&str] = &[
     "window-inactive",
 ];
 
+/// Pseudo-class names for media resource states such as playback or buffering.
 pub const RESOURCE_STATE_PSEUDO_CLASSES: &[&str] = &[
     "buffering",
     "muted",
@@ -3676,6 +3832,8 @@ pub const RESOURCE_STATE_PSEUDO_CLASSES: &[&str] = &[
     "volume-locked",
 ];
 
+/// Known pseudo-class names, including vendor-specific and deprecated entries,
+/// without leading colons or arguments.
 pub const PSEUDO_CLASSES: &[&str] = &[
     // aNPlusBNotationPseudoClasses
     "nth-column",
@@ -3811,19 +3969,31 @@ pub const PSEUDO_CLASSES: &[&str] = &[
     "window-inactive",
 ];
 
+/// HTML element names tracked for `:disabled` and `:enabled`.
 pub const DISABLEABLE_ELEMENTS: &[&str] = &[
     "button", "fieldset", "input", "optgroup", "option", "select", "textarea",
 ];
+/// HTML element names tracked for `:checked`.
 pub const CHECKABLE_ELEMENTS: &[&str] = &["input", "option"];
+/// HTML element names tracked for `:required` and `:optional`.
 pub const REQUIRABLE_ELEMENTS: &[&str] = &["input", "select", "textarea"];
+/// HTML element names tracked for validity and user-validity pseudo-classes.
 pub const VALIDATABLE_ELEMENTS: &[&str] =
     &["button", "fieldset", "form", "input", "select", "textarea"];
+/// HTML element names tracked for `:in-range` and `:out-of-range`.
 pub const RANGEABLE_ELEMENTS: &[&str] = &["input"];
+/// HTML element names tracked for `:placeholder-shown`.
 pub const PLACEHOLDER_SHOWABLE_ELEMENTS: &[&str] = &["input", "textarea"];
+/// HTML element names tracked for `:default`.
 pub const DEFAULTABLE_ELEMENTS: &[&str] = &["button", "input", "option"];
+/// HTML element names tracked for `:autofill`.
 pub const AUTOFILLABLE_ELEMENTS: &[&str] = &["input", "select", "textarea"];
+/// HTML element names tracked for `:any-link`, `:link`, and `:visited`.
 pub const LINK_ELEMENTS: &[&str] = &["a", "area"];
 
+/// Returns tracked HTML element names for an exact lowercase pseudo-class name
+/// without `:`, or `None` if unmapped. The table does not check element attributes
+/// or state (for example, an `input` type or an `a` element's `href`).
 pub fn applicable_elements_by_pseudo_class(pseudo_class: &str) -> Option<&'static [&'static str]> {
     match pseudo_class {
         "any-link" | "link" | "visited" => Some(LINK_ELEMENTS),
@@ -3839,8 +4009,10 @@ pub fn applicable_elements_by_pseudo_class(pseudo_class: &str) -> Option<&'stati
     }
 }
 
+/// Descriptor names tracked for `@color-profile`.
 pub const COLOR_PROFILE_DESCRIPTORS: &[&str] = &["components", "rendering-intent", "src"];
 
+/// Descriptor names tracked for `@counter-style`.
 pub const COUNTER_STYLE_DESCRIPTORS: &[&str] = &[
     "additive-symbols",
     "fallback",
@@ -3854,6 +4026,7 @@ pub const COUNTER_STYLE_DESCRIPTORS: &[&str] = &[
     "system",
 ];
 
+/// `@font-face` descriptor names, including a legacy Mozilla spelling.
 pub const FONT_FACE_DESCRIPTORS: &[&str] = &[
     "-moz-font-feature-settings",
     "ascent-override",
@@ -3874,14 +4047,18 @@ pub const FONT_FACE_DESCRIPTORS: &[&str] = &[
     "unicode-range",
 ];
 
+/// Top-level descriptor names for `@font-feature-values`, not its nested at-rules.
 pub const FONT_FEATURE_VALUES_DESCRIPTORS: &[&str] = &["font-display"];
 
+/// Descriptor names tracked for `@font-palette-values`.
 pub const FONT_PALETTE_VALUES_DESCRIPTORS: &[&str] =
     &["base-palette", "font-family", "override-colors"];
 
+/// `@page` descriptor names, excluding ordinary page-context properties.
 pub const PAGE_DESCRIPTORS: &[&str] =
     &["bleed", "marks", "orientation", "page-orientation", "size"];
 
+/// Declaration names tracked as descriptors for `@position-try`.
 pub const POSITION_TRY_DESCRIPTORS: &[&str] = &[
     "align-self",
     "block-size",
@@ -3925,10 +4102,13 @@ pub const POSITION_TRY_DESCRIPTORS: &[&str] = &[
     "width",
 ];
 
+/// Descriptor names for custom property registration with `@property`.
 pub const PROPERTY_DESCRIPTORS: &[&str] = &["inherits", "initial-value", "syntax"];
 
+/// Descriptor names tracked for `@view-transition`.
 pub const VIEW_TRANSITION_DESCRIPTORS: &[&str] = &["navigation", "types"];
 
+/// Descriptor names shared by `@viewport`, `@-ms-viewport`, and `@-o-viewport`.
 pub const VIEWPORT_DESCRIPTORS: &[&str] = &[
     "height",
     "max-height",
@@ -3944,6 +4124,8 @@ pub const VIEWPORT_DESCRIPTORS: &[&str] = &[
     "zoom",
 ];
 
+/// Returns the tracked descriptor names for an at-rule name without `@`.
+/// Matches ASCII case-insensitively and returns `None` if no table is defined.
 pub fn at_rule_descriptors(at_rule_name: &str) -> Option<&'static [&'static str]> {
     match at_rule_name.to_ascii_lowercase().as_str() {
         "color-profile" => Some(COLOR_PROFILE_DESCRIPTORS),
@@ -3960,7 +4142,7 @@ pub fn at_rule_descriptors(at_rule_name: &str) -> Option<&'static [&'static str]
     }
 }
 
-/// Vendor-prefixed at-rules that can be automatically managed by Autoprefixer.
+/// Vendor-prefixed at-rules tracked for Autoprefixer, including `@`.
 pub const AUTOPREFIXABLE_AT_RULES: &[&str] = &[
     "@-moz-document",
     "@-moz-keyframes",
@@ -3972,7 +4154,8 @@ pub const AUTOPREFIXABLE_AT_RULES: &[&str] = &[
     "@-webkit-viewport",
 ];
 
-/// Vendor-prefixed pseudo-classes and pseudo-elements managed by Autoprefixer.
+/// Vendor-prefixed pseudo-classes and pseudo-elements tracked for Autoprefixer,
+/// with their leading colons.
 pub const AUTOPREFIXABLE_SELECTORS: &[&str] = &[
     "::-moz-placeholder",
     "::-moz-selection",
@@ -3991,7 +4174,7 @@ pub const AUTOPREFIXABLE_SELECTORS: &[&str] = &[
     ":-webkit-full-screen",
 ];
 
-/// Unprefixed standard CSS property names whose vendor prefixes are managed by Autoprefixer.
+/// Unprefixed property names tracked for Autoprefixer.
 pub const AUTOPREFIXABLE_PROPERTIES: &[&str] = &[
     "align-content",
     "align-items",
@@ -4136,7 +4319,7 @@ pub const AUTOPREFIXABLE_PROPERTIES: &[&str] = &[
     "writing-mode",
 ];
 
-/// Vendor-prefixed property values and functions that can be safely unprefixed.
+/// Vendor-prefixed value keywords and bare function names tracked for Autoprefixer.
 pub const AUTOPREFIXABLE_PROPERTY_VALUES: &[&str] = &[
     "-moz-all",
     "-moz-arabic-indic",
@@ -4222,7 +4405,8 @@ pub const AUTOPREFIXABLE_PROPERTY_VALUES: &[&str] = &[
     "-xv-no-punctuation",
 ];
 
-/// Returns `true` if `name` is a vendor-prefixed at-rule name supported by Autoprefixer.
+/// Tests [`AUTOPREFIXABLE_AT_RULES`] ASCII case-insensitively, adding the `@`
+/// for lookup. Input that already starts with `@` returns `false`.
 pub fn is_autoprefixable_at_rule_name(name: &str) -> bool {
     if name.starts_with('@') {
         return false;
@@ -4233,21 +4417,22 @@ pub fn is_autoprefixable_at_rule_name(name: &str) -> bool {
     in_set_ignore_case(AUTOPREFIXABLE_AT_RULES, &buf)
 }
 
-/// Returns `true` if `identifier` is a vendor-prefixed pseudo-class or pseudo-element
-/// supported by Autoprefixer.
+/// Tests [`AUTOPREFIXABLE_SELECTORS`] ASCII case-insensitively, requiring the
+/// leading colons as listed in the table.
 pub fn is_autoprefixable_selector(identifier: &str) -> bool {
     in_set_ignore_case(AUTOPREFIXABLE_SELECTORS, identifier)
 }
 
-/// Returns `true` if `media_feature` is a vendor-prefixed media feature name
-/// (`-webkit-min-device-pixel-ratio`, `-moz-max-device-pixel-ratio`, etc.) supported by Autoprefixer.
+/// Checks for the substring `device-pixel-ratio`, ignoring ASCII case.
+/// This heuristic does not require a vendor prefix or validate the feature name.
 pub fn is_autoprefixable_media_feature_name(media_feature: &str) -> bool {
     media_feature
         .to_ascii_lowercase()
         .contains("device-pixel-ratio")
 }
 
-/// Returns `true` if `identifier` is a vendor-prefixed CSS property name supported by Autoprefixer.
+/// Strips a syntactic vendor prefix, then tests [`AUTOPREFIXABLE_PROPERTIES`]
+/// ASCII case-insensitively. A prefix is required but need not name a known vendor.
 pub fn is_autoprefixable_property(identifier: &str) -> bool {
     let Some(prefix) = crate::utils::text::vendor_prefix(identifier) else {
         return false;
@@ -4255,12 +4440,14 @@ pub fn is_autoprefixable_property(identifier: &str) -> bool {
     in_set_ignore_case(AUTOPREFIXABLE_PROPERTIES, &identifier[prefix.len()..])
 }
 
-/// Returns `true` if `value` is a vendor-prefixed CSS property value keyword supported by Autoprefixer.
+/// Tests [`AUTOPREFIXABLE_PROPERTY_VALUES`] ASCII case-insensitively.
 pub fn is_autoprefixable_property_value(value: &str) -> bool {
     in_set_ignore_case(AUTOPREFIXABLE_PROPERTY_VALUES, value)
 }
 
-/// Maps a `flex-flow` / `grid-auto-flow` direction keyword to its `(start, end)` physical sides.
+/// Maps `row`, `column`, and their `-reverse` forms to `(start, end)` physical
+/// sides using horizontal, left-to-right conventions. Returns `None` for any
+/// other spelling; does not account for the actual writing mode or direction.
 pub fn direction_flow_to_sides(flow: &str) -> Option<(&'static str, &'static str)> {
     match flow {
         "row" => Some(("left", "right")),
@@ -4271,12 +4458,16 @@ pub fn direction_flow_to_sides(flow: &str) -> Option<(&'static str, &'static str
     }
 }
 
-/// Returns `true` if `selector` is a valid HTML custom element tag name according to the
-/// WHATWG HTML specification.
+/// Checks a bare tag name against the HTML custom element name grammar.
+/// Requires a lowercase ASCII initial letter and a hyphen, rejects ASCII
+/// uppercase letters, and excludes [`HYPHEN_CONTAINING_TYPE_SELECTORS`].
 pub fn is_custom_element(selector: &str) -> bool {
     if selector.bytes().any(|b| b.is_ascii_uppercase())
         || !selector.contains('-')
-        || !selector.chars().next().is_some_and(|c| c.is_ascii_lowercase())
+        || !selector
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_lowercase())
         || !selector.chars().all(is_pcen_char)
     {
         return false;
@@ -4304,14 +4495,16 @@ fn is_pcen_char(c: char) -> bool {
         )
 }
 
-/// Returns `true` if `value` is a custom-ident token inside `counter-increment`
-/// (i.e. not a reserved keyword or integer).
+/// Screens a `counter-increment` token for a possible custom identifier.
+/// Rejects reserved keywords ASCII case-insensitively and tokens that start
+/// with an ASCII digit after leading whitespace and signs are skipped. Does not
+/// otherwise validate identifier syntax.
 pub fn is_counter_increment_custom_ident_value(value: &str) -> bool {
     !in_set_ignore_case(COUNTER_INCREMENT_KEYWORDS, value) && !has_integer_prefix(value)
 }
 
-/// Returns `true` if `value` is a custom-ident token inside `counter-reset`
-/// (i.e. not a reserved keyword or integer).
+/// Screens a `counter-reset` token using the same keyword and numeric prefix
+/// checks as [`is_counter_increment_custom_ident_value`].
 pub fn is_counter_reset_custom_ident_value(value: &str) -> bool {
     !in_set_ignore_case(COUNTER_RESET_KEYWORDS, value) && !has_integer_prefix(value)
 }
@@ -4325,8 +4518,9 @@ fn has_integer_prefix(value: &str) -> bool {
         .is_some_and(u8::is_ascii_digit)
 }
 
-/// Returns `true` if `word` is a valid CSS `font-size` token (either a `font-size` keyword,
-/// a percentage, or a `<length>` dimension).
+/// Recognizes exact [`FONT_SIZE_KEYWORDS`] spellings or numeric dimensions with
+/// `%` or an ASCII case-insensitive [`LENGTH_UNITS`] suffix. Does not check the
+/// numeric range or parse expressions such as `calc()`.
 pub fn is_valid_font_size(word: &str) -> bool {
     if word.is_empty() {
         return false;
@@ -4340,25 +4534,25 @@ pub fn is_valid_font_size(word: &str) -> bool {
     unit == "%" || in_set_ignore_case(LENGTH_UNITS, &unit)
 }
 
-/// Returns `true` if `name` (with or without leading `:`) is a context-providing
-/// functional pseudo-class (`:is`, `:where`, `:not`, `:has`, `:matches`, `:-moz-any`,
-/// `:-webkit-any`, `:nth-child`, `:nth-last-child`).
+/// Tests the logical-combination and `An+B of S` pseudo-class tables after
+/// stripping leading colons and converting the name to ASCII lowercase.
+/// The vendor aliases `-moz-any` and `-webkit-any` are not in these tables.
 pub fn is_context_functional_pseudo_class(name: &str) -> bool {
     let norm = crate::utils::text::normalize_pseudo_name(name);
     in_set(LOGICAL_COMBINATIONS_PSEUDO_CLASSES, &norm)
         || in_set(AN_PLUS_B_OF_S_NOTATION_PSEUDO_CLASSES, &norm)
 }
 
-/// Returns `true` if `name` is a functional pseudo-class whose arguments are selectors
-/// (`:is`, `:where`, `:not`, `:has`, `:matches`, `:-moz-any`, `:-webkit-any`, `:nth-child`,
-/// `:nth-last-child`, `:host`, `:host-context`, `::slotted`).
+/// Tests for a pseudo name that can take selectors as arguments. Uses the same
+/// normalization and matches as [`is_context_functional_pseudo_class`], plus
+/// `host`, `host-context`, and `slotted`. Does not inspect arguments.
 pub fn is_selector_containing_pseudo_class(name: &str) -> bool {
     let norm = crate::utils::text::normalize_pseudo_name(name);
     is_context_functional_pseudo_class(&norm)
         || matches!(norm.as_str(), "host" | "host-context" | "slotted")
 }
 
-/// Returns `true` if `word` is a generic `font-family` keyword or CSS-wide keyword.
+/// Tests [`FONT_FAMILY_KEYWORDS`] ASCII case-insensitively.
 pub fn is_family_name_keyword(word: &str) -> bool {
     in_set_ignore_case(FONT_FAMILY_KEYWORDS, word)
 }

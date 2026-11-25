@@ -1,7 +1,16 @@
 use crate::{context::LintContext, rules::Rule};
 use oxc_css_parser::{Span, ast::ComplexSelector};
 
-pub struct SelectorAnbNoUnmatchable;
+crate::define_stx_lint! {
+    /// Reports `An+B` formulas that cannot select any element or column.
+    ///
+    /// Set to `true`. Checks formulas in `:nth-*()` pseudo-classes, not the selector after `of`.
+    /// Does not fix violations.
+    ///
+    /// Example: `li:nth-child(0) {}` cannot match a child.
+    "selector-anb-no-unmatchable", correctness, recommended = true;
+    pub struct SelectorAnbNoUnmatchable;
+}
 
 fn is_unmatchable_anb(expr: &str) -> bool {
     let before_of = if let Some(idx) = expr.to_ascii_lowercase().find(" of ") {
@@ -59,7 +68,7 @@ fn is_unmatchable_anb(expr: &str) -> bool {
 
 impl Rule for SelectorAnbNoUnmatchable {
     fn name(&self) -> &'static str {
-        "selector-anb-no-unmatchable"
+        Self::NAME
     }
 
     fn check_complex_selector<'a>(&self, sel: &'a ComplexSelector<'a>, ctx: &mut LintContext<'a>) {

@@ -54,64 +54,23 @@ const COUNTER_STYLE_SYSTEM_KEYWORDS: &[&str] = &[
 const COUNTER_STYLE_SPEAK_AS_KEYWORDS: &[&str] =
     &["auto", "bullets", "numbers", "spell-out", "words"];
 
-/// Enforces that known descriptors within at-rules (such as `@property`,
-/// `@counter-style`, `@font-face`, `@page`, `@view-transition`, etc.) have valid
-/// specification-conformant values.
-///
-/// # What it does
-///
-/// Checks standard-syntax declarations inside at-rules that do not support
-/// general selector nesting. When a declaration's property is a known descriptor
-/// for an enclosing at-rule, its value is validated against the CSS grammar for
-/// that descriptor.
-///
-/// Unknown descriptors themselves are ignored by this rule (they are handled by
-/// `at-rule-descriptor-no-unknown`). Additionally, `var()` and `env()` function
-/// calls are disallowed in descriptors unless the enclosing at-rule explicitly
-/// permits custom property substitution (such as `@function` or `@position-try`,
-/// or page context properties inside `@page`).
-///
-/// # Why is this bad?
-///
-/// Invalid descriptor values inside at-rules like `@property` or `@font-face`
-/// cause the descriptor (or the entire at-rule) to be dropped by the browser at
-/// parse time.
-///
-/// # Options
-///
-/// ## Primary Option
-///
-/// - `true`: enable the rule.
-///
-/// ```json
-/// {
-///   "at-rule-descriptor-value-no-unknown": true
-/// }
-/// ```
-///
-/// # Examples
-///
-/// ## Incorrect
-///
-/// ```css
-/// @counter-style foo { system: bar; }
-/// @property --foo { syntax: bar; inherits: baz; }
-/// @font-face { font-weight: var(--foo); }
-/// @page { size: var(--foo); }
-/// ```
-///
-/// ## Correct
-///
-/// ```css
-/// @counter-style foo { system: cyclic; symbols: url(bar.svg); suffix: " "; }
-/// @property --foo { syntax: "<integer>"; inherits: false; initial-value: 0; }
-/// @page { margin: var(--foo); }
-/// ```
-///
-/// # References
-///
-/// - [Stylelint: `at-rule-descriptor-value-no-unknown`](https://stylelint.io/user-guide/rules/at-rule-descriptor-value-no-unknown)
-pub struct AtRuleDescriptorValueNoUnknown;
+crate::define_stx_lint! {
+    /// Flag invalid values for supported at-rule descriptors.
+    ///
+    /// Enable with `true`; there are no rule-specific secondary options. Value
+    /// grammar checks cover selected descriptors in `@property`, `@counter-style`,
+    /// `@view-transition`, `@font-face`, `@font-feature-values`, and `@page`.
+    /// Unknown descriptor names and declarations in page-margin or font-feature-value
+    /// sub-blocks are skipped. For checked descriptors, `var()` and `env()` are
+    /// rejected except in `@function` and `@position-try`.
+    ///
+    /// ```css
+    /// @font-face { font-display: fast; } /* reported */
+    /// @font-face { font-display: swap; } /* accepted */
+    /// ```
+    "at-rule-descriptor-value-no-unknown", correctness, recommended = true;
+    pub struct AtRuleDescriptorValueNoUnknown;
+}
 
 impl AtRuleDescriptorValueNoUnknown {
     /// Creates a new [`AtRuleDescriptorValueNoUnknown`] rule instance from the
@@ -138,7 +97,7 @@ enum BlockKind<'a> {
 
 impl Rule for AtRuleDescriptorValueNoUnknown {
     fn name(&self) -> &'static str {
-        "at-rule-descriptor-value-no-unknown"
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, _ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {

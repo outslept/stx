@@ -11,8 +11,25 @@ pub enum KeyframeSelectorMode {
     Keyword,
 }
 
-pub struct KeyframeSelectorNotation {
-    pub mode: KeyframeSelectorMode,
+crate::define_stx_lint! {
+    /// Enforces keyword or percentage notation for keyframe endpoints.
+    ///
+    /// Primary options:
+    /// - `"percentage"`: replace `from` and `to` with `0%` and `100%`.
+    /// - `"percentage-unless-within-keyword-only-block"`: do the same unless
+    ///   every selector in the `@keyframes` rule is `from` or `to`.
+    /// - `"keyword"`: replace bare `0%` and `100%` with `from` and `to`.
+    ///
+    /// Auto-fix changes only the selector, leaving other percentages and
+    /// timeline ranges such as `entry 0%` alone.
+    ///
+    /// ```css
+    /// @keyframes fade { from { opacity: 0; } } /* fixes to 0% with "percentage" */
+    /// ```
+    "keyframe-selector-notation", style, fix = fix;
+    pub struct KeyframeSelectorNotation {
+        pub mode: KeyframeSelectorMode,
+    }
 }
 
 impl Default for KeyframeSelectorNotation {
@@ -35,7 +52,7 @@ fn keyword_percentage(selector: &str) -> Option<&'static str> {
 
 impl Rule for KeyframeSelectorNotation {
     fn name(&self) -> &'static str {
-        "keyframe-selector-notation"
+        Self::NAME
     }
 
     fn check_at_rule<'a>(&self, at_rule: &'a AtRule<'a>, ctx: &mut LintContext<'a>) {

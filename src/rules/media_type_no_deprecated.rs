@@ -9,9 +9,20 @@ use crate::{
     },
 };
 
-#[derive(Debug, Default)]
-pub struct MediaTypeNoDeprecated {
-    ignore: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Disallow deprecated media types in `@media` queries.
+    ///
+    /// Enable with `true`. `ignoreMediaTypes` accepts a name or array of names
+    /// and `/regex/` patterns. Deprecation is checked case-insensitively, but
+    /// the ignore list matches the original spelling. This rule checks known
+    /// deprecated types, including `speech`, not unknown media types.
+    ///
+    /// Example: `@media handheld {}` is reported; `@media screen {}` passes.
+    "media-type-no-deprecated", restriction;
+    #[derive(Debug, Default)]
+    pub struct MediaTypeNoDeprecated {
+        ignore: Vec<OptionMatcher>,
+    }
 }
 
 impl MediaTypeNoDeprecated {
@@ -28,7 +39,7 @@ pub fn rejected_message(media_type: &str) -> String {
 
 impl Rule for MediaTypeNoDeprecated {
     fn name(&self) -> &'static str {
-        "media-type-no-deprecated"
+        Self::NAME
     }
 
     fn check_at_rule<'a>(&self, at_rule: &'a AtRule<'a>, ctx: &mut LintContext<'a>) {

@@ -7,9 +7,23 @@ use oxc_css_parser::{
     Span,
     ast::{AtRule, QualifiedRule},
 };
-pub struct NestingSelectorNoMissingScopingRoot {
-    ignore_at_rules: Vec<OptionMatcher>,
+
+crate::define_stx_lint! {
+    /// Disallow the nesting selector `&` when it has no scoping root.
+    ///
+    /// Enable with `true`. The secondary `ignoreAtRules` option accepts a string
+    /// or array of at-rule names without `@` and `/regex/` patterns. A matching ancestor at-rule,
+    /// an enclosing style rule, or an enclosing `@scope` satisfies the check.
+    /// This checks the text of style selectors and `@scope` preludes, not
+    /// declarations or other at-rule preludes.
+    ///
+    /// Example: `& .item {}` is reported, but `.list { & .item {} }` passes.
+    "nesting-selector-no-missing-scoping-root", correctness;
+    pub struct NestingSelectorNoMissingScopingRoot {
+        ignore_at_rules: Vec<OptionMatcher>,
+    }
 }
+
 impl NestingSelectorNoMissingScopingRoot {
     pub fn new(s: Option<&serde_json::Map<String, serde_json::Value>>) -> Self {
         Self {
@@ -44,7 +58,7 @@ impl NestingSelectorNoMissingScopingRoot {
 }
 impl Rule for NestingSelectorNoMissingScopingRoot {
     fn name(&self) -> &'static str {
-        "nesting-selector-no-missing-scoping-root"
+        Self::NAME
     }
     fn check_qualified_rule<'a>(&self, rule: &'a QualifiedRule<'a>, ctx: &mut LintContext<'a>) {
         let raw = ctx.slice(rule.selector.span);

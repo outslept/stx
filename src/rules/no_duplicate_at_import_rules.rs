@@ -9,11 +9,26 @@ use oxc_css_parser::ast::{
     AtRulePrelude, ImportPreludeHref, InterpolableStr, Statement, Stylesheet, UrlValue,
 };
 
-pub struct NoDuplicateAtImportRules;
+crate::define_stx_lint! {
+    /// Report duplicate top-level `@import` rules.
+    ///
+    /// Reference: <https://stylelint.io/user-guide/rules/no-duplicate-at-import-rules>
+    ///
+    /// Enable with `true`; there are no rule-specific options. A later import
+    /// with the same URL is reported if it is unconditional or repeats a
+    /// condition from an earlier import, including its layer and supports modifiers.
+    ///
+    /// ```css
+    /// @import "base.css";
+    /// @import url("base.css"); /* Duplicate */
+    /// ```
+    "no-duplicate-at-import-rules", suspicious, recommended = true;
+    pub struct NoDuplicateAtImportRules;
+}
 
 impl Rule for NoDuplicateAtImportRules {
     fn name(&self) -> &'static str {
-        "no-duplicate-at-import-rules"
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, stylesheet: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {

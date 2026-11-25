@@ -37,8 +37,17 @@ pub fn rejected_message(name: &str) -> String {
     format!("Disallowed name \"{name}\"")
 }
 
-pub struct SelectorAttributeNameDisallowedList {
-    disallowed: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Disallows attribute selectors by attribute name.
+    ///
+    /// Set to a name or a list of names and `/regex/` patterns. Matches the name, not
+    /// the operator or value. Does not fix violations.
+    ///
+    /// Example: `a[data-auto] {}` is disallowed by `/^data-/`.
+    "selector-attribute-name-disallowed-list", restriction;
+    pub struct SelectorAttributeNameDisallowedList {
+        disallowed: Vec<OptionMatcher>,
+    }
 }
 
 impl SelectorAttributeNameDisallowedList {
@@ -51,7 +60,7 @@ impl SelectorAttributeNameDisallowedList {
 
 impl Rule for SelectorAttributeNameDisallowedList {
     fn name(&self) -> &'static str {
-        "selector-attribute-name-disallowed-list"
+        Self::NAME
     }
 
     fn check_complex_selector<'a>(&self, sel: &'a ComplexSelector<'a>, ctx: &mut LintContext<'a>) {

@@ -1,3 +1,9 @@
+//! Scans raw stylesheet text for at-rule preludes, value tokens, whitespace gaps,
+//! declarations, and selector items without requiring a valid AST.
+//!
+//! Spans and offsets are zero-based UTF-8 byte positions in the original source;
+//! span ends are exclusive. These are lexical scans, not CSS grammar validators.
+
 use crate::utils::{
     reference::{LEVEL_ONE_AND_TWO_PSEUDO_ELEMENTS, in_set_ignore_case},
     text::trim_subslice,
@@ -62,8 +68,12 @@ fn skip_interpolation_brace(bytes: &[u8], open: usize, end: usize) -> Option<usi
     None
 }
 
-/// Scans `source` for all `@<target_name>` at-rules and returns `(prelude_span, prelude_raw)`
-/// even when the prelude contains invalid CSS syntax.
+/// Finds nonempty preludes for `target_name` (without `@`), ignoring ASCII case.
+///
+/// Returns `(span, raw_text)` pairs in source order, with surrounding ASCII
+/// whitespace removed and internal comments retained. The scan stops a prelude
+/// at a top-level `{`, `;`, `}`, or end of input, so even `@import url(foo.css`
+/// yields `url(foo.css` when the target is `import`.
 pub fn scan_at_rule_preludes<'a>(source: &'a str, target_name: &str) -> Vec<(Span, &'a str)> {
     let bytes = source.as_bytes();
     let len = bytes.len();
@@ -151,28 +161,63 @@ pub fn scan_at_rule_preludes<'a>(source: &'a str, target_name: &str) -> Vec<(Spa
     results
 }
 
+/// Lexical category assigned by [`tokenize_value`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValueTokenKind {
+    /// Identifier-like text, including names starting with `$` or `@`.
     Ident,
+    /// Number without a unit or percent sign.
     Number,
+    /// Number immediately followed by `%`.
     Percentage,
-    Dimension { num_len: usize },
+    /// Number immediately followed by an identifier-like unit.
+    Dimension {
+        /// Byte length of the numeric prefix, including any sign and exponent.
+        num_len: usize,
+    },
+    /// Quoted string, including its opening quote and closing quote if present.
     String,
+    /// Function name plus the opening `(`, not its arguments.
     Function,
+    /// A `,` separator.
     Comma,
+    /// A `/` outside a block comment or string.
     Slash,
+    /// A `:` separator.
     Colon,
+    /// A closing `)`.
     CloseParen,
+    /// One otherwise unclassified character, such as a standalone `(`.
     Other,
 }
 
+/// A token borrowed from a raw declaration value or other CSS fragment.
 #[derive(Debug, Clone)]
 pub struct ValueToken<'a> {
+    /// Lexical category of the token.
     pub kind: ValueTokenKind,
+    /// Exact source text covered by `span`, without unescaping or normalization.
     pub raw: &'a str,
+    /// Byte range of `raw` in the full source.
     pub span: Span,
 }
 
+/// Tokenizes the supplied value span in source order, skipping ASCII whitespace
+/// and block comments. Function arguments are separate tokens in the same list.
+///
+/// The end is clamped to `source.len()`; an empty or reversed range yields no
+/// tokens. Use UTF-8 character boundaries for the effective range.
+///
+/// ```
+/// use oxc_css_parser::Span;
+/// use stx::utils::scan::tokenize_value;
+///
+/// let source = "x: var(--x)";
+/// let tokens = tokenize_value(source, Span { start: 3, end: 11 });
+/// let raw: Vec<_> = tokens.iter().map(|token| token.raw).collect();
+/// assert_eq!(raw, ["var(", "--x", ")"]);
+/// assert_eq!(tokens[0].span.start, 3);
+/// ```
 pub fn tokenize_value<'a>(source: &'a str, span: Span) -> Vec<ValueToken<'a>> {
     let start_idx = span.start as usize;
     let end_idx = (span.end as usize).min(source.len());
@@ -340,19 +385,36 @@ fn is_ident_char_byte(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b >= 0x80
 }
 
+/// Whitespace and lexical context immediately before a node, from [`analyze_preceding_gap`].
 #[derive(Debug, Clone)]
 pub struct PreceedingGapInfo {
+    /// No bytes other than ASCII whitespace precede the node.
     pub is_first_in_file: bool,
+    /// The last non-whitespace byte before the node is `{`.
     pub is_first_nested: bool,
+    /// A supplied comment ends at `gap_start` and does not follow a `}` after trimming whitespace.
     pub after_comment: bool,
+    /// Number of LF bytes in the gap; CRLF counts once and a lone CR does not count.
     pub newline_count: usize,
+    /// Leading word of the preceding semicolon-terminated statement, if found (e.g. `color`
+    /// or `@import`); otherwise empty.
     pub prev_statement_head: String,
+    /// The last non-whitespace byte before the node is `}`.
     pub prev_was_block: bool,
+    /// Byte offset where the final run of spaces and tabs starts.
     pub indent_start: u32,
+    /// Byte offset where the full run of ASCII whitespace starts.
     pub gap_start: u32,
+    /// Spaces and tabs immediately before the node, possibly empty even when there is a gap.
     pub indent_slice: String,
 }
 
+/// Scans backward from `node_start` to describe the whitespace gap and preceding text.
+///
+/// `node_start` is a byte offset on a UTF-8 character boundary, clamped to the end
+/// of `source`. Supply comments from the same source sorted by ascending span end.
+/// With `"a {}\r\n\r\nb {}"` at offset `8`, the gap starts at `4`, the indent
+/// starts at `8`, and the newline count is `2`.
 pub fn analyze_preceding_gap(
     source: &str,
     comments: &[Comment<'_>],
@@ -435,13 +497,24 @@ pub fn analyze_preceding_gap(
     }
 }
 
+/// A declaration-like statement found by [`scan_direct_declarations`].
 #[derive(Debug, Clone)]
 pub struct ScannedDecl<'a> {
+    /// Trimmed property text before the first colon, as written in the source.
     pub prop: &'a str,
+    /// Whether the trimmed value ends with `!important` (ASCII case-insensitive).
+    /// Whitespace between `!` and `important` is not recognized.
     pub important: bool,
+    /// Byte range of the trimmed declaration, including its semicolon if present
+    /// but excluding leading block comments.
     pub span: Span,
 }
 
+/// Finds declaration-like statements directly inside a brace-delimited block.
+///
+/// `block_span` includes both braces; its interior must lie on UTF-8 character
+/// boundaries. Returns matches in source order, skipping nested blocks and
+/// statements beginning with `@`. The final declaration can omit its semicolon.
 pub fn scan_direct_declarations<'a>(source: &'a str, block_span: Span) -> Vec<ScannedDecl<'a>> {
     let start = (block_span.start as usize + 1).min(source.len());
     let end = (block_span.end as usize)
@@ -543,30 +616,52 @@ fn parse_scanned_decl<'a>(source: &'a str, start: usize, end: usize) -> Option<S
     })
 }
 
+/// Lexical category of an item found by [`scan_selector_items`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SelectorItemKind {
+    /// A bare identifier in the selector text.
     Type,
+    /// A class name prefixed with `.`.
     Class,
+    /// An ID name prefixed with `#`.
     Id,
+    /// A single-colon pseudo that is not a recognized legacy pseudo-element.
     PseudoClass {
+        /// Byte range of the leading colon alone.
         colon_span: Span,
     },
+    /// A double-colon pseudo or a recognized legacy form such as `:before`.
     PseudoElement {
+        /// Byte range of the leading colon(s) alone.
         colon_span: Span,
+        /// Whether the pseudo-element was written with one colon.
         single_colon: bool,
     },
+    /// A bracketed attribute selector, possibly missing its closing bracket.
     Attribute {
+        /// Byte range of the attribute contents, excluding brackets.
         inner_span: Span,
     },
 }
 
+/// An item and its source range from a raw selector list.
 #[derive(Debug, Clone)]
 pub struct ScannedSelectorItem<'a> {
+    /// Item category and any delimiter spans.
     pub kind: SelectorItemKind,
+    /// Raw name without a `.`, `#`, or colon prefix; for an attribute, the entire
+    /// untrimmed text inside the brackets.
     pub name: &'a str,
+    /// Byte range including the prefix or brackets, but excluding pseudo arguments.
     pub span: Span,
 }
 
+/// Reads selector items in `list_span` in source order without building a selector tree.
+///
+/// The end is clamped to `source.len()`; an empty or reversed range yields no
+/// items. Use UTF-8 character boundaries for the effective range. Combinators
+/// are not emitted, and selector items inside parentheses are included in the
+/// same list: `a:not(.b, #c)` yields the names `a`, `not`, `b`, and `c`.
 pub fn scan_selector_items<'a>(source: &'a str, list_span: Span) -> Vec<ScannedSelectorItem<'a>> {
     let start = list_span.start as usize;
     let end = (list_span.end as usize).min(source.len());

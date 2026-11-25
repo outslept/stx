@@ -1,11 +1,21 @@
 use crate::{context::LintContext, rules::Rule};
 use oxc_css_parser::ast::Declaration;
 
-pub struct DeclarationNoImportant;
+crate::define_stx_lint! {
+    /// Disallows `!important` in declarations.
+    ///
+    /// Set the primary option to `true`.
+    ///
+    /// ```css
+    /// a { color: pink !important; } /* reported */
+    /// ```
+    "declaration-no-important", restriction;
+    pub struct DeclarationNoImportant;
+}
 
 impl Rule for DeclarationNoImportant {
     fn name(&self) -> &'static str {
-        "declaration-no-important"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

@@ -5,10 +5,24 @@ use oxc_css_parser::token::Comment;
 use regex::Regex;
 use serde_json::Value;
 
-pub struct CommentPattern {
-    raw_pattern: String,
-    regex: Regex,
-    pub severity: Severity,
+crate::define_stx_lint! {
+    /// Require comment text to match a regular expression.
+    ///
+    /// Supply a regex string such as `"^Note:"` or `"/^note:/i"` as the primary
+    /// option. There are no secondary options. The rule removes delimiters
+    /// and trims the text before matching, including for preprocessor line
+    /// comments. Without anchors, a substring match is enough.
+    ///
+    /// With `"^Note:"`, `/* Temporary workaround */` is reported; this passes:
+    /// ```css
+    /// /* Note: Temporary workaround */
+    /// ```
+    "comment-pattern", style;
+    pub struct CommentPattern {
+        raw_pattern: String,
+        regex: Regex,
+        pub severity: Severity,
+    }
 }
 
 pub fn expected_msg(pattern: &str) -> String {
@@ -48,7 +62,7 @@ fn compile_pattern(s: &str) -> Option<Regex> {
 
 impl Rule for CommentPattern {
     fn name(&self) -> &'static str {
-        "comment-pattern"
+        Self::NAME
     }
 
     fn check_comment<'a>(&self, comment: &'a Comment<'a>, ctx: &mut LintContext<'a>) {

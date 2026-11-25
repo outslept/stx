@@ -9,9 +9,24 @@ use crate::{
     },
 };
 
-#[derive(Debug, Default)]
-pub struct DeclarationPropertyMaxValues {
-    entries: Vec<(OptionMatcher, u64)>,
+crate::define_stx_lint! {
+    /// Limits how many top-level values a declaration can contain for each configured property.
+    ///
+    /// The primary option maps property names or `/regex/` patterns to
+    /// non-negative integers. The first matching entry applies. A function
+    /// counts as one value; commas and slashes do not count.
+    ///
+    /// With `{"margin": 1}`:
+    ///
+    /// ```css
+    /// a { margin: var(--space); } /* passes */
+    /// a { margin: 0 1px; } /* reported */
+    /// ```
+    "declaration-property-max-values", restriction;
+    #[derive(Debug, Default)]
+    pub struct DeclarationPropertyMaxValues {
+        entries: Vec<(OptionMatcher, u64)>,
+    }
 }
 
 impl DeclarationPropertyMaxValues {
@@ -33,7 +48,7 @@ pub fn expected_message(property: &str, max: u64) -> String {
 
 impl Rule for DeclarationPropertyMaxValues {
     fn name(&self) -> &'static str {
-        "declaration-property-max-values"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

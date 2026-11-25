@@ -17,11 +17,29 @@ use crate::{
     },
 };
 
-const RULE_NAME: &str = "declaration-block-no-redundant-longhand-properties";
+const RULE_NAME: &str = DeclarationBlockNoRedundantLonghandProperties::NAME;
 
-pub struct DeclarationBlockNoRedundantLonghandProperties {
-    ignore_shorthands: Vec<OptionMatcher>,
-    ignore_longhands: Vec<String>,
+crate::define_stx_lint! {
+    /// Reports longhand declarations that can be combined into a shorthand or are redundant after one.
+    ///
+    /// Set the primary option to `true`. Use `ignoreShorthands` to exclude
+    /// shorthand names by literal string or `/regex/`, and `ignoreLonghands` to
+    /// exclude longhands by literal name. Each accepts a string or an array.
+    /// Match names without vendor prefixes.
+    ///
+    /// Auto-fix can remove a redundant longhand or combine a set of longhands.
+    /// It does not combine descriptors or sets with a suppressed declaration,
+    /// and reports without fixing if it cannot construct a shorthand value.
+    ///
+    /// ```css
+    /// a { margin-top: 0; margin-right: 0; margin-bottom: 0; margin-left: 0; }
+    /// /* fixes to margin: 0 */
+    /// ```
+    "declaration-block-no-redundant-longhand-properties", style, fix = conditional;
+    pub struct DeclarationBlockNoRedundantLonghandProperties {
+        ignore_shorthands: Vec<OptionMatcher>,
+        ignore_longhands: Vec<String>,
+    }
 }
 
 impl DeclarationBlockNoRedundantLonghandProperties {
@@ -306,7 +324,7 @@ fn shorthand_fix(
 
 impl Rule for DeclarationBlockNoRedundantLonghandProperties {
     fn name(&self) -> &'static str {
-        RULE_NAME
+        Self::NAME
     }
 
     fn check_simple_block<'a>(&self, block: &'a SimpleBlock<'a>, ctx: &mut LintContext<'a>) {

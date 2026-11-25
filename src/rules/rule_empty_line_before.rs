@@ -10,8 +10,6 @@ use crate::{
     utils::{is_single_line_string, is_standard_syntax_selector, secondary_has_flag},
 };
 
-const NAME: &str = "rule-empty-line-before";
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RuleEmptyLineMode {
     Always,
@@ -20,16 +18,38 @@ enum RuleEmptyLineMode {
     NeverMultiLine,
 }
 
-pub struct RuleEmptyLineBefore {
-    mode: RuleEmptyLineMode,
-    ignore_after_comment: bool,
-    ignore_first_nested: bool,
-    ignore_inside_block: bool,
-    except_after_rule: bool,
-    except_after_single_line_comment: bool,
-    except_first_nested: bool,
-    except_inside_block_and_after_rule: bool,
-    except_inside_block: bool,
+crate::define_stx_lint! {
+    /// Require or forbid a blank line before rules, including keyframe blocks.
+    ///
+    /// Reference: <https://stylelint.io/user-guide/rules/rule-empty-line-before>
+    ///
+    /// Set the primary option to `"always"`, `"never"`, `"always-multi-line"`,
+    /// or `"never-multi-line"`. The last two only check multiline rules;
+    /// unrecognized primary values use `"always-multi-line"`. The first top-level
+    /// node and rules with nonstandard selectors are skipped.
+    ///
+    /// - `ignore` skips rules in `after-comment`, `first-nested`, or `inside-block` contexts.
+    /// - `except` reverses the expectation for `after-rule`, `after-single-line-comment`,
+    ///   `first-nested`, `inside-block-and-after-rule`, or `inside-block`.
+    ///
+    /// With `"always"`, autofix inserts a blank line before `b`:
+    ///
+    /// ```css
+    /// a { color: red; }
+    /// b { color: blue; }
+    /// ```
+    "rule-empty-line-before", style, fix = fix;
+    pub struct RuleEmptyLineBefore {
+        mode: RuleEmptyLineMode,
+        ignore_after_comment: bool,
+        ignore_first_nested: bool,
+        ignore_inside_block: bool,
+        except_after_rule: bool,
+        except_after_single_line_comment: bool,
+        except_first_nested: bool,
+        except_inside_block_and_after_rule: bool,
+        except_inside_block: bool,
+    }
 }
 
 impl RuleEmptyLineBefore {
@@ -56,7 +76,7 @@ impl RuleEmptyLineBefore {
 
 impl Rule for RuleEmptyLineBefore {
     fn name(&self) -> &'static str {
-        NAME
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {
@@ -106,7 +126,7 @@ impl Rule for RuleEmptyLineBefore {
                 self.mode,
                 RuleEmptyLineMode::Always | RuleEmptyLineMode::AlwaysMultiLine
             );
-            siblings.check_gap(ctx, NAME, "rule", stmt.span(), always != except);
+            siblings.check_gap(ctx, Self::NAME, "rule", stmt.span(), always != except);
         });
     }
 }
@@ -115,9 +135,9 @@ impl Rule for RuleEmptyLineBefore {
 mod tests {
     use serde_json::json;
 
-    use super::NAME;
     use crate::tester::{Tester, reject, reject_messages, reject_start};
 
+    const NAME: &str = "rule-empty-line-before";
     const ADD: &str = "Expected empty line before rule";
     const REMOVE: &str = "Expected no empty line before rule";
 

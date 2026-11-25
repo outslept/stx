@@ -36,11 +36,24 @@ fn check<'a>(raw: &'a str, base: u32, ctx: &mut LintContext<'a>) {
     }
 }
 
-pub struct FunctionUrlNoSchemeRelative;
+crate::define_stx_lint! {
+    /// Disallows scheme-relative `url()` arguments in declarations and `@import`.
+    ///
+    /// Set the primary option to `true`. This checks for a leading `//` with
+    /// or without quotes. Path-relative URLs, URLs with an explicit scheme,
+    /// and bare string `@import` targets are not checked.
+    ///
+    /// ```css
+    /// @import url('//www.example.org/foo.css'); /* reported */
+    /// @import url('../foo.css'); /* passes */
+    /// ```
+    "function-url-no-scheme-relative", restriction;
+    pub struct FunctionUrlNoSchemeRelative;
+}
 
 impl Rule for FunctionUrlNoSchemeRelative {
     fn name(&self) -> &'static str {
-        "function-url-no-scheme-relative"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

@@ -12,9 +12,24 @@ pub enum MediaRangeMode {
     Prefix,
 }
 
-pub struct MediaFeatureRangeNotation {
-    pub mode: MediaRangeMode,
-    pub except_exact_value: bool,
+crate::define_stx_lint! {
+    /// Require consistent range notation for recognized features in `@media`.
+    ///
+    /// Set the primary option to `"context"` for comparison operators or
+    /// `"prefix"` for colon notation with `min-` and `max-` bounds. Include
+    /// `"exact-value"` in the secondary `except` option (a string or array) to
+    /// reverse the choice for exact matches such as `(width: 50em)` and
+    /// `(width = 50em)`. Without that exception, an exact-only query may be
+    /// skipped by the initial range check.
+    /// Edits are only emitted when converting colon notation to comparisons.
+    ///
+    /// With `"context"`, `@media (min-width: 50em) {}` is fixed to
+    /// `@media (width >= 50em) {}`.
+    "media-feature-range-notation", style, fix = conditional;
+    pub struct MediaFeatureRangeNotation {
+        pub mode: MediaRangeMode,
+        pub except_exact_value: bool,
+    }
 }
 
 impl MediaFeatureRangeNotation {
@@ -104,7 +119,7 @@ impl MediaFeatureRangeNotation {
 
 impl Rule for MediaFeatureRangeNotation {
     fn name(&self) -> &'static str {
-        "media-feature-range-notation"
+        Self::NAME
     }
 
     fn check_at_rule<'a>(&self, at_rule: &'a AtRule<'a>, ctx: &mut LintContext<'a>) {

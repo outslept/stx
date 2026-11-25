@@ -8,7 +8,6 @@ use oxc_css_parser::{Span, ast::Stylesheet};
 use serde_json::{Map, Value};
 
 use crate::context::LintContext;
-use crate::declare_stx_lint;
 use crate::fix::Fix;
 use crate::rules::Rule;
 use crate::utils::options::{OptionMatcher, options_matches, parse_option_matchers};
@@ -17,26 +16,27 @@ use crate::utils::reference::{PREFIXES, in_set_ignore_case};
 /// Standard at-rule names that Autoprefixer / Stylelint considers vendor-prefixable.
 const AUTOPREFIXABLE_AT_KEYWORDS: &[&str] = &["keyframes", "viewport", "document"];
 
-declare_stx_lint! {
-    /// Disallow vendor prefixes for at-rules.
-    AtRuleNoVendorPrefix,
-    "at-rule-no-vendor-prefix",
-    restriction,
-    fix = fix,
-    recommended = false,
-}
-
 #[derive(Default)]
 pub struct AtRuleNoVendorPrefixConfig {
     /// Compiled matchers for the `ignoreAtRules` secondary option.
     ignore_at_rules: Vec<OptionMatcher>,
 }
 
-/// [`at-rule-no-vendor-prefix`](https://stylelint.io/user-guide/rules/at-rule-no-vendor-prefix)
-///
-/// Disallow vendor prefixes for at-rules.
-#[derive(Default)]
-pub struct AtRuleNoVendorPrefix(AtRuleNoVendorPrefixConfig);
+crate::define_stx_lint! {
+    /// Flag recognized vendor prefixes on `@keyframes`, `@viewport`, and `@document`.
+    ///
+    /// Enable with `true`. The secondary `ignoreAtRules` list accepts names or
+    /// slash-delimited regexes matched against the full name without `@`, including
+    /// the prefix. Other at-rules are not checked. Autofix removes the prefix.
+    ///
+    /// ```css
+    /// @-webkit-keyframes fade { to { opacity: 0; } } /* reported */
+    /// @keyframes fade { to { opacity: 0; } }         /* accepted */
+    /// ```
+    "at-rule-no-vendor-prefix", restriction, fix = fix;
+    #[derive(Default)]
+    pub struct AtRuleNoVendorPrefix(AtRuleNoVendorPrefixConfig);
+}
 
 impl Deref for AtRuleNoVendorPrefix {
     type Target = AtRuleNoVendorPrefixConfig;

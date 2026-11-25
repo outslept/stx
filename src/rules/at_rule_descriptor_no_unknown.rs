@@ -7,7 +7,6 @@ use oxc_css_parser::{Span, ast::Stylesheet};
 use crate::{
     config::RuleSetting,
     context::LintContext,
-    declare_stx_lint,
     rules::Rule,
     utils::{
         FONT_FEATURE_VALUE_TYPES, MARGIN_CONTEXT_PROPERTIES, NESTING_SUPPORTED_AT_KEYWORDS,
@@ -20,66 +19,21 @@ fn unknown_at_rule_descriptor_diagnostic(at_rule: &str, descriptor: &str) -> Str
     format!("Unknown descriptor \"{descriptor}\" for at-rule \"@{at_rule}\"")
 }
 
-#[derive(Debug, Default, Clone, Copy)]
-pub struct AtRuleDescriptorNoUnknown;
-
-declare_stx_lint! {
-    /// Disallow unknown descriptors within declaration-containing at-rules.
+crate::define_stx_lint! {
+    /// Flag descriptor names that are not recognized in their enclosing at-rule.
     ///
-    /// ### What it does
+    /// Enable with `true`; there are no rule-specific secondary options. The
+    /// name check uses the rule's descriptor table and accounts for page and
+    /// page-margin properties and custom names in font-feature-value blocks.
+    /// It does not validate values or check at-rules that support general nesting.
     ///
-    /// Checks standard-syntax declarations inside at-rules that do not support
-    /// general selector nesting (such as `@font-face`, `@property`, `@counter-style`,
-    /// `@page`, `@position-try`, etc.) and validates each descriptor name against the
-    /// specification grammar for that at-rule. It also accounts for:
-    /// - Page context properties directly inside `@page`.
-    /// - Margin context properties inside page-margin at-rules (e.g. `@top-center`)
-    ///   nested within `@page`.
-    /// - Custom feature value names inside font-feature-value type blocks (e.g.
-    ///   `@styleset`, `@swash`) nested within `@font-feature-values`.
-    ///
-    /// ### Why is this bad?
-    ///
-    /// Unknown descriptors inside at-rules such as `@font-face`, `@property`, or
-    /// `@counter-style` are ignored by browsers and usually indicate typos or
-    /// confusion between descriptors of different at-rules.
-    ///
-    /// ### Options
-    ///
-    /// #### Primary
-    ///
-    /// - `true`: Enable the rule.
-    ///
-    /// ```json
-    /// {
-    ///   "at-rule-descriptor-no-unknown": true
-    /// }
-    /// ```
-    ///
-    /// ### Examples
-    ///
-    /// **Incorrect:**
     /// ```css
-    /// @property --foo { bar: 0; }
-    /// @counter-style foo { bar: 0; }
-    /// @page { bar: 0; }
+    /// @font-face { font-famliy: Body; } /* reported */
+    /// @font-face { font-family: Body; } /* accepted */
     /// ```
-    ///
-    /// **Correct:**
-    /// ```css
-    /// @property --foo { syntax: "<integer>"; inherits: false; initial-value: 0; }
-    /// @counter-style foo { system: cyclic; symbols: url(bar.svg); suffix: " "; }
-    /// @page { size: landscape; }
-    /// ```
-    ///
-    /// ### References
-    ///
-    /// - [Stylelint Documentation: `at-rule-descriptor-no-unknown`](https://stylelint.io/user-guide/rules/at-rule-descriptor-no-unknown)
-    AtRuleDescriptorNoUnknown,
-    "at-rule-descriptor-no-unknown",
-    correctness,
-    fix = none,
-    recommended = true,
+    "at-rule-descriptor-no-unknown", correctness, recommended = true;
+    #[derive(Debug, Default, Clone, Copy)]
+    pub struct AtRuleDescriptorNoUnknown;
 }
 
 impl AtRuleDescriptorNoUnknown {

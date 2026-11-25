@@ -9,9 +9,24 @@ use crate::{
     },
 };
 
-#[derive(Debug, Default)]
-pub struct FunctionUrlSchemeAllowedList {
-    allowed: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Restricts explicit schemes in declaration `url()` arguments to an allow list.
+    ///
+    /// The primary option accepts a scheme, a `/regex/`, or an array of either.
+    /// Match against the lowercase scheme without its colon. The rule recognizes
+    /// `data:` and schemes followed by `://`; relative and scheme-relative URLs
+    /// are not checked. This rule does not check `@import` targets.
+    ///
+    /// With `["https", "data"]`:
+    ///
+    /// ```css
+    /// a { background: url(http://www.example.com/file.jpg); } /* reported */
+    /// ```
+    "function-url-scheme-allowed-list", restriction;
+    #[derive(Debug, Default)]
+    pub struct FunctionUrlSchemeAllowedList {
+        allowed: Vec<OptionMatcher>,
+    }
 }
 
 impl FunctionUrlSchemeAllowedList {
@@ -34,7 +49,7 @@ fn strip_quotes(value: &str) -> &str {
 
 impl Rule for FunctionUrlSchemeAllowedList {
     fn name(&self) -> &'static str {
-        "function-url-scheme-allowed-list"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

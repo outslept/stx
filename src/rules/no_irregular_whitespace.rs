@@ -1,7 +1,23 @@
 use crate::{context::LintContext, rules::Rule};
 use oxc_css_parser::{Span, ast::Stylesheet};
 
-pub struct NoIrregularWhitespace;
+crate::define_stx_lint! {
+    /// Report irregular whitespace such as non-breaking and zero-width spaces.
+    ///
+    /// Reference: <https://stylelint.io/user-guide/rules/no-irregular-whitespace>
+    ///
+    /// Enable with `true`; there are no rule-specific options. Block comments
+    /// and quoted strings are skipped, except that strings in `grid`,
+    /// `grid-template`, and `grid-template-areas` values are checked.
+    ///
+    /// The space between `main` and `sidebar` below is a non-breaking space (U+00A0):
+    ///
+    /// ```css
+    /// .layout { grid-template-areas: "main sidebar"; }
+    /// ```
+    "no-irregular-whitespace", correctness, recommended = true;
+    pub struct NoIrregularWhitespace;
+}
 
 fn is_irregular_whitespace(ch: char) -> bool {
     matches!(
@@ -25,7 +41,7 @@ fn is_grid_string_checked_prop(prop: &str) -> bool {
 
 impl Rule for NoIrregularWhitespace {
     fn name(&self) -> &'static str {
-        "no-irregular-whitespace"
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, _ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {

@@ -11,8 +11,23 @@ use crate::{
 use oxc_css_parser::ast::{AtRule, Declaration};
 use serde_json::{Map, Value};
 
-pub struct NoInvalidPositionDeclaration {
-    ignore_at_rules: Vec<OptionMatcher>,
+crate::define_stx_lint! {
+    /// Report declarations outside a rule or at-rule that can contain them.
+    ///
+    /// Reference: <https://stylelint.io/user-guide/rules/no-invalid-position-declaration>
+    ///
+    /// Enable with `true`. Declarations inside style rules, keyframes, and
+    /// supported at-rule contexts such as `@font-face` and `@page` are allowed.
+    /// `ignoreAtRules` accepts exact names or slash-delimited regexes without
+    /// `@`; a matching ancestor exempts the declaration.
+    ///
+    /// ```css
+    /// @media print { color: red; } /* Needs a style rule inside @media */
+    /// ```
+    "no-invalid-position-declaration", correctness, recommended = true;
+    pub struct NoInvalidPositionDeclaration {
+        ignore_at_rules: Vec<OptionMatcher>,
+    }
 }
 
 impl NoInvalidPositionDeclaration {
@@ -38,7 +53,7 @@ fn allows_declarations(at_rule: &AtRule<'_>) -> bool {
 
 impl Rule for NoInvalidPositionDeclaration {
     fn name(&self) -> &'static str {
-        "no-invalid-position-declaration"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

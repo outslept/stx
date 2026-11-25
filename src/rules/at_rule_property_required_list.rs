@@ -9,75 +9,8 @@ use oxc_css_parser::{Span, ast::Stylesheet};
 use serde_json::{Map, Value};
 
 use crate::context::LintContext;
-use crate::declare_stx_lint;
 use crate::rules::Rule;
 use crate::utils::options::parse_string_set_map;
-
-declare_stx_lint! {
-    /// [`at-rule-property-required-list`](https://stylelint.io/user-guide/rules/at-rule-property-required-list)
-    ///
-    /// Specify a list of required properties or descriptors for an at-rule.
-    ///
-    /// ### What it does
-    ///
-    /// Ensures that every configured CSS at-rule block contains all of the required
-    /// properties or descriptors listed for that at-rule in the configuration.
-    ///
-    /// Both at-rule names and descriptor/property names are compared
-    /// case-insensitively. At-rules not listed in the configuration object, or
-    /// statement at-rules without a declaration block, are ignored.
-    ///
-    /// ### Why is this bad?
-    ///
-    /// Certain at-rules require specific descriptors to function properly or meet
-    /// project performance and typography standards (for example, requiring both
-    /// `font-family` and `font-display` inside every `@font-face` rule).
-    ///
-    /// ### Primary Option
-    ///
-    /// An object whose keys are at-rule names (without the leading `@`) and whose
-    /// values are a required property/descriptor name or an array of required
-    /// property/descriptor names:
-    ///
-    /// ```json
-    /// {
-    ///   "font-face": ["font-display", "font-family"],
-    ///   "page": "margin"
-    /// }
-    /// ```
-    ///
-    /// ### Examples
-    ///
-    /// Given:
-    ///
-    /// ```json
-    /// {
-    ///   "font-face": ["font-display", "font-family"]
-    /// }
-    /// ```
-    ///
-    /// #### Incorrect
-    ///
-    /// ```css
-    /// @font-face {
-    ///   font-family: "Arvo";
-    /// }
-    /// ```
-    ///
-    /// #### Correct
-    ///
-    /// ```css
-    /// @font-face {
-    ///   font-display: auto;
-    ///   font-family: "Arvo";
-    /// }
-    /// ```
-    AtRulePropertyRequiredList,
-    "at-rule-property-required-list",
-    restriction,
-    fix = none,
-    recommended = false,
-}
 
 /// Configuration for [`AtRulePropertyRequiredList`].
 #[derive(Default)]
@@ -86,9 +19,28 @@ pub struct AtRulePropertyRequiredListConfig {
     required_by_at_rule: Vec<(String, Vec<String>)>,
 }
 
-/// Rule struct for `at-rule-property-required-list`.
-#[derive(Default)]
-pub struct AtRulePropertyRequiredList(AtRulePropertyRequiredListConfig);
+crate::define_stx_lint! {
+    /// Require specific declarations directly in configured at-rule blocks.
+    ///
+    /// In config files, put the map in the primary option: keys are at-rule
+    /// names without `@`, and values are a declaration name or a list of names.
+    /// Matching is ASCII case-insensitive. Blockless at-rules are ignored,
+    /// and declarations in child blocks do not count.
+    ///
+    /// The constructor can read this map from the secondary object when the
+    /// primary is not an object, but config validation rejects at-rule names
+    /// as secondary keys.
+    ///
+    /// With `{"font-face": ["font-display", "font-family"]}`:
+    ///
+    /// ```css
+    /// @font-face { font-family: Body; }                     /* reported */
+    /// @font-face { font-family: Body; font-display: swap; } /* accepted */
+    /// ```
+    "at-rule-property-required-list", restriction;
+    #[derive(Default)]
+    pub struct AtRulePropertyRequiredList(AtRulePropertyRequiredListConfig);
+}
 
 impl Deref for AtRulePropertyRequiredList {
     type Target = AtRulePropertyRequiredListConfig;

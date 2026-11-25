@@ -12,8 +12,21 @@ pub enum HueDegreeMode {
     Number,
 }
 
-pub struct HueDegreeNotation {
-    pub mode: HueDegreeMode,
+crate::define_stx_lint! {
+    /// Enforces unitless or degree notation for hue values in CSS color functions.
+    ///
+    /// Set the primary option to `"angle"` to add `deg` to a bare hue number,
+    /// or `"number"` to remove `deg`. Auto-fix leaves other angle units alone.
+    /// The rule checks `hsl()`, `hsla()`, `hwb()`, `lch()`, and `oklch()`,
+    /// including relative color forms.
+    ///
+    /// ```css
+    /// a { color: hsl(180 50% 50%); } /* fixes to hsl(180deg 50% 50%) with "angle" */
+    /// ```
+    "hue-degree-notation", style, fix = fix;
+    pub struct HueDegreeNotation {
+        pub mode: HueDegreeMode,
+    }
 }
 
 impl Default for HueDegreeNotation {
@@ -43,7 +56,7 @@ fn after_function(tokens: &[crate::utils::ValueToken<'_>], open: usize) -> usize
 
 impl Rule for HueDegreeNotation {
     fn name(&self) -> &'static str {
-        "hue-degree-notation"
+        Self::NAME
     }
 
     fn check_component_value<'a>(&self, val: &'a ComponentValue<'a>, ctx: &mut LintContext<'a>) {

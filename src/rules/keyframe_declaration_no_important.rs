@@ -1,11 +1,22 @@
 use crate::{context::LintContext, rules::Rule};
 use oxc_css_parser::ast::Declaration;
 
-pub struct KeyframeDeclarationNoImportant;
+crate::define_stx_lint! {
+    /// Reports `!important` in keyframes, where it causes declarations to be ignored.
+    ///
+    /// Set the primary option to `true`. This also checks vendor-prefixed
+    /// keyframes and leaves declarations outside keyframes alone.
+    ///
+    /// ```css
+    /// @keyframes slide { from { margin: 1px !important; } } /* reported */
+    /// ```
+    "keyframe-declaration-no-important", correctness, recommended = true;
+    pub struct KeyframeDeclarationNoImportant;
+}
 
 impl Rule for KeyframeDeclarationNoImportant {
     fn name(&self) -> &'static str {
-        "keyframe-declaration-no-important"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {

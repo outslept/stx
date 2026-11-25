@@ -9,9 +9,25 @@ use crate::{
     },
 };
 
-#[derive(Debug, Default)]
-pub struct DeclarationPropertyCustomPropertyAllowedList {
-    entries: Vec<(OptionMatcher, Vec<OptionMatcher>)>,
+crate::define_stx_lint! {
+    /// Restricts which custom properties a declaration may reference with `var()`.
+    ///
+    /// The primary option maps property names or `/regex/` patterns to one or
+    /// more allowed custom property names or `/regex/` patterns. All matching
+    /// entries contribute to the allow list. Declarations with no matching
+    /// entry are unrestricted; nested `var()` calls are also checked.
+    ///
+    /// With `{"color": "--accent"}`:
+    ///
+    /// ```css
+    /// a { color: var(--accent); } /* passes */
+    /// a { color: var(--other); } /* reported */
+    /// ```
+    "declaration-property-custom-property-allowed-list", restriction;
+    #[derive(Debug, Default)]
+    pub struct DeclarationPropertyCustomPropertyAllowedList {
+        entries: Vec<(OptionMatcher, Vec<OptionMatcher>)>,
+    }
 }
 
 impl DeclarationPropertyCustomPropertyAllowedList {
@@ -43,7 +59,7 @@ pub fn rejected_message(property: &str, custom_property: &str) -> String {
 
 impl Rule for DeclarationPropertyCustomPropertyAllowedList {
     fn name(&self) -> &'static str {
-        "declaration-property-custom-property-allowed-list"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {
