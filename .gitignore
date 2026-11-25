@@ -1,1 +1,11 @@
 /target
+oxc-css-parser
+stylelint
+/napi/node_modules/
+/napi/npm/
+/napi/artifacts/
+/napi/index.js
+/napi/index.d.ts
+/napi/*.node
+/napi/*.tgz
+/example/node_modules/

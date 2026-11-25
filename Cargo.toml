@@ -3,8 +3,13 @@ name = "stx"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+members = ["napi"]
+resolver = "3"
+
 [dependencies]
 clap = { version = "4.6.8", features = ["derive"] }
+globset = "0.4.21"
 ignore = "0.4.34"
 memchr = "2.8.3"
 oxc-css-parser = "0.0.22"
