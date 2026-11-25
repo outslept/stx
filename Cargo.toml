@@ -2,6 +2,13 @@
 name = "stx"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.100.0"
+description = "CSS, SCSS, Sass, and Less linter with stylelint-compatible rules"
+repository = "https://github.com/outslept/stx"
+license = "MIT"
+readme = "README.md"
+keywords = ["css", "scss", "lint", "stylelint", "linter"]
+categories = ["command-line-utilities", "development-tools", "web-programming"]
 
 [workspace]
 members = ["napi"]
@@ -18,3 +25,72 @@ rayon = "1.12.0"
 regex = "1.13.2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+
+[lints]
+workspace = true
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+absolute_paths_not_starting_with_crate = "warn"
+non_ascii_idents = "warn"
+unit_bindings = "warn"
+unused_unsafe = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+tail_expr_drop_order = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+exit = "warn"
+clone_on_ref_ptr = "warn"
+format_push_string = "warn"
+self_named_module_files = "warn"
+try_err = "warn"
+error_impl_error = "warn"
+unnecessary_self_imports = "warn"
+empty_drop = "warn"
+empty_structs_with_brackets = "warn"
+empty_enum_variants_with_brackets = "warn"
+fn_to_numeric_cast_any = "warn"
+get_unwrap = "warn"
+rc_buffer = "warn"
+rc_mutex = "warn"
+rest_pat_in_fully_bound_structs = "warn"
+non_zero_suggestions = "warn"
+precedence_bits = "warn"
+pub_underscore_fields = "warn"
+pathbuf_init_then_push = "warn"
+map_with_unused_argument_over_ranges = "warn"
+infinite_loop = "warn"
+filetype_is_file = "warn"
+undocumented_unsafe_blocks = "warn"
+unnecessary_safety_comment = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+cargo = { level = "warn", priority = -1 }
+
+struct_excessive_bools = "allow"
+too_many_lines = "allow"
+too_many_arguments = "allow"
+must_use_candidate = "allow"
+doc_markdown = "allow"
+similar_names = "allow"
+wildcard_imports = "allow"
+non_std_lazy_statics = "allow"
+missing_const_for_fn = "allow"
+option_if_let_else = "allow"
+or_fun_call = "allow"
+cognitive_complexity = "allow"
+use_self = "allow"
+significant_drop_tightening = "allow"
+branches_sharing_code = "allow"
+fallible_impl_from = "allow"
+empty_enums = "allow"
+useless_let_if_seq = "allow"
+impl_trait_in_params = "allow"
+byte_char_slices = "allow"
+question_mark = "allow"
+multiple_crate_versions = "allow"

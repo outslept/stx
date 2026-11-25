@@ -8,6 +8,9 @@ crate-type = ["cdylib"]
 test = false
 doctest = false
 
+[lints]
+workspace = true
+
 [dependencies]
 napi = { version = "3.16.3", features = ["napi6", "serde-json"] }
 napi-derive = "3.7.2"
