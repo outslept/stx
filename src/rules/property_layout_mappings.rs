@@ -2,8 +2,8 @@ use crate::{
     context::LintContext,
     rules::Rule,
     utils::{
-        FLOW_RELATIVE_PROPERTIES, OptionMatcher, ident_name, is_standard_syntax_declaration,
-        options_matches, parse_option_matchers, physical_to_flow_relative_property,
+        FLOW_RELATIVE_PROPERTIES, OptionMatcher, ident_name, options_matches,
+        parse_option_matchers, physical_to_flow_relative_property,
     },
 };
 use oxc_css_parser::{Span, ast::Declaration};
@@ -35,7 +35,7 @@ impl Rule for PropertyLayoutMappings {
         let Some(prop) = ident_name(&decl.name) else {
             return;
         };
-        if !is_standard_syntax_declaration(decl) || options_matches(&self.ignore, prop) {
+        if !ctx.is_standard_declaration(decl) || options_matches(&self.ignore, prop) {
             return;
         }
         let lower = prop.to_ascii_lowercase();

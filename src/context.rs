@@ -20,11 +20,14 @@ pub enum AstParent<'a> {
 pub struct LintContext<'a> {
     pub source: &'a str,
     pub has_bom: bool,
+    pub syntax: oxc_css_parser::Syntax,
     pub stylesheet: &'a Stylesheet<'a>,
     pub comments: &'a [Comment<'a>],
     pub line_index: &'a LineIndex,
     pub disables: &'a DisableDirectives,
     pub ancestors: Vec<AstParent<'a>>,
+    /// Nesting depth inside Less detached rulesets (`@name: { ... }`).
+    pub less_detached_depth: usize,
     pub current_severity: Severity,
     current_custom_message: Option<std::sync::Arc<str>>,
     diagnostics: Vec<Diagnostic>,
@@ -38,19 +41,27 @@ impl<'a> LintContext<'a> {
         line_index: &'a LineIndex,
         disables: &'a DisableDirectives,
         has_bom: bool,
+        syntax: oxc_css_parser::Syntax,
     ) -> Self {
         Self {
             source,
             has_bom,
+            syntax,
             stylesheet,
             comments,
             line_index,
             disables,
             ancestors: Vec::with_capacity(16),
+            less_detached_depth: 0,
             current_severity: Severity::Error,
             current_custom_message: None,
             diagnostics: Vec::new(),
         }
+    }
+
+    /// Upstream `isStandardSyntaxDeclaration`, including its parent checks.
+    pub fn is_standard_declaration(&self, decl: &oxc_css_parser::ast::Declaration<'_>) -> bool {
+        self.less_detached_depth == 0 && crate::utils::is_standard_syntax_declaration(decl)
     }
 
     #[inline]

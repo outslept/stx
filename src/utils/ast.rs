@@ -211,6 +211,20 @@ pub fn decl_value_span(source: &str, decl: &Declaration<'_>) -> Option<Span> {
     declaration_value_span(source, name_end, decl.span.end, important_start)
 }
 
+/// The value [`Span`] of a `$variable: value` declaration, trimmed and without the `;`.
+pub fn sass_variable_value_span(
+    source: &str,
+    decl: &oxc_css_parser::ast::SassVariableDeclaration<'_>,
+) -> Option<Span> {
+    let raw = source.get(decl.colon_span.end as usize..decl.span.end as usize)?;
+    let value = raw.trim_end().trim_end_matches(';').trim();
+    let start = decl.colon_span.end + (raw.len() - raw.trim_start().len()) as u32;
+    (!value.is_empty()).then(|| Span {
+        start,
+        end: start + value.len() as u32,
+    })
+}
+
 /// Returns both the raw slice and [`Span`] of `decl`'s value (excluding `!important`).
 pub fn decl_value_raw<'a>(source: &'a str, decl: &Declaration<'a>) -> Option<(&'a str, Span)> {
     let span = decl_value_span(source, decl)?;
@@ -235,7 +249,26 @@ pub fn at_rule_prelude_span(source: &str, at_rule: &AtRule<'_>) -> Option<Span> 
     if name_end >= end_limit {
         return None;
     }
-    let slice = source.get(name_end..end_limit)?;
+    let mut slice = source.get(name_end..end_limit)?;
+    // oxc ends `url( x )` preludes before their `)`; take the missing parens back.
+    let open = slice.bytes().filter(|&b| b == b'(').count();
+    let close = slice.bytes().filter(|&b| b == b')').count();
+    if at_rule.block.is_none() && open > close {
+        let rest = &source[end_limit..];
+        let mut extra = 0;
+        let mut missing = open - close;
+        for (i, b) in rest.bytes().enumerate() {
+            match b {
+                b')' if missing > 0 => {
+                    missing -= 1;
+                    extra = i + 1;
+                }
+                b if b.is_ascii_whitespace() => {}
+                _ => break,
+            }
+        }
+        slice = &source[name_end..end_limit + extra];
+    }
     let trimmed = slice.trim();
     if trimmed.is_empty() {
         return None;

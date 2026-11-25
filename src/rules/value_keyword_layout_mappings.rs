@@ -3,8 +3,8 @@ use crate::{
     rules::Rule,
     utils::{
         OptionMatcher, ValueTokenKind, decl_value_span, flow_relative_value_keywords_for_property,
-        ident_name, is_standard_syntax_declaration, is_standard_syntax_value, options_matches,
-        parse_option_matchers, physical_to_flow_relative_value_keyword, tokenize_value,
+        ident_name, is_standard_syntax_value, options_matches, parse_option_matchers,
+        physical_to_flow_relative_value_keyword, tokenize_value,
     },
 };
 use oxc_css_parser::Span;
@@ -43,7 +43,7 @@ impl Rule for ValueKeywordLayoutMappings {
         let Some(prop) = ident_name(&decl.name) else {
             return;
         };
-        if !is_standard_syntax_declaration(decl) {
+        if !ctx.is_standard_declaration(decl) {
             return;
         }
         if options_matches(&self.ignore_properties, prop) {

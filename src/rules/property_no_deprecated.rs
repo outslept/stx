@@ -5,8 +5,8 @@ use crate::{
     fix::{Edit, Fix},
     rules::Rule,
     utils::{
-        OptionMatcher, ValueTokenKind, decl_value_span, ident_name, is_standard_syntax_declaration,
-        options_matches, parse_option_matchers, tokenize_value,
+        OptionMatcher, ValueTokenKind, decl_value_span, ident_name, options_matches,
+        parse_option_matchers, tokenize_value,
     },
 };
 
@@ -95,7 +95,7 @@ impl Rule for PropertyNoDeprecated {
         let Some(prop) = ident_name(&decl.name) else {
             return;
         };
-        if !is_standard_syntax_declaration(decl) || options_matches(&self.ignore, prop) {
+        if !ctx.is_standard_declaration(decl) || options_matches(&self.ignore, prop) {
             return;
         }
         let normalized = prop.to_ascii_lowercase();

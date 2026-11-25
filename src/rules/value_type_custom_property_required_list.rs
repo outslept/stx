@@ -6,8 +6,8 @@ use crate::{
     rules::Rule,
     utils::{
         COLOR_FUNCTIONS, OptionMatcher, ValueTokenKind, decl_value_span, ident_name,
-        is_custom_property, is_standard_syntax_declaration, is_standard_syntax_property,
-        options_matches, parse_option_matchers, tokenize_value,
+        is_custom_property, is_standard_syntax_property, options_matches, parse_option_matchers,
+        tokenize_value,
     },
 };
 
@@ -132,7 +132,7 @@ impl Rule for ValueTypeCustomPropertyRequiredList {
             return;
         };
         if is_custom_property(property)
-            || !is_standard_syntax_declaration(decl)
+            || !ctx.is_standard_declaration(decl)
             || !is_standard_syntax_property(property)
             || options_matches(&self.ignore_properties, property)
             || ctx.ancestors.iter().any(

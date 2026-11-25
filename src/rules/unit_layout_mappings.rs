@@ -3,8 +3,7 @@ use crate::{
     rules::Rule,
     utils::{
         FLOW_RELATIVE_UNITS, OptionMatcher, ValueTokenKind, decl_value_span, ident_name,
-        is_standard_syntax_declaration, options_matches, parse_option_matchers,
-        physical_to_flow_relative_unit, tokenize_value,
+        options_matches, parse_option_matchers, physical_to_flow_relative_unit, tokenize_value,
     },
 };
 use oxc_css_parser::Span;
@@ -44,7 +43,7 @@ impl Rule for UnitLayoutMappings {
         decl: &'a oxc_css_parser::ast::Declaration<'a>,
         ctx: &mut LintContext<'a>,
     ) {
-        if !is_standard_syntax_declaration(decl) {
+        if !ctx.is_standard_declaration(decl) {
             return;
         }
         let _ = ident_name(&decl.name);

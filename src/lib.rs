@@ -51,6 +51,7 @@ fn run_pass<'a>(
     input: &'a str,
     stylesheet: &'a Stylesheet<'a>,
     comments: &'a [Comment<'a>],
+    syntax: Syntax,
     active_rules: &[ConfiguredRule],
     quiet: bool,
 ) -> LintPass {
@@ -65,6 +66,7 @@ fn run_pass<'a>(
         &line_index,
         &disables,
         bom_len != 0,
+        syntax,
     );
     SinglePassVisitor::new(&mut ctx, active_rules).visit_stylesheet(stylesheet);
     let fixes = ctx.fixes();
@@ -101,7 +103,14 @@ pub fn lint_once(
         .build();
     let err = match parser.parse::<Stylesheet>() {
         Ok(stylesheet) => {
-            return run_pass(input, &stylesheet, parser.comments(), active_rules, quiet);
+            return run_pass(
+                input,
+                &stylesheet,
+                parser.comments(),
+                syntax,
+                active_rules,
+                quiet,
+            );
         }
         Err(err) => err,
     };
@@ -121,7 +130,14 @@ pub fn lint_once(
             .comments()
             .build();
         if let Ok(stylesheet) = parser2.parse::<Stylesheet>() {
-            return run_pass(input, &stylesheet, parser2.comments(), active_rules, quiet);
+            return run_pass(
+                input,
+                &stylesheet,
+                parser2.comments(),
+                syntax,
+                active_rules,
+                quiet,
+            );
         }
     }
 
@@ -135,6 +151,7 @@ pub fn lint_once(
             input,
             &stylesheet,
             empty_parser.comments(),
+            syntax,
             active_rules,
             quiet,
         ),

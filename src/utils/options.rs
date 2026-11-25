@@ -300,13 +300,15 @@ fn parse_slash_regex(raw: &str) -> Option<Regex> {
             if last_slash > 0 {
                 let pattern = &raw[1..last_slash];
                 let flags = &raw[last_slash + 1..];
-                if flags != "" && flags != "i" {
+                // `u` is Rust's default and `g`/`y` do not affect a match test.
+                if !flags.chars().all(|f| "imsuyg".contains(f)) {
                     return None;
                 }
-                let final_pat = if flags == "i" {
-                    format!("(?i){pattern}")
-                } else {
+                let inline: String = flags.chars().filter(|f| "ims".contains(*f)).collect();
+                let final_pat = if inline.is_empty() {
                     pattern.to_string()
+                } else {
+                    format!("(?{inline}){pattern}")
                 };
                 return Regex::new(&final_pat).ok();
             }
@@ -325,6 +327,13 @@ fn compile_js_regex_or_plain(raw: &str) -> Option<Regex> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn slash_regex_accepts_js_flags() {
+        assert!(OptionMatcher::parse("/^ignore/u").is_match("ignore-at-start"));
+        assert!(OptionMatcher::parse("/^IGN/iu").is_match("ignore"));
+        assert!(matches!(OptionMatcher::parse("/a/x"), OptionMatcher::Exact(_)));
+    }
     use serde_json::json;
 
     fn obj(v: Value) -> Map<String, Value> {

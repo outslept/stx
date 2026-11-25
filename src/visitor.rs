@@ -65,6 +65,10 @@ impl<'r, 'a> SinglePassVisitor<'r, 'a> {
                     self.visit_declaration(decl);
                 }
                 Statement::UnknownQualifiedRule(u_rule) => {
+                    for r in self.rules {
+                        self.ctx.set_rule(r);
+                        r.rule.check_unknown_qualified_rule(u_rule, self.ctx);
+                    }
                     self.visit_simple_block(&u_rule.block);
                 }
                 Statement::SassIfAtRule(sass_if) => {
@@ -79,6 +83,10 @@ impl<'r, 'a> SinglePassVisitor<'r, 'a> {
                     }
                 }
                 Statement::SassVariableDeclaration(sass_var) => {
+                    for r in self.rules {
+                        self.ctx.set_rule(r);
+                        r.rule.check_sass_variable_declaration(sass_var, self.ctx);
+                    }
                     self.visit_component_value(&sass_var.value);
                 }
                 Statement::LessConditionalQualifiedRule(less_rule) => {
@@ -221,6 +229,11 @@ impl<'r, 'a> SinglePassVisitor<'r, 'a> {
             }
             ComponentValue::SassKeywordArgument(kw) => {
                 self.visit_component_value(&kw.value);
+            }
+            ComponentValue::LessDetachedRuleset(ruleset) => {
+                self.ctx.less_detached_depth += 1;
+                self.visit_simple_block(&ruleset.block);
+                self.ctx.less_detached_depth -= 1;
             }
             _ => {}
         }

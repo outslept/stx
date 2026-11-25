@@ -10,8 +10,8 @@ use crate::{
     declare_stx_lint,
     rules::Rule,
     utils::{
-        OptionMatcher, decl_value_raw, is_standard_syntax_declaration, is_standard_syntax_value,
-        options_matches, parse_option_matchers,
+        OptionMatcher, decl_value_raw, is_standard_syntax_value, options_matches,
+        parse_option_matchers,
     },
 };
 
@@ -119,7 +119,7 @@ impl Rule for AnnotationNoUnknown {
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {
-        if !is_standard_syntax_declaration(decl) {
+        if !ctx.is_standard_declaration(decl) {
             return;
         }
 

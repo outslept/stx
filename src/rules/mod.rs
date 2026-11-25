@@ -158,7 +158,7 @@ use crate::{config::Config, context::LintContext, diagnostic::Severity, utils::P
 use oxc_css_parser::{
     ast::{
         AtRule, ComplexSelector, ComponentValue, CompoundSelector, Declaration, KeyframeBlock,
-        QualifiedRule, SelectorList, SimpleBlock, SimpleSelector, Stylesheet,
+        QualifiedRule, SelectorList, SimpleBlock, SassVariableDeclaration, SimpleSelector, Stylesheet, UnknownQualifiedRule,
     },
     token::Comment,
 };
@@ -169,6 +169,20 @@ pub trait Rule: Send + Sync {
     fn check_stylesheet<'a>(&self, _ast: &'a Stylesheet<'a>, _ctx: &mut LintContext<'a>) {}
     fn check_comment<'a>(&self, _comment: &'a Comment<'a>, _ctx: &mut LintContext<'a>) {}
     fn check_qualified_rule<'a>(&self, _rule: &'a QualifiedRule<'a>, _ctx: &mut LintContext<'a>) {}
+    /// A `$variable: value` declaration, which postcss-scss parses as a declaration.
+    fn check_sass_variable_declaration<'a>(
+        &self,
+        _decl: &'a SassVariableDeclaration<'a>,
+        _ctx: &mut LintContext<'a>,
+    ) {
+    }
+    /// A style rule whose selector the parser could not read.
+    fn check_unknown_qualified_rule<'a>(
+        &self,
+        _rule: &'a UnknownQualifiedRule<'a>,
+        _ctx: &mut LintContext<'a>,
+    ) {
+    }
     fn check_at_rule<'a>(&self, _at_rule: &'a AtRule<'a>, _ctx: &mut LintContext<'a>) {}
     fn check_keyframe_block<'a>(&self, _block: &'a KeyframeBlock<'a>, _ctx: &mut LintContext<'a>) {}
     fn check_simple_block<'a>(&self, _block: &'a SimpleBlock<'a>, _ctx: &mut LintContext<'a>) {}
@@ -689,7 +703,9 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                 media_type_no_deprecated::MediaTypeNoDeprecated::new(setting.secondary.as_ref()),
             )),
             "media-feature-name-no-vendor-prefix" => Some(Box::new(
-                media_feature_name_no_vendor_prefix::MediaFeatureNameNoVendorPrefix,
+                media_feature_name_no_vendor_prefix::MediaFeatureNameNoVendorPrefix::from_secondary(
+                    setting.secondary.as_ref(),
+                ),
             )),
             "media-feature-range-notation" => {
                 let mode = if setting.primary.as_str() == Some("prefix") {
@@ -698,7 +714,15 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                     media_feature_range_notation::MediaRangeMode::Context
                 };
                 Some(Box::new(
-                    media_feature_range_notation::MediaFeatureRangeNotation { mode },
+                    media_feature_range_notation::MediaFeatureRangeNotation {
+                        mode,
+                        except_exact_value: crate::utils::secondary_str_list(
+                            setting.secondary.as_ref(),
+                            "except",
+                        )
+                        .iter()
+                        .any(|s| s == "exact-value"),
+                    },
                 ))
             }
             "named-grid-areas-no-invalid" => Some(Box::new(
@@ -754,7 +778,9 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                 property_no_unknown::PropertyNoUnknown::from_config(setting.secondary.as_ref()),
             )),
             "property-no-vendor-prefix" => {
-                Some(Box::new(property_no_vendor_prefix::PropertyNoVendorPrefix))
+                Some(Box::new(property_no_vendor_prefix::PropertyNoVendorPrefix::from_secondary(
+                    setting.secondary.as_ref(),
+                )))
             }
             "no-unknown-animations" => Some(Box::new(
                 no_unknown_animations::NoUnknownAnimations,
@@ -863,7 +889,9 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                 syntax_string_no_invalid::SyntaxStringNoInvalid,
             )),
             "selector-no-vendor-prefix" => {
-                Some(Box::new(selector_no_vendor_prefix::SelectorNoVendorPrefix))
+                Some(Box::new(selector_no_vendor_prefix::SelectorNoVendorPrefix::from_secondary(
+                    setting.secondary.as_ref(),
+                )))
             }
             "selector-not-notation" => {
                 let mode = if setting.primary.as_str() == Some("simple") {
@@ -923,13 +951,18 @@ pub fn build_rules(config: &Config) -> Vec<ConfiguredRule> {
                 } else {
                     function_name_case::CaseMode::Lower
                 };
-                Some(Box::new(selector_type_case::SelectorTypeCase { mode }))
+                Some(Box::new(selector_type_case::SelectorTypeCase {
+                    mode,
+                    ignore_types: crate::utils::parse_option_matchers(setting.secondary.as_ref(), "ignoreTypes"),
+                }))
             }
             "selector-type-no-unknown" => Some(Box::new(
                 selector_type_no_unknown::SelectorTypeNoUnknown::from_secondary(setting.secondary.as_ref()),
             )),
             "shorthand-property-no-redundant-values" => Some(Box::new(
-                shorthand_property_no_redundant_values::ShorthandPropertyNoRedundantValues,
+                shorthand_property_no_redundant_values::ShorthandPropertyNoRedundantValues::from_secondary(
+                    setting.secondary.as_ref(),
+                ),
             )),
             "string-no-newline" => Some(Box::new(string_no_newline::StringNoNewline)),
             "time-min-milliseconds" => {

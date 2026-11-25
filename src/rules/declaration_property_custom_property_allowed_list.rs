@@ -5,8 +5,7 @@ use crate::{
     rules::Rule,
     utils::{
         OptionMatcher, ValueTokenKind, decl_value_span, ident_name, is_custom_property,
-        is_standard_syntax_declaration, is_standard_syntax_property, is_standard_syntax_value,
-        tokenize_value,
+        is_standard_syntax_property, is_standard_syntax_value, tokenize_value,
     },
 };
 
@@ -51,7 +50,7 @@ impl Rule for DeclarationPropertyCustomPropertyAllowedList {
         let Some(prop) = ident_name(&decl.name) else {
             return;
         };
-        if !is_standard_syntax_declaration(decl) || !is_standard_syntax_property(prop) {
+        if !ctx.is_standard_declaration(decl) || !is_standard_syntax_property(prop) {
             return;
         }
 

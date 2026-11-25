@@ -6,8 +6,8 @@ use crate::{
     rules::Rule,
     utils::{
         COLOR_FUNCTIONS, OptionMatcher, SINGLE_VALUE_COLOR_PROPERTIES, ValueTokenKind,
-        decl_value_span, ident_name, is_standard_syntax_declaration, is_standard_syntax_value,
-        options_matches, parse_option_matchers, tokenize_value,
+        decl_value_span, ident_name, is_standard_syntax_value, options_matches,
+        parse_option_matchers, tokenize_value,
     },
 };
 
@@ -129,7 +129,7 @@ impl Rule for DeclarationPropertyValueKeywordNoDeprecated {
         let Some(prop) = ident_name(&decl.name) else {
             return;
         };
-        if !is_standard_syntax_declaration(decl) {
+        if !ctx.is_standard_declaration(decl) {
             return;
         }
         let Some(value_span) = decl_value_span(ctx.source, decl) else {

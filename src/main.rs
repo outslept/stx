@@ -29,8 +29,6 @@ fn audit_fixtures() -> ExitCode {
                 .parse::<Stylesheet>()
                 .is_ok();
             let mut pass = lint_once(source, syntax, &rules, false);
-            pass.warnings
-                .sort_by_key(|warning| (warning.line, warning.column));
             let edits: Vec<_> = pass
                 .fixes
                 .iter()

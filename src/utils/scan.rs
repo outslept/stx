@@ -612,6 +612,10 @@ pub fn scan_selector_items<'a>(source: &'a str, list_span: Span) -> Vec<ScannedS
                     i += 1;
                     continue;
                 }
+                if bytes[i] == b'\\' {
+                    i = (i + 2).min(end);
+                    continue;
+                }
                 if bytes[i] == b'"' || bytes[i] == b'\'' {
                     in_quote = Some(bytes[i]);
                     i += 1;
