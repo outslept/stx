@@ -1,22 +1,130 @@
-use crate::{context::LintContext, rules::Rule};
-use oxc_css_parser::ast::{Statement, Stylesheet};
+use crate::{
+    context::{AstParent, LintContext},
+    rules::Rule,
+    utils::{OptionMatcher, options_matches, parse_option_matchers},
+};
+use oxc_css_parser::ast::{AtRule, Declaration};
+use serde_json::{Map, Value};
 
-pub struct NoInvalidPositionDeclaration;
+pub struct NoInvalidPositionDeclaration {
+    ignore_at_rules: Vec<OptionMatcher>,
+}
+
+impl NoInvalidPositionDeclaration {
+    pub fn from_config(secondary: Option<&Map<String, Value>>) -> Self {
+        Self {
+            ignore_at_rules: parse_option_matchers(secondary, "ignoreAtRules"),
+        }
+    }
+}
+
+fn allows_declarations(at_rule: &AtRule<'_>) -> bool {
+    matches!(
+        at_rule.name.name.to_ascii_lowercase().as_str(),
+        "counter-style"
+            | "font-face"
+            | "font-palette-values"
+            | "page"
+            | "property"
+            | "viewport"
+            | "-ms-viewport"
+    )
+}
 
 impl Rule for NoInvalidPositionDeclaration {
     fn name(&self) -> &'static str {
         "no-invalid-position-declaration"
     }
 
-    fn check_stylesheet<'a>(&self, stylesheet: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {
-        for stmt in &stylesheet.statements {
-            if let Statement::Declaration(decl) = stmt {
-                ctx.report(
-                    self.name(),
-                    decl.span,
-                    "Unexpected invalid position declaration".to_string(),
-                );
-            }
+    fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {
+        if ctx.in_keyframes()
+            || ctx
+                .ancestors
+                .iter()
+                .any(|ancestor| matches!(ancestor, AstParent::QualifiedRule(_)))
+        {
+            return;
         }
+        if ctx.ancestors.iter().any(|ancestor| {
+            matches!(ancestor, AstParent::AtRule(at_rule) if options_matches(&self.ignore_at_rules, at_rule.name.name))
+        }) {
+            return;
+        }
+        if ctx.ancestors.iter().any(|ancestor| {
+            matches!(ancestor, AstParent::AtRule(at_rule) if at_rule.name.name.eq_ignore_ascii_case("page"))
+        }) && ctx.ancestors.iter().any(|ancestor| {
+            matches!(ancestor, AstParent::AtRule(at_rule) if matches!(at_rule.name.name.to_ascii_lowercase().as_str(), "top-left-corner" | "top-left" | "top-center" | "top-right" | "top-right-corner" | "right-top" | "right-middle" | "right-bottom" | "bottom-right-corner" | "bottom-right" | "bottom-center" | "bottom-left" | "bottom-left-corner" | "left-bottom" | "left-middle" | "left-top"))
+        }) {
+            return;
+        }
+        if ctx
+            .ancestors
+            .iter()
+            .rev()
+            .find_map(|ancestor| match ancestor {
+                AstParent::AtRule(at_rule) => Some(allows_declarations(at_rule)),
+                _ => None,
+            })
+            .unwrap_or(false)
+        {
+            return;
+        }
+        let span = decl.span();
+        let end = span.end + u32::from(ctx.source.as_bytes().get(span.end as usize) == Some(&b';'));
+        ctx.report(
+            self.name(),
+            oxc_css_parser::Span { end, ..span },
+            "Invalid position for declaration",
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tester::{Tester, reject_warnings};
+    use serde_json::json;
+
+    #[test]
+    fn declaration_contexts_and_span() {
+        let fail = [
+            reject_warnings(
+                "color: red;\n@layer { color: blue; }",
+                None,
+                vec![
+                    ("Invalid position for declaration".into(), (1, 1, 1, 12)),
+                    ("Invalid position for declaration".into(), (2, 10, 2, 22)),
+                ],
+            ),
+            reject_warnings(
+                "color: red",
+                None,
+                vec![("Invalid position for declaration".into(), (1, 1, 1, 11))],
+            ),
+        ];
+        Tester::new(
+            "no-invalid-position-declaration",
+            json!(true),
+            [
+                "a { color: red; }",
+                "@font-face { font-family: x; }",
+                "@page { margin: 1px; }",
+                "@page { @top-right { content: \"foo\"; } }",
+                "@keyframes foo { 0% { color: red; } }",
+                "@property --x { initial-value: 1px; }",
+            ],
+            &fail,
+        )
+        .test();
+    }
+
+    #[test]
+    fn ignores_configured_at_rules() {
+        Tester::new(
+            "no-invalid-position-declaration",
+            json!([true, {"ignoreAtRules": ["layer", "/^custom-/"]}]),
+            ["@layer { color: red; } @custom-rule { color: blue; }"],
+            &[],
+        )
+        .test();
     }
 }

@@ -210,3 +210,58 @@ fn skip_string(ctx: &LintContext<'_>, mut pos: u32, len: u32) -> u32 {
 fn byte_at(ctx: &LintContext<'_>, pos: u32) -> u8 {
     ctx.slice_range(pos, pos + 1).as_bytes()[0]
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::tester::{Tester, reject, reject_warnings};
+
+    const REJECTED: &str = "Redundant nested style rule";
+
+    #[test]
+    fn default_options() {
+        let pass = &[
+            "",
+            "a {}",
+            "& {}",
+            "a { &:hover {} }",
+            "a { &.foo {} }",
+            "a { &#foo {} }",
+            "a { &[foo] {} }",
+            "a { & .foo {} }",
+            "a { & > .foo {} }",
+            "a { &::before { content: \"\"; } }",
+            "a & {}",
+            "@media all { a {} }",
+            "a { @media all { color: red; } }",
+            "a { /* comment */ &.foo {} }",
+            "a { & /* comment */ .foo {} }",
+        ];
+
+        let fail = &[
+            reject("a { & {} }", None, REJECTED, (1, 5, 1, 9)),
+            reject("a { @media all { & {} } }", None, REJECTED, (1, 18, 1, 22)),
+            reject("@scope (a) { & {} }", None, REJECTED, (1, 14, 1, 18)),
+            reject("a { @media all {} & {} }", None, REJECTED, (1, 19, 1, 23)),
+            reject_warnings(
+                "a { & {} & {} }",
+                None,
+                vec![
+                    (REJECTED.into(), (1, 5, 1, 9)),
+                    (REJECTED.into(), (1, 10, 1, 14)),
+                ],
+            ),
+            reject("a { & /* foo */ {} }", None, REJECTED, (1, 5, 1, 19)),
+            reject("a { /* foo */ & {} }", None, REJECTED, (1, 15, 1, 19)),
+        ];
+
+        Tester::new(
+            "block-no-redundant-nested-style-rules",
+            json!([true]),
+            pass,
+            fail,
+        )
+        .test();
+    }
+}

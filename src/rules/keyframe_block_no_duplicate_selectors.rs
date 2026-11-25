@@ -1,9 +1,66 @@
 use std::collections::HashSet;
 
-use crate::{context::LintContext, rules::Rule};
-use oxc_css_parser::{Span, ast::AtRule};
+use crate::{
+    context::LintContext,
+    rules::Rule,
+    utils::{ident_span, is_standard_syntax_selector, strip_comments},
+};
+use oxc_css_parser::{
+    Span,
+    ast::{AtRule, KeyframeBlock, KeyframeSelector, SimpleBlock, Statement},
+};
 
 pub struct KeyframeBlockNoDuplicateSelectors;
+
+pub(super) fn is_keyframes(at_rule: &AtRule<'_>) -> bool {
+    [
+        "keyframes",
+        "-webkit-keyframes",
+        "-moz-keyframes",
+        "-ms-keyframes",
+        "-o-keyframes",
+    ]
+    .iter()
+    .any(|name| at_rule.name.raw.eq_ignore_ascii_case(name))
+}
+
+pub(super) fn walk_keyframe_blocks<'a>(
+    block: &'a SimpleBlock<'a>,
+    visit: &mut impl FnMut(&'a KeyframeBlock<'a>),
+) {
+    for statement in &block.statements {
+        match statement {
+            Statement::KeyframeBlock(frame) => {
+                visit(frame);
+                walk_keyframe_blocks(&frame.block, visit);
+            }
+            Statement::AtRule(rule) => {
+                if let Some(block) = &rule.block {
+                    walk_keyframe_blocks(block, visit);
+                }
+            }
+            Statement::QualifiedRule(rule) => walk_keyframe_blocks(&rule.block, visit),
+            Statement::SassIfAtRule(rule) => {
+                walk_keyframe_blocks(&rule.if_clause.block, visit);
+                for clause in &rule.else_if_clauses {
+                    walk_keyframe_blocks(&clause.block, visit);
+                }
+                if let Some(block) = &rule.else_clause {
+                    walk_keyframe_blocks(block, visit);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+pub(super) fn selector_span(selector: &KeyframeSelector<'_>) -> Span {
+    match selector {
+        KeyframeSelector::Ident(name) => ident_span(name),
+        KeyframeSelector::Percentage(percentage) => percentage.span,
+        KeyframeSelector::TimelineRange(range) => range.span,
+    }
+}
 
 impl Rule for KeyframeBlockNoDuplicateSelectors {
     fn name(&self) -> &'static str {
@@ -11,106 +68,93 @@ impl Rule for KeyframeBlockNoDuplicateSelectors {
     }
 
     fn check_at_rule<'a>(&self, at_rule: &'a AtRule<'a>, ctx: &mut LintContext<'a>) {
-        let name: &str = at_rule.name.name;
-        let is_keyframes = name.eq_ignore_ascii_case("keyframes")
-            || name.eq_ignore_ascii_case("-webkit-keyframes")
-            || name.eq_ignore_ascii_case("-moz-keyframes")
-            || name.eq_ignore_ascii_case("-o-keyframes");
-
-        if !is_keyframes {
+        if !is_keyframes(at_rule) {
             return;
         }
-
         let Some(block) = &at_rule.block else {
             return;
         };
 
-        let src = ctx.source;
-        let start = block.span.start as usize + 1;
-        let end = (block.span.end as usize).saturating_sub(1);
-        if start >= end || end > src.len() {
-            return;
-        }
-
-        let bytes = src.as_bytes();
-        let mut i = start;
-        let mut depth = 0usize;
-        let mut header_start = start;
         let mut seen = HashSet::new();
-
-        while i < end {
-            if i + 1 < end && bytes[i] == b'/' && bytes[i + 1] == b'*' {
-                i += 2;
-                while i + 1 < end && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
-                    i += 1;
-                }
-                i += 2;
-                continue;
+        walk_keyframe_blocks(block, &mut |frame| {
+            let header = ctx.slice_range(frame.span.start, frame.block.span.start);
+            let stripped;
+            let header = if header.contains("/*") {
+                stripped = strip_comments(header);
+                &stripped
+            } else {
+                header
+            };
+            if !is_standard_syntax_selector(header) {
+                return;
             }
 
-            if i + 1 < end && bytes[i] == b'/' && bytes[i + 1] == b'/' {
-                i += 2;
-                while i < end && bytes[i] != b'\n' {
-                    i += 1;
+            for selector in &frame.selectors {
+                let span = selector_span(selector);
+                let raw = ctx.slice(span);
+                if !seen.insert(raw.to_lowercase()) {
+                    ctx.report(
+                        self.name(),
+                        span,
+                        format!("Duplicate keyframe selector \"{raw}\""),
+                    );
                 }
-                continue;
             }
-
-            match bytes[i] {
-                b'{' => {
-                    if depth == 0 {
-                        check_keyframe_header(src, header_start, i, &mut seen, self.name(), ctx);
-                    }
-                    depth += 1;
-                }
-                b'}' => {
-                    depth = depth.saturating_sub(1);
-                    if depth == 0 {
-                        header_start = i + 1;
-                    }
-                }
-                _ => {}
-            }
-            i += 1;
-        }
+        });
     }
 }
 
-fn check_keyframe_header(
-    src: &str,
-    start: usize,
-    end: usize,
-    seen: &mut HashSet<String>,
-    rule_name: &'static str,
-    ctx: &mut LintContext<'_>,
-) {
-    let slice = &src[start..end];
-    let mut part_offset = 0usize;
+#[cfg(test)]
+mod tests {
+    use crate::tester::{Tester, reject, reject_warnings};
+    use serde_json::json;
 
-    for part in slice.split(',') {
-        let part_start = start + part_offset;
-        let part_len = part.len();
-        part_offset += part_len + 1;
+    const RULE_NAME: &str = "keyframe-block-no-duplicate-selectors";
 
-        let trimmed = part.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
+    fn duplicate(selector: &str) -> String {
+        format!("Duplicate keyframe selector \"{selector}\"")
+    }
 
-        let leading_ws = part.len() - part.trim_start().len();
-        let span_start = (part_start + leading_ws) as u32;
-        let span_end = span_start + trimmed.len() as u32;
+    #[test]
+    fn duplicates_across_blocks_and_lists() {
+        let pass = [
+            "@keyframes foo { from {} 0% {} to {} 100% {} }",
+            "@keyframes one { from {} } @keyframes two { FROM {} }",
+        ];
+        let fail = [
+            reject_warnings(
+                "@keyframes foo {\n  from {}\n  /* before, { */\n  FROM /* after, } */, /* between, */\n  50%, from,\n  /* before */\n  from {}\n}",
+                None,
+                vec![
+                    (duplicate("FROM"), (4, 3, 4, 7)),
+                    (duplicate("from"), (5, 8, 5, 12)),
+                    (duplicate("from"), (7, 3, 7, 7)),
+                ],
+            ),
+            reject(
+                "@-MS-KEYFRAMES foo {\n  0%, 0% {}\n}",
+                None,
+                duplicate("0%"),
+                (2, 7, 2, 9),
+            ),
+        ];
+        Tester::new(RULE_NAME, json!(true), pass, fail).test();
+    }
 
-        let normalized = trimmed.to_ascii_lowercase();
-        if !seen.insert(normalized) {
-            ctx.report(
-                rule_name,
-                Span {
-                    start: span_start,
-                    end: span_end,
-                },
-                format!("Unexpected duplicate \"{trimmed}\""),
-            );
-        }
+    #[test]
+    fn scss_interpolated_selectors() {
+        let pass = [
+            "@keyframes foo { #{$bar} {} #{$bar} {} }",
+            "@keyframes foo { from, #{$bar} {} from {} }",
+        ];
+        let fail = [reject(
+            "@keyframes foo {\n  #{$bar} {}\n  @if $ok { from {} }\n  FROM {}\n}",
+            None,
+            duplicate("FROM"),
+            (4, 3, 4, 7),
+        )];
+        Tester::new(RULE_NAME, json!(true), pass, fail)
+            .with_custom_syntax("postcss-scss")
+            .test();
     }
 }

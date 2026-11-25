@@ -599,3 +599,287 @@ fn is_ident_start(b: u8) -> bool {
 fn is_ident_char(b: u8) -> bool {
     is_ident_start(b) || b.is_ascii_digit()
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::tester::{Tester, reject, reject_warnings};
+
+    const NAME: &str = "color-function-notation";
+    const MODERN_MESSAGE: &str = "Expected modern color-function notation";
+    const LEGACY_MESSAGE: &str = "Expected legacy color-function notation";
+
+    #[test]
+    fn modern() {
+        let pass = &[
+            "a { color: rgb(0 0 0) }",
+            "a { color: rgb(12 122 231 / 0.2) }",
+            "a { color: rgb(51 170 51 / 20%) }",
+            "a { color: hsl(4.71239rad 60% 70%) }",
+            "a { color: hsl(.75turn 60% 70%) }",
+            "a { color: hsl(270 60% 50% / .15) }",
+            "a { color: hsl(270 60% 50% / 15%) }",
+            "a { color: HSL(270 60% 70%) }",
+            "a { color: RgB(240 0 0 / 50%) }",
+            "a { color: hsl(var(--hue) var(--sat) var(--sat) / var(--alpha)) }",
+            "a {\n\tcolor: hsl(270 60% 50%\n\t\t/ 15%)\n}",
+            "a {\n\tcolor: hsl(\n\t\t270\n\t\t60%\n\t\t50%\n\t\t/ 15%\n\t)\n}",
+            "a {\n\tcolor: hsl(\n\t\t270 /* comment */\n\t\t60%\n\t\t50%\n\t\t/* comment */ / 15%\n\t)\n}",
+        ];
+
+        let fail = &[
+            reject(
+                "a { color: rgb(0, 0, 0) }",
+                "a { color: rgb(0 0 0) }",
+                MODERN_MESSAGE,
+                (1, 12, 1, 24),
+            )
+            .with_edit_info(0, (16, 20, " 0")),
+            reject(
+                "a { color: rgba(0, 0, 0, 0) }",
+                "a { color: rgb(0 0 0 / 0) }",
+                MODERN_MESSAGE,
+                (1, 12, 1, 28),
+            )
+            .with_edit_info(0, (14, 24, "(0 0 0 /")),
+            reject(
+                "a { color: rgba(0, 0, 0, 50%) }",
+                "a { color: rgb(0 0 0 / 50%) }",
+                MODERN_MESSAGE,
+                (1, 12, 1, 30),
+            )
+            .with_edit_info(0, (14, 24, "(0 0 0 /")),
+            reject(
+                "a { color: rgba(0 , 0 , 0 , 50%) }",
+                "a { color: rgb(0 0 0 / 50%) }",
+                MODERN_MESSAGE,
+                (1, 12, 1, 33),
+            )
+            .with_edit_info(0, (14, 27, "(0 0 0 /")),
+            reject(
+                "a { color: rgba(0,0,0,50%) }",
+                "a { color: rgb(0 0 0 / 50%) }",
+                MODERN_MESSAGE,
+                (1, 12, 1, 27),
+            )
+            .with_edit_info(0, (14, 22, "(0 0 0 / ")),
+            reject(
+                "a { color: rgba(var(--r, 20), var(--g), var(--b), 0.6); }",
+                "a { color: rgb(var(--r, 20) var(--g) var(--b) / 0.6); }",
+                MODERN_MESSAGE,
+                (1, 12, 1, 55),
+            )
+            .with_edit_info(0, (14, 49, "(var(--r, 20) var(--g) var(--b) /")),
+            reject(
+                "a {\n\tcolor: HSLA(\n\t\tcalc(var(--hue) + 30),\n\t\t28%, 50%, 0.2\n\t);\n}",
+                "a {\n\tcolor: HSL(\n\t\tcalc(var(--hue) + 30)\n\t\t28% 50% / 0.2\n\t);\n}",
+                MODERN_MESSAGE,
+                (2, 9, 5, 3),
+            )
+            .with_edit_info(0, (15, 54, "(\n\t\tcalc(var(--hue) + 30)\n\t\t28% 50% /")),
+            reject(
+                "a {\n\tcolor: HSLA(\n\t\tcalc(var(--hue) + 30),\n\t\t28%, 50%,\n\t\t0.2\n\t);\n}",
+                "a {\n\tcolor: HSL(\n\t\tcalc(var(--hue) + 30)\n\t\t28% 50% /\n\t\t0.2\n\t);\n}",
+                MODERN_MESSAGE,
+                (2, 9, 6, 3),
+            )
+            .with_edit_info(0, (15, 54, "(\n\t\tcalc(var(--hue) + 30)\n\t\t28% 50% /")),
+            reject(
+                "a {\n\tcolor: HSLA(\n\t\tcalc(var(--hue) + 30),\n\t\t28%,\n\t\t50%, 0.2\n\t);\n}",
+                "a {\n\tcolor: HSL(\n\t\tcalc(var(--hue) + 30)\n\t\t28%\n\t\t50% / 0.2\n\t);\n}",
+                MODERN_MESSAGE,
+                (2, 9, 6, 3),
+            )
+            .with_edit_info(0, (15, 56, "(\n\t\tcalc(var(--hue) + 30)\n\t\t28%\n\t\t50% /")),
+            reject(
+                "a {\n\tcolor: HSLA(\n\t\tcalc(var(--hue) + 30) /* comment */,\n\t\t28%, 50% /* comment */, 0.2\n\t);\n}",
+                "a {\n\tcolor: HSL(\n\t\tcalc(var(--hue) + 30) /* comment */\n\t\t28% 50% /* comment */ / 0.2\n\t);\n}",
+                MODERN_MESSAGE,
+                (2, 9, 5, 3),
+            )
+            .with_edit_info(
+                0,
+                (15, 82, "(\n\t\tcalc(var(--hue) + 30) /* comment */\n\t\t28% 50% /* comment */ /"),
+            ),
+            reject(
+                "a {\n\tcolor: HSLA(\n\t\tcalc(var(--hue) + 30) /* comment */,\n\t\t28%, 50% /* comment */\n\t\t, 0.2\n\t);\n}",
+                "a {\n\tcolor: HSL(\n\t\tcalc(var(--hue) + 30) /* comment */\n\t\t28% 50% /* comment */\n\t\t/ 0.2\n\t);\n}",
+                MODERN_MESSAGE,
+                (2, 9, 6, 3),
+            )
+            .with_edit_info(
+                0,
+                (15, 85, "(\n\t\tcalc(var(--hue) + 30) /* comment */\n\t\t28% 50% /* comment */\n\t\t/"),
+            ),
+            reject_warnings(
+                "a {\n\tbackground-image: linear-gradient(\n\t\tto right,\n\t\trgba(30, 75, 115, 1),\n\t\thsl(255, 255, 255)\n\t);\n}",
+                "a {\n\tbackground-image: linear-gradient(\n\t\tto right,\n\t\trgb(30 75 115 / 1),\n\t\thsl(255 255 255)\n\t);\n}",
+                vec![
+                    (MODERN_MESSAGE.to_string(), (4, 3, 4, 23)),
+                    (MODERN_MESSAGE.to_string(), (5, 3, 5, 21)),
+                ],
+            )
+            .with_edit_info(0, (57, 71, "(30 75 115 /"))
+            .with_edit_info(1, (85, 91, " 255")),
+        ];
+
+        Tester::new(NAME, json!(["modern"]), pass, fail)
+            .with_fix(true)
+            .with_compute_edit_info(true)
+            .test();
+    }
+
+    #[test]
+    fn legacy() {
+        let pass = &[
+            "a { color: rgb(0, 0, 0) }",
+            "a { color: rgba(12, 122, 231, 0.2) }",
+            "a { color: rgba(51,170,51,20%) }",
+            "a { color: hsl(4.71239rad, 60%, 70%) }",
+            "a { color: hsl(.75turn, 60%, 70%) }",
+            "a { color: hsla(270, 60%, 50%, .15) }",
+            "a { color: hsla(270, 60%, 50%, 15%) }",
+            "a { color: HSL(270, 60%, 70%) }",
+            "a { color: RgBA(240, 0, 0, 50%) }",
+            "a { color: hsla(var(--hue), var(--sat), var(--sat), var(--alpha)) }",
+            "a {\n\tcolor: hsla(270, 60%, 50%\n\t\t, 15%)\n}",
+            "a {\n\tcolor: hsla(\n\t\t270,\n\t\t60%,\n\t\t50%,\n\t\t15%\n\t)\n}",
+            "a {\n\tcolor: hsla(\n\t\t270, /* comment */\n\t\t60%,\n\t\t50%,\n\t\t/* comment */ 15%\n\t)\n}",
+        ];
+
+        let fail = &[
+            reject(
+                "a { color: rgb(0 0 0) }",
+                None,
+                LEGACY_MESSAGE,
+                (1, 12, 1, 22),
+            ),
+            reject(
+                "a { color: rgb(0 0 0 0) }",
+                None,
+                LEGACY_MESSAGE,
+                (1, 12, 1, 24),
+            ),
+            reject(
+                "a { color: rgb(0 0 0 / 50%) }",
+                None,
+                LEGACY_MESSAGE,
+                (1, 12, 1, 28),
+            ),
+            reject(
+                "a {\n\tcolor: HSL(\n\t\tcalc(var(--hue) + 30)\n\t\t28% 50% / 0.2\n\t);\n}",
+                None,
+                LEGACY_MESSAGE,
+                (2, 9, 5, 3),
+            ),
+            reject_warnings(
+                "a {\n\tbackground-image: linear-gradient(\n\t\tto right,\n\t\trgb(30 75 115 / 1),\n\t\thsl(255 255 255)\n\t);\n}",
+                None,
+                vec![
+                    (LEGACY_MESSAGE.to_string(), (4, 3, 4, 21)),
+                    (LEGACY_MESSAGE.to_string(), (5, 3, 5, 19)),
+                ],
+            ),
+        ];
+
+        Tester::new(NAME, json!(["legacy"]), pass, fail).test();
+    }
+
+    #[test]
+    fn modern_scss() {
+        let pass = &[
+            "a { color: rgb(white, .5); }",
+            "$a: rgb(0 0 0);",
+            "$a: rgb(0 0 0 / 0);",
+            "a { color: rgb($a $b $c / $d) }",
+            "a { color: rgb($a, $b, $c, $d) }",
+            "a { color: rgb($color-var, 50%); }",
+            "a { color: rgba(color.mix(#000, #fff, 35%), 0.6); }",
+            "a { color: rgba(#fff, 0.85) }",
+            "a { color: rgba($a, $b, $c, $d) }",
+            "a { color: rgb(color.$var, 0.1) }",
+            "a { color: rgba(color.$var, 0.1) }",
+        ];
+
+        let fail = &[
+            reject(
+                "$a: rgb(0, 0, 0);",
+                "$a: rgb(0 0 0);",
+                MODERN_MESSAGE,
+                (1, 5, 1, 17),
+            )
+            .with_edit_info(0, (9, 13, " 0")),
+            reject(
+                "$a: rgb(0, 0, 0, 0);",
+                "$a: rgb(0 0 0 / 0);",
+                MODERN_MESSAGE,
+                (1, 5, 1, 20),
+            )
+            .with_edit_info(0, (9, 16, " 0 0 /")),
+        ];
+
+        Tester::new(NAME, json!(["modern"]), pass, fail)
+            .with_custom_syntax("postcss-scss")
+            .with_fix(true)
+            .with_compute_edit_info(true)
+            .test();
+    }
+
+    #[test]
+    fn modern_ignore_with_var_inside() {
+        let pass = &[
+            "a { color: rgba(var(--bar), 0.5); }",
+            "a { color: rgba(VaR(--bar), 0.5); }",
+        ];
+        let fail = &[];
+
+        Tester::new(
+            NAME,
+            json!(["modern", { "ignore": "with-var-inside" }]),
+            pass,
+            fail,
+        )
+        .with_fix(true)
+        .test();
+    }
+
+    #[test]
+    fn legacy_ignore_with_var_inside() {
+        let pass = &[
+            "a { color: rgb(var(--foo) / 0.5); }",
+            "a { color: rgb(VaR(--foo) / 0.5); }",
+        ];
+        let fail = &[];
+
+        Tester::new(
+            NAME,
+            json!(["legacy", { "ignore": "with-var-inside" }]),
+            pass,
+            fail,
+        )
+        .with_fix(true)
+        .test();
+    }
+
+    #[test]
+    fn legacy_scss() {
+        let pass = &[
+            "$a: rgb(0, 0, 0);",
+            "$a: rgba(0, 0, 0, 0);",
+            "a { color: rgba($a, $b, $c, $d) }",
+            "a { color: rgb($a $b $c / $d) }",
+            "a { color: rgb(color.$a color.$b color.$c / color.$d) }",
+        ];
+        let fail = &[reject(
+            "$a: rgb(0 0 0 / 0);",
+            None,
+            LEGACY_MESSAGE,
+            (1, 5, 1, 19),
+        )];
+
+        Tester::new(NAME, json!(["legacy"]), pass, fail)
+            .with_custom_syntax("postcss-scss")
+            .test();
+    }
+}

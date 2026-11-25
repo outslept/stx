@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::{context::LintContext, rules::Rule};
 use oxc_css_parser::{
     Span,
@@ -72,7 +70,11 @@ impl Rule for NamedGridAreasNoInvalid {
         let mut expected_cols: Option<usize> = None;
         for (tokens, span) in &rows {
             if tokens.is_empty() {
-                ctx.report(self.name(), *span, "Unexpected empty grid area".to_string());
+                ctx.report(
+                    self.name(),
+                    *span,
+                    "Expected cell token within string".to_string(),
+                );
                 return;
             }
             if let Some(cols) = expected_cols {
@@ -89,16 +91,16 @@ impl Rule for NamedGridAreasNoInvalid {
             }
         }
 
-        let mut areas: HashMap<&str, Vec<(usize, usize)>> = HashMap::new();
+        let mut areas: Vec<(&str, Vec<(usize, usize)>)> = Vec::new();
         for (r_idx, (tokens, _)) in rows.iter().enumerate() {
             for (c_idx, token) in tokens.iter().enumerate() {
                 if token.chars().all(|c| c == '.') {
                     continue;
                 }
-                areas
-                    .entry(token.as_str())
-                    .or_default()
-                    .push((r_idx, c_idx));
+                match areas.iter_mut().find(|(name, _)| *name == token) {
+                    Some((_, coords)) => coords.push((r_idx, c_idx)),
+                    None => areas.push((token.as_str(), vec![(r_idx, c_idx)])),
+                }
             }
         }
 
@@ -113,7 +115,7 @@ impl Rule for NamedGridAreasNoInvalid {
                 ctx.report(
                     self.name(),
                     decl.span,
-                    format!("Unexpected non-rectangular grid area \"{name}\""),
+                    format!("Expected single filled-in rectangle for \"{name}\""),
                 );
             }
         }

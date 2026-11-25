@@ -496,3 +496,737 @@ impl Rule for CustomPropertyEmptyLineBefore {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tester::{Tester, reject_start};
+    use serde_json::json;
+
+    const RULE_NAME: &str = "custom-property-empty-line-before";
+    const EXPECTED: &str = "Expected empty line before custom property";
+    const REJECTED: &str = "Expected no empty line before custom property";
+
+    #[test]
+    fn custom_property_empty_line_before_always() {
+        let pass = [
+            "a {\n\n --custom-prop: value;\n}",
+            "a {\r\n\r\n --custom-prop: value;\r\n}",
+            "a{\n\n --custom-prop: value; }",
+            "a{\n\n --custom-prop: value;\r\n\r\n --custom-prop2: value;}",
+            "a{\n\n --custom-prop: value;\n\r\n --custom-prop2: value;}",
+            "a{\n top: 10px;\n\r\n --custom-prop: value;}",
+            "a{\n @extends .class;\n\r\n --custom-prop: value;}",
+            "a{\n $var: value;\n\r\n --custom-prop: value;}",
+        ];
+        let fail = [
+            reject_start(
+                "a {\n--custom-prop: value;\n}",
+                "a {\n\n--custom-prop: value;\n}",
+                EXPECTED,
+                (2, 1),
+            )
+            .with_edit_info(0, (3, 4, "\n\n")),
+            reject_start(
+                "a {\r\n --custom-prop: value;\r\n}",
+                "a {\r\n\r\n --custom-prop: value;\r\n}",
+                EXPECTED,
+                (2, 2),
+            )
+            .with_edit_info(0, (4, 5, "\n\r\n")),
+            reject_start(
+                "a{\n\n --custom-prop: value; \n --custom-prop2: value;}",
+                "a{\n\n --custom-prop: value; \n\n --custom-prop2: value;}",
+                EXPECTED,
+                (4, 2),
+            )
+            .with_edit_info(0, (27, 28, "\n\n")),
+            reject_start(
+                "a{\r\n\r\n --custom-prop: value;\r\n --custom-prop2: value;}",
+                "a{\r\n\r\n --custom-prop: value;\r\n\r\n --custom-prop2: value;}",
+                EXPECTED,
+                (4, 2),
+            )
+            .with_edit_info(0, (29, 30, "\n\r\n")),
+            reject_start(
+                "a{\n top: 10px;\n --custom-prop: value;}",
+                "a{\n top: 10px;\n\n --custom-prop: value;}",
+                EXPECTED,
+                (3, 2),
+            )
+            .with_edit_info(0, (14, 15, "\n\n")),
+            reject_start(
+                "a{\r\n @extends .class;\r\n --custom-prop: value;}",
+                "a{\r\n @extends .class;\r\n\r\n --custom-prop: value;}",
+                EXPECTED,
+                (3, 2),
+            )
+            .with_edit_info(0, (22, 23, "\n\r\n")),
+            reject_start(
+                "a{\n $var: value;\n --custom-prop: value;}",
+                "a{\n $var: value;\n\n --custom-prop: value;}",
+                EXPECTED,
+                (3, 2),
+            )
+            .with_edit_info(0, (16, 17, "\n\n")),
+        ];
+
+        Tester::new(RULE_NAME, json!(["always"]), pass, fail)
+            .with_fix(true)
+            .with_compute_edit_info(true)
+            .test();
+    }
+
+    #[test]
+    fn custom_property_empty_line_before_always_ignore_after_comment() {
+        let pass = [
+            "a {\n/* comment */\n--custom-prop: value;\n}",
+            "a {\r\n/* comment */\r\nn--custom-prop: value;\r\n}",
+        ];
+        let fail = [
+            reject_start(
+                "a {\n --custom-prop: value;\n}",
+                "a {\n\n --custom-prop: value;\n}",
+                EXPECTED,
+                (2, 2),
+            )
+            .with_edit_info(0, (3, 4, "\n\n")),
+            reject_start(
+                "a {\ncolor: pink; /* comment */\n--custom-prop: value;\n}",
+                "a {\ncolor: pink; /* comment */\n\n--custom-prop: value;\n}",
+                EXPECTED,
+                (3, 1),
+            )
+            .with_edit_info(0, (30, 31, "\n\n")),
+            reject_start(
+                "a {\n/* comment */ --custom-prop: value;\n}",
+                "a {\n/* comment */\n\n --custom-prop: value;\n}",
+                EXPECTED,
+                (2, 15),
+            )
+            .with_edit_info(0, (16, 17, "/\n\n")),
+        ];
+
+        Tester::new(
+            RULE_NAME,
+            json!(["always", { "ignore": ["after-comment"] }]),
+            pass,
+            fail,
+        )
+        .with_fix(true)
+        .with_compute_edit_info(true)
+        .test();
+    }
+
+    #[test]
+    fn custom_property_empty_line_before_always_ignore_after_custom_property() {
+        let pass = [
+            "a {\n\n --custom-prop: value; --custom-prop2: value;\n}",
+            "a {\r\n\r\n --custom-prop: value; --custom-prop2: value;\r\n}",
+            "a {\n\n --custom-prop: value;\n --custom-prop2: value;\n}",
+            "a {\n\n --custom-prop: value; /* comment */\n --custom-prop2: value;\n}",
+            "a {\r\n\r\n --custom-prop: value;\r\n --custom-prop2: value;\r\n}",
+            "a {\n\n --custom-prop: value;\n\n --custom-prop2: value;\n}",
+            "a {\r\n\r\n --custom-prop: value;\r\n\r\n --custom-prop2: value;\r\n}",
+        ];
+        let fail = [
+            reject_start(
+                "a{\n @extends .class;\n --custom-prop: value;\n}",
+                "a{\n @extends .class;\n\n --custom-prop: value;\n}",
+                EXPECTED,
+                (3, 2),
+            )
+            .with_edit_info(0, (20, 21, "\n\n")),
+            reject_start(
+                "a{\r\n @extends .class;\r\n --custom-prop: value;\r\n}",
+                "a{\r\n @extends .class;\r\n\r\n --custom-prop: value;\r\n}",
+                EXPECTED,
+                (3, 2),
+            )
+            .with_edit_info(0, (22, 23, "\n\r\n")),
+            reject_start(
+                "a{\n @include mixin;\n --custom-prop: value;\n}",
+                "a{\n @include mixin;\n\n --custom-prop: value;\n}",
+                EXPECTED,
+                (3, 2),
+            )
+            .with_edit_info(0, (19, 20, "\n\n")),
+            reject_start(
+                "a{\r\n @include mixin;\r\n --custom-prop: value;\r\n}",
+                "a{\r\n @include mixin;\r\n\r\n --custom-prop: value;\r\n}",
+                EXPECTED,
+                (3, 2),
+            )
+            .with_edit_info(0, (21, 22, "\n\r\n")),
+            reject_start(
+                "a {\n --custom-prop: value;\n}",
+                "a {\n\n --custom-prop: value;\n}",
+                EXPECTED,
+                (2, 2),
+            )
+            .with_edit_info(0, (3, 4, "\n\n")),
+            reject_start(
+                "a {\r\n --custom-prop: value;\r\n}",
+                "a {\r\n\r\n --custom-prop: value;\r\n}",
+                EXPECTED,
+                (2, 2),
+            )
+            .with_edit_info(0, (4, 5, "\n\r\n")),
+            reject_start(
+                "a {\n  top: 15px;\n  --custom-prop: value;\n}",
+                "a {\n  top: 15px;\n\n  --custom-prop: value;\n}",
+                EXPECTED,
+                (3, 3),
+            )
+            .with_edit_info(0, (16, 17, "\n\n")),
+        ];
+
+        Tester::new(
+            RULE_NAME,
+            json!(["always", { "ignore": ["after-custom-property"] }]),
+            pass,
+            fail,
+        )
+        .with_fix(true)
+        .with_compute_edit_info(true)
+        .test();
+    }
+
+    #[test]
+    fn custom_property_empty_line_before_always_ignore_first_nested() {
+        let pass = [
+            "a {\n --custom-prop: value;\n\n --custom-prop2: value;\n}",
+            "a {\n\n --custom-prop: value;\n\n --custom-prop2: value;\n}",
+            "a {\r\n --custom-prop: value;\r\n\r\n --custom-prop2: value;\r\n}",
+            "a {\r\n\r\n --custom-prop: value;\r\n\r\n --custom-prop2: value;\r\n}",
+        ];
+        let fail = [
+            reject_start(
+                "a {\n --custom-prop: value;\n --custom-prop2: value;\n}",
+                "a {\n --custom-prop: value;\n\n --custom-prop2: value;\n}",
+                EXPECTED,
+                (3, 2),
+            )
+            .with_edit_info(0, (26, 27, "\n\n")),
+            reject_start(
+                "a {\n\n --custom-prop: value;\n --custom-prop2: value;\n}",
+                "a {\n\n --custom-prop: value;\n\n --custom-prop2: value;\n}",
+                EXPECTED,
+                (4, 2),
+            )
+            .with_edit_info(0, (27, 28, "\n\n")),
+            reject_start(
+                "a {\r\n --custom-prop: value;\r\n --custom-prop2: value;\r\n}",
+                "a {\r\n --custom-prop: value;\r\n\r\n --custom-prop2: value;\r\n}",
+                EXPECTED,
+                (3, 2),
+            )
+            .with_edit_info(0, (28, 29, "\n\r\n")),
+            reject_start(
+                "a {\r\n\r\n --custom-prop: value;\r\n --custom-prop2: value;\r\n}",
+                "a {\r\n\r\n --custom-prop: value;\r\n\r\n --custom-prop2: value;\r\n}",
+                EXPECTED,
+                (4, 2),
+            )
+            .with_edit_info(0, (30, 31, "\n\r\n")),
+        ];
+
+        Tester::new(
+            RULE_NAME,
+            json!(["always", { "ignore": ["first-nested"] }]),
+            pass,
+            fail,
+        )
+        .with_fix(true)
+        .with_compute_edit_info(true)
+        .test();
+    }
+
+    #[test]
+    fn custom_property_empty_line_before_always_ignore_inside_single_line_block() {
+        let pass = [
+            "a { --custom-prop: value; }",
+            "a {\n\n --custom-prop: value;\n}",
+        ];
+        let fail = [reject_start(
+            "a {\n --custom-prop: value;\n}",
+            "a {\n\n --custom-prop: value;\n}",
+            EXPECTED,
+            (2, 2),
+        )
+        .with_edit_info(0, (3, 4, "\n\n"))];
+
+        Tester::new(
+            RULE_NAME,
+            json!(["always", { "ignore": ["inside-single-line-block"] }]),
+            pass,
+            fail,
+        )
+        .with_fix(true)
+        .with_compute_edit_info(true)
+        .test();
+    }
+
+    #[test]
+    fn custom_property_empty_line_before_always_except_first_nested() {
+        let pass = [
+            "a { --custom-prop: value;\n}",
+            "a {\n --custom-prop: value;\n}",
+            "a {\r\n --custom-prop: value;\r\n}",
+            "a { /* comment */\n --custom-prop: value;\n}",
+        ];
+        let fail = [
+            reject_start(
+                "a {\n\n --custom-prop: value;\n}",
+                "a {\n --custom-prop: value;\n}",
+                REJECTED,
+                (3, 2),
+            )
+            .with_edit_info(0, (4, 5, "")),
+            reject_start(
+                "a {\r\n\r\n --custom-prop: value;\r\n}",
+                "a {\r\n --custom-prop: value;\r\n}",
+                REJECTED,
+                (3, 2),
+            )
+            .with_edit_info(0, (5, 7, "")),
+            reject_start(
+                "a { /* comment*/\n\n --custom-prop: value;\n}",
+                "a { /* comment*/\n --custom-prop: value;\n}",
+                REJECTED,
+                (3, 2),
+            )
+            .with_edit_info(0, (17, 18, "")),
+        ];
+
+        Tester::new(
+            RULE_NAME,
+            json!(["always", { "except": ["first-nested"] }]),
+            pass,
+            fail,
+        )
+        .with_fix(true)
+        .with_compute_edit_info(true)
+        .test();
+    }
+
+    #[test]
+    fn custom_property_empty_line_before_always_except_after_block() {
+        let pass = [
+            "a {\n\n --foo: red;\n}",
+            "a {\n\n a {} \n --foo: red;}",
+            "a {\r\n a {} \r\n --foo: red;}",
+            "a {\n\n @media all {} \n --foo: red;}",
+            "a {\r\n @media all {} \r\n --foo: red;}",
+        ];
+        let fail = [
+            reject_start(
+                "a {\n\n --foo: red;\n a {} \n\n --bar: red;}",
+                "a {\n\n --foo: red;\n a {} \n --bar: red;}",
+                REJECTED,
+                (6, 2),
+            )
+            .with_edit_info(0, (25, 26, "")),
+            reject_start(
+                "a {\r\n a {} \r\n\r\n --foo: red;}",
+                "a {\r\n a {} \r\n --foo: red;}",
+                REJECTED,
+                (4, 2),
+            )
+            .with_edit_info(0, (13, 15, "")),
+            reject_start(
+                "a {\n\n --foo: red;\n @media all {} \n\n --bar: red;}",
+                "a {\n\n --foo: red;\n @media all {} \n --bar: red;}",
+                REJECTED,
+                (6, 2),
+            )
+            .with_edit_info(0, (34, 35, "")),
+            reject_start(
+                "a {\r\n @media all {} \r\n\r\n --foo: red;}",
+                "a {\r\n @media all {} \r\n --foo: red;}",
+                REJECTED,
+                (4, 2),
+            )
+            .with_edit_info(0, (22, 24, "")),
+        ];
+
+        Tester::new(
+            RULE_NAME,
+            json!(["always", { "except": ["after-block"] }]),
+            pass,
+            fail,
+        )
+        .with_fix(true)
+        .with_compute_edit_info(true)
+        .test();
+    }
+
+    #[test]
+    fn custom_property_empty_line_before_always_except_after_comment() {
+        let pass = [
+            "a {\n\n --custom-prop: value;\n}",
+            "a {\n\n /* I am a comment */ \n --custom-prop2: value;}",
+            "a {\r\n /* I am a comment */ \r\n --custom-prop2: value;}",
+        ];
+        let fail = [
+            reject_start(
+                "a {\n\n --custom-prop: value;\n /* I am a comment */ \n\n --custom-prop2: value;}",
+                "a {\n\n --custom-prop: value;\n /* I am a comment */ \n --custom-prop2: value;}",
+                REJECTED,
+                (6, 2),
+            )
+            .with_edit_info(0, (51, 52, "")),
+            reject_start(
+                "a {\r\n /* I am a comment */ \r\n\r\n --custom-prop2: value;}",
+                "a {\r\n /* I am a comment */ \r\n --custom-prop2: value;}",
+                REJECTED,
+                (4, 2),
+            )
+            .with_edit_info(0, (29, 31, "")),
+            reject_start(
+                "a {\ncolor: pink; /* I am a comment */\n--custom-prop2: value;}",
+                "a {\ncolor: pink; /* I am a comment */\n\n--custom-prop2: value;}",
+                EXPECTED,
+                (3, 1),
+            )
+            .with_edit_info(0, (37, 38, "\n\n")),
+            reject_start(
+                "a {/* I am a comment */ \n --custom-prop2: value;}",
+                "a {/* I am a comment */ \n\n --custom-prop2: value;}",
+                EXPECTED,
+                (2, 2),
+            )
+            .with_edit_info(0, (24, 25, "\n\n")),
+        ];
+
+        Tester::new(
+            RULE_NAME,
+            json!(["always", { "except": ["after-comment"] }]),
+            pass,
+            fail,
+        )
+        .with_fix(true)
+        .with_compute_edit_info(true)
+        .test();
+    }
+
+    #[test]
+    fn custom_property_empty_line_before_always_except_after_custom_property() {
+        let pass = [
+            "a {\n\n --custom-prop: value;\n}",
+            "a {\n\n --custom-prop:value; \n --custom-prop2: value;}",
+            "a {\n\n --custom-prop:value; \r\n --custom-prop2: value;}",
+        ];
+        let fail = [
+            reject_start(
+                "a {\n\n --custom-prop:value;\n\n --custom-prop2: value;}",
+                "a {\n\n --custom-prop:value;\n --custom-prop2: value;}",
+                REJECTED,
+                (5, 2),
+            )
+            .with_edit_info(0, (27, 28, "")),
+            reject_start(
+                "a {\r\n\r\n --custom-prop: value;\r\n\r\n --custom-prop2: value;}",
+                "a {\r\n\r\n --custom-prop: value;\r\n --custom-prop2: value;}",
+                REJECTED,
+                (5, 2),
+            )
+            .with_edit_info(0, (31, 33, "")),
+        ];
+
+        Tester::new(
+            RULE_NAME,
+            json!(["always", { "except": ["after-custom-property"] }]),
+            pass,
+            fail,
+        )
+        .with_fix(true)
+        .with_compute_edit_info(true)
+        .test();
+    }
+
+    #[test]
+    fn custom_property_empty_line_before_always_except_after_comment_first_nested() {
+        let pass = [
+            "a {\n --custom-prop: value;\n}",
+            "a {\n\n /* I am a comment */ \n --custom-prop2: value;}",
+            "a { /* comment */\n --custom-prop: value;\n}",
+        ];
+
+        Tester::new(
+            RULE_NAME,
+            json!(["always", { "except": ["after-comment", "first-nested"] }]),
+            pass,
+            [],
+        )
+        .test();
+    }
+
+    #[test]
+    fn custom_property_empty_line_before_always_except_multiple() {
+        let pass = [
+            "a {\n --custom-prop: value; \n --custom-prop2: value; \n /* comment */ \n --custom-prop3: value;\n\n @extends 'x';\n\n --custom-prop4: value; \n & b {\n prop: value;\n } \n\n --custom-prop5: value; \n }",
+        ];
+
+        Tester::new(
+            RULE_NAME,
+            json!([
+                "always",
+                { "except": ["first-nested", "after-comment", "after-custom-property"] },
+            ]),
+            pass,
+            [],
+        )
+        .with_fix(true)
+        .test();
+    }
+
+    #[test]
+    fn custom_property_empty_line_before_never() {
+        let pass = [
+            "a {\n --custom-prop: value;\n}",
+            "a {\r\n --custom-prop: value;\r\n}",
+            "a {\n --custom-prop: value; \n --custom-prop2: value; \n\n /* comment */ \n --custom-prop3: value; \n\n @extends 'x'; \n --custom-prop4: value; \n\n & b {\n prop: value; \n } \n --custom-prop5: value;\n }",
+            "a{\n top: 10px;\n --custom-prop: value;}",
+            "a{\n @extends .class;\n --custom-prop: value;}",
+            "a{\n $var: value;\n --custom-prop: value;}",
+        ];
+        let fail = [
+            reject_start(
+                "a {\n\n --custom-prop: value;\n}",
+                "a {\n --custom-prop: value;\n}",
+                REJECTED,
+                (3, 2),
+            )
+            .with_edit_info(0, (4, 5, "")),
+            reject_start(
+                "a {\r\n\r\n --custom-prop: value;\r\n}",
+                "a {\r\n --custom-prop: value;\r\n}",
+                REJECTED,
+                (3, 2),
+            )
+            .with_edit_info(0, (5, 7, "")),
+            reject_start(
+                "a{\n top: 10px;\n\n --custom-prop: value;}",
+                "a{\n top: 10px;\n --custom-prop: value;}",
+                REJECTED,
+                (4, 2),
+            )
+            .with_edit_info(0, (15, 16, "")),
+            reject_start(
+                "a{\r\n @extends .class;\r\n\r\n --custom-prop: value;}",
+                "a{\r\n @extends .class;\r\n --custom-prop: value;}",
+                REJECTED,
+                (4, 2),
+            )
+            .with_edit_info(0, (23, 25, "")),
+            reject_start(
+                "a{\n $var: value;\n\n --custom-prop: value;}",
+                "a{\n $var: value;\n --custom-prop: value;}",
+                REJECTED,
+                (4, 2),
+            )
+            .with_edit_info(0, (17, 18, "")),
+        ];
+
+        Tester::new(RULE_NAME, json!(["never"]), pass, fail)
+            .with_fix(true)
+            .with_compute_edit_info(true)
+            .test();
+    }
+
+    #[test]
+    fn custom_property_empty_line_before_never_except_first_nested() {
+        let pass = [
+            "a {\n\n --custom-prop: value;\n}",
+            "a {\n\n --custom-prop: value;\n}",
+            "a {\r\n\r\n --custom-prop: value;\r\n}",
+        ];
+        let fail = [
+            reject_start(
+                "a {\n --custom-prop: value;\n}",
+                "a {\n\n --custom-prop: value;\n}",
+                EXPECTED,
+                (2, 2),
+            )
+            .with_edit_info(0, (3, 4, "\n\n")),
+            reject_start(
+                "a {\r\n --custom-prop: value;\r\n}",
+                "a {\r\n\r\n --custom-prop: value;\r\n}",
+                EXPECTED,
+                (2, 2),
+            )
+            .with_edit_info(0, (4, 5, "\n\r\n")),
+        ];
+
+        Tester::new(
+            RULE_NAME,
+            json!(["never", { "except": ["first-nested"] }]),
+            pass,
+            fail,
+        )
+        .with_fix(true)
+        .with_compute_edit_info(true)
+        .test();
+    }
+
+    #[test]
+    fn custom_property_empty_line_before_never_except_after_block() {
+        let pass = [
+            "a {\n --foo: red;\n}",
+            "a {\n a {} \n\n --foo: red;}",
+            "a {\r\n a {} \r\n\r\n --foo: red;}",
+            "a {\n @media all {} \n\n --foo: red;}",
+            "a {\r\n @media all {} \r\n\r\n --foo: red;}",
+        ];
+        let fail = [
+            reject_start(
+                "a {\n --foo: red;\n a {} \n --bar: value;}",
+                "a {\n --foo: red;\n a {} \n\n --bar: value;}",
+                EXPECTED,
+                (4, 2),
+            )
+            .with_edit_info(0, (23, 24, "\n\n")),
+            reject_start(
+                "a {\r\n a {} \r\n --foo: red;}",
+                "a {\r\n a {} \r\n\r\n --foo: red;}",
+                EXPECTED,
+                (3, 2),
+            )
+            .with_edit_info(0, (12, 13, "\n\r\n")),
+            reject_start(
+                "a {\n --foo: red;\n @media all {} \n --bar: red;}",
+                "a {\n --foo: red;\n @media all {} \n\n --bar: red;}",
+                EXPECTED,
+                (4, 2),
+            )
+            .with_edit_info(0, (32, 33, "\n\n")),
+            reject_start(
+                "a {\r\n @media all {} \r\n --foo: red;}",
+                "a {\r\n @media all {} \r\n\r\n --foo: red;}",
+                EXPECTED,
+                (3, 2),
+            )
+            .with_edit_info(0, (21, 22, "\n\r\n")),
+        ];
+
+        Tester::new(
+            RULE_NAME,
+            json!(["never", { "except": ["after-block"] }]),
+            pass,
+            fail,
+        )
+        .with_fix(true)
+        .with_compute_edit_info(true)
+        .test();
+    }
+
+    #[test]
+    fn custom_property_empty_line_before_never_except_after_comment() {
+        let pass = [
+            "a {\n --custom-prop: value;\n}",
+            "a {\n /* I am a comment */ \n\n --custom-prop2: value;}",
+            "a {\r\n /* I am a comment */ \r\n\r\n --custom-prop2: value;}",
+        ];
+        let fail = [
+            reject_start(
+                "a {\n --custom-prop: value;\n /* I am a comment */ \n --custom-prop2: value;}",
+                "a {\n --custom-prop: value;\n /* I am a comment */ \n\n --custom-prop2: value;}",
+                EXPECTED,
+                (4, 2),
+            )
+            .with_edit_info(0, (49, 50, "\n\n")),
+            reject_start(
+                "a {\r\n /* I am a comment */ \r\n --custom-prop2: value;}",
+                "a {\r\n /* I am a comment */ \r\n\r\n --custom-prop2: value;}",
+                EXPECTED,
+                (3, 2),
+            )
+            .with_edit_info(0, (28, 29, "\n\r\n")),
+            reject_start(
+                "a {/* I am a comment */ \n\n --custom-prop2: value;}",
+                "a {/* I am a comment */ \n --custom-prop2: value;}",
+                REJECTED,
+                (3, 2),
+            )
+            .with_edit_info(0, (25, 26, "")),
+        ];
+
+        Tester::new(
+            RULE_NAME,
+            json!(["never", { "except": ["after-comment"] }]),
+            pass,
+            fail,
+        )
+        .with_fix(true)
+        .with_compute_edit_info(true)
+        .test();
+    }
+
+    #[test]
+    fn custom_property_empty_line_before_never_except_after_custom_property() {
+        let pass = [
+            "a {\n --custom-prop: value;\n}",
+            "a {\n --custom-prop:value; \n\n --custom-prop2: value;}",
+            "a {\n --custom-prop:value; /* comment */\n\n --custom-prop2: value;}",
+            "a {\n --custom-prop:value; \r\n\r\n --custom-prop2: value;}",
+        ];
+        let fail = [
+            reject_start(
+                "a {\n --custom-prop:value;\n--custom-prop2: value;}",
+                "a {\n --custom-prop:value;\n\n--custom-prop2: value;}",
+                EXPECTED,
+                (3, 1),
+            )
+            .with_edit_info(0, (25, 26, "\n\n")),
+            reject_start(
+                "a {\n --custom-prop: value;\n --custom-prop2: value;}",
+                "a {\n --custom-prop: value;\n\n --custom-prop2: value;}",
+                EXPECTED,
+                (3, 2),
+            )
+            .with_edit_info(0, (26, 27, "\n\n")),
+        ];
+
+        Tester::new(
+            RULE_NAME,
+            json!(["never", { "except": ["after-custom-property"] }]),
+            pass,
+            fail,
+        )
+        .with_fix(true)
+        .with_compute_edit_info(true)
+        .test();
+    }
+
+    #[test]
+    fn custom_property_empty_line_before_never_except_multiple() {
+        let pass = [
+            "a {\n\n --custom-prop: value; \n\n --custom-prop2: value; \n /* comment */ \n\n --custom-prop3: value;\n\n @extends 'x';\n --custom-prop4: value; \n & b {\n prop: value;\n } \n --custom-prop5: value; \n }",
+        ];
+
+        Tester::new(
+            RULE_NAME,
+            json!([
+                "never",
+                { "except": ["first-nested", "after-comment", "after-custom-property"] },
+            ]),
+            pass,
+            [],
+        )
+        .with_fix(true)
+        .test();
+    }
+
+    #[test]
+    #[ignore = "CSS-in-JS syntax not supported"]
+    fn custom_property_empty_line_before_css_in_js() {
+        Tester::new(
+            RULE_NAME,
+            json!(["always", { "except": ["first-nested"] }]),
+            ["css` --foo: 100px; `;"],
+            [],
+        )
+        .with_custom_syntax("naive-css-in-js")
+        .test();
+    }
+}

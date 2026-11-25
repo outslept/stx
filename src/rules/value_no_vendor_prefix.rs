@@ -1,10 +1,8 @@
 use crate::{
     context::LintContext,
     fix::Fix,
-    rules::{
-        Rule,
-        value_utils::{ValueTokenKind, declaration_value_span, tokenize_value},
-    },
+    rules::Rule,
+    utils::{ValueTokenKind, declaration_value_span, tokenize_value},
 };
 use oxc_css_parser::{
     Span,
@@ -270,5 +268,225 @@ impl Rule for ValueNoVendorPrefix {
                 _ => {}
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::tester::{Tester, reject};
+
+    const NAME: &str = "value-no-vendor-prefix";
+
+    fn rejected(value: &str) -> String {
+        format!("Vendor-prefixed value \"{value}\"")
+    }
+
+    #[test]
+    fn default_config() {
+        let pass = [
+            "a { display: flex; }",
+            ".foo { display: -webkit-box; }",
+            ".foo { display: -moz-box; }",
+            "a { background: linear-gradient(to top, #000, #fff); }",
+            "a { max-width: max-content; }",
+            "a { -webkit-transform: translate(0, 0); }",
+            "a { -wEbKiT-tRaNsFoRm: translate(0, 0); }",
+            "a { -WEBKIT-TRANSFORM: translate(0, 0); }",
+            "a { white-space: -pre-wrap; }",
+            "a { background-color: -apple-wireless-playback-target-active; }",
+            "a { display: -wap-marquee; }",
+            "a { list-style-type: -moz-ethiopic-halehame; }",
+            "a { display: -webkit-box /*-webkit-flex*/; }",
+            "a { content: \"-webkit-flex\"; }",
+        ];
+        let fail = [
+            reject(
+                ".foo { display: -webkit-flex; }",
+                ".foo { display: flex; }",
+                rejected("-webkit-flex"),
+                (1, 17, 1, 29),
+            )
+            .with_edit_info(0, (16, 24, "")),
+            reject(
+                ".foo { display: -wEbKiT-fLeX; }",
+                ".foo { display: fLeX; }",
+                rejected("-wEbKiT-fLeX"),
+                (1, 17, 1, 29),
+            )
+            .with_edit_info(0, (16, 24, "")),
+            reject(
+                ".foo { display: -WEBKIT-FLEX; }",
+                ".foo { display: FLEX; }",
+                rejected("-WEBKIT-FLEX"),
+                (1, 17, 1, 29),
+            )
+            .with_edit_info(0, (16, 24, "")),
+            reject(
+                ".foo { dIsPlAy: -webkit-flex; }",
+                ".foo { dIsPlAy: flex; }",
+                rejected("-webkit-flex"),
+                (1, 17, 1, 29),
+            )
+            .with_edit_info(0, (16, 24, "")),
+            reject(
+                ".foo { DISPLAY: -webkit-flex; }",
+                ".foo { DISPLAY: flex; }",
+                rejected("-webkit-flex"),
+                (1, 17, 1, 29),
+            )
+            .with_edit_info(0, (16, 24, "")),
+            reject(
+                ".foo { color: pink; display: -webkit-flex; }",
+                ".foo { color: pink; display: flex; }",
+                rejected("-webkit-flex"),
+                (1, 30, 1, 42),
+            )
+            .with_edit_info(0, (29, 37, "")),
+            reject(
+                ".foo { image-rendering: -o-crisp-edges; }",
+                ".foo { image-rendering: crisp-edges; }",
+                rejected("-o-crisp-edges"),
+                (1, 25, 1, 39),
+            )
+            .with_edit_info(0, (24, 27, "")),
+            reject(
+                ".foo { background: -webkit-linear-gradient(bottom, #000, #fff); }",
+                ".foo { background: linear-gradient(bottom, #000, #fff); }",
+                rejected("-webkit-linear-gradient"),
+                (1, 20, 1, 43),
+            )
+            .with_edit_info(0, (19, 27, "")),
+            reject(
+                ".foo { max-width: -moz-max-content; }",
+                ".foo { max-width: max-content; }",
+                rejected("-moz-max-content"),
+                (1, 19, 1, 35),
+            )
+            .with_edit_info(0, (18, 23, "")),
+            reject(
+                ".foo { speak: -xv-digits; }",
+                ".foo { speak: digits; }",
+                rejected("-xv-digits"),
+                (1, 15, 1, 25),
+            )
+            .with_edit_info(0, (14, 18, "")),
+            reject(
+                ".foo { white-space: -o-pre-wrap; }",
+                ".foo { white-space: pre-wrap; }",
+                rejected("-o-pre-wrap"),
+                (1, 21, 1, 32),
+            )
+            .with_edit_info(0, (20, 23, "")),
+            reject(
+                ".foo { -webkit-user-select: -moz-all; }",
+                ".foo { -webkit-user-select: all; }",
+                rejected("-moz-all"),
+                (1, 29, 1, 37),
+            )
+            .with_edit_info(0, (28, 33, "")),
+            reject(
+                "a { display: inline /* comment */ -webkit-flex; }",
+                "a { display: inline /* comment */ flex; }",
+                rejected("-webkit-flex"),
+                (1, 35, 1, 47),
+            )
+            .with_edit_info(0, (34, 42, "")),
+        ];
+        Tester::new(NAME, json!([true]), pass, fail)
+            .with_fix(true)
+            .with_compute_edit_info(true)
+            .test();
+    }
+
+    #[test]
+    fn scss_syntax() {
+        let pass = [
+            "a { $foo: -webkit-plaintext; }",
+            "a { margin: $variable-webkit-variable; }",
+            "a { margin: #{$variable-webkit-variable}; }",
+            "a { #{$foo}: -webkit-plaintext; }",
+        ];
+        Tester::new(NAME, json!([true]), pass, [])
+            .with_custom_syntax("postcss-scss")
+            .with_fix(true)
+            .test();
+    }
+
+    #[test]
+    fn less_syntax() {
+        let pass = [
+            "@new-color: -webkit-function(@color, 10%);",
+            "a { margin: @variable-webkit-variable; }",
+        ];
+        Tester::new(NAME, json!([true]), pass, [])
+            .with_custom_syntax("postcss-less")
+            .with_fix(true)
+            .test();
+    }
+
+    #[test]
+    fn ignore_values_regex_single() {
+        let pass = ["a { list-style-type: -moz-hangul; }"];
+        Tester::new(
+            NAME,
+            json!([true, { "ignoreValues": "/^-moz-hangul$/" }]),
+            pass,
+            [],
+        )
+        .test();
+    }
+
+    #[test]
+    fn ignore_values_mixed_list() {
+        let pass = [
+            "a { cursor: -webkit-grab; }",
+            "a { list-style-type: -moz-hangul; }",
+            "a { background: -webkit-linear-gradient(bottom, #000, #fff); }",
+            "a { -moz-user-select: -moz-all; }",
+        ];
+        let fail = [
+            reject(
+                ".foo { display: -webkit-flex; }",
+                ".foo { display: flex; }",
+                rejected("-webkit-flex"),
+                (1, 17, 1, 29),
+            )
+            .with_edit_info(0, (16, 24, "")),
+            reject(
+                ".foo { display: -wEbKiT-fLeX; }",
+                ".foo { display: fLeX; }",
+                rejected("-wEbKiT-fLeX"),
+                (1, 17, 1, 29),
+            )
+            .with_edit_info(0, (16, 24, "")),
+            reject(
+                ".foo { display: -WEBKIT-FLEX; }",
+                ".foo { display: FLEX; }",
+                rejected("-WEBKIT-FLEX"),
+                (1, 17, 1, 29),
+            )
+            .with_edit_info(0, (16, 24, "")),
+            reject(
+                ".foo { list-style-type: -moz-hangul-consonant; }",
+                ".foo { list-style-type: hangul-consonant; }",
+                rejected("-moz-hangul-consonant"),
+                (1, 25, 1, 46),
+            )
+            .with_edit_info(0, (24, 29, "")),
+        ];
+        Tester::new(
+            NAME,
+            json!([
+                true,
+                { "ignoreValues": ["-webkit-grab", "-moz-hangul", "/^-webkit-linear-/", "/^-moz-all$/"] },
+            ]),
+            pass,
+            fail,
+        )
+        .with_fix(true)
+        .with_compute_edit_info(true)
+        .test();
     }
 }

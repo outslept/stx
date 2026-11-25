@@ -445,3 +445,158 @@ impl Rule for CustomPropertyPattern {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::tester::{Tester, reject, reject_warnings};
+
+    const NAME: &str = "custom-property-pattern";
+
+    fn expected(property: &str, pattern: &str) -> String {
+        format!("Expected \"{property}\" to match pattern \"{pattern}\"")
+    }
+
+    #[test]
+    fn custom_property_pattern_regex_foo() {
+        let pattern = "/foo-.+/";
+        let pass = [
+            ":root { --foo-bar: 0; }",
+            ":root { --boo-foo-bar: 0; }",
+            ":root { --foo-color: #f00; } a { color: var(--foo-color); }",
+            ":root { --foo-sub-color: #f00; } a { color: var(--foo-color, var(--foo-sub-color)); }",
+            "a { --foo-color: var(); }",
+        ];
+        let fail = [
+            reject(
+                ":root { --boo-bar: 0; }",
+                None,
+                expected("--boo-bar", pattern),
+                (1, 9, 1, 18),
+            ),
+            reject(
+                ":root { --foo-: 0; }",
+                None,
+                expected("--foo-", pattern),
+                (1, 9, 1, 15),
+            ),
+            reject(
+                ":root { --foo-color: #f00; } a { color: var(--boo-color); }",
+                None,
+                expected("--boo-color", pattern),
+                (1, 45, 1, 56),
+            ),
+            reject(
+                ":root { --foo-sub-color: #f00; } a { color: var(--foo-color, var(--boo-sub-color)); }",
+                None,
+                expected("--boo-sub-color", pattern),
+                (1, 66, 1, 81),
+            ),
+            reject(
+                ":root { --foo-color: #f00; } a { color: VAR(--boo-color)); }",
+                None,
+                expected("--boo-color", pattern),
+                (1, 45, 1, 56),
+            ),
+            reject_warnings(
+                ":root { --foo-color: #f00; } a { color: var(--boo-color), var(--boo-sub-color)); }",
+                None,
+                vec![
+                    (expected("--boo-color", pattern), (1, 45, 1, 56)),
+                    (expected("--boo-sub-color", pattern), (1, 63, 1, 78)),
+                ],
+            ),
+        ];
+        Tester::new(NAME, json!([pattern]), pass, fail).test();
+    }
+
+    #[test]
+    fn custom_property_pattern_string_foo() {
+        let pattern = "foo-.+";
+        let pass = [":root { --foo-bar: 0; }", ":root { --boo-foo-bar: 0; }"];
+        let fail = [
+            reject(
+                ":root { --boo-bar: 0; }",
+                None,
+                expected("--boo-bar", pattern),
+                (1, 9, 1, 18),
+            ),
+            reject(
+                ":root { --foo-: 0; }",
+                None,
+                expected("--foo-", pattern),
+                (1, 9, 1, 15),
+            ),
+        ];
+        Tester::new(NAME, json!([pattern]), pass, fail).test();
+    }
+
+    #[test]
+    fn custom_property_pattern_case_sensitive() {
+        let pattern = "/^[A-Z][a-z]+-[a-z][a-zA-Z]+$/";
+        let pass = [":root { --Foo-bar: 0; }", ":root { --Foo-barBaz: 0; }"];
+        let fail = [
+            reject(
+                ":root { --boo-Foo-bar: 0; }",
+                None,
+                expected("--boo-Foo-bar", pattern),
+                (1, 9, 1, 22),
+            ),
+            reject(
+                ":root { --foo-bar: 0; }",
+                None,
+                expected("--foo-bar", pattern),
+                (1, 9, 1, 18),
+            ),
+            reject(
+                ":root { --Foo-Bar: 0; }",
+                None,
+                expected("--Foo-Bar", pattern),
+                (1, 9, 1, 18),
+            ),
+        ];
+        Tester::new(NAME, json!([pattern]), pass, fail).test();
+    }
+
+    #[test]
+    fn custom_property_pattern_scss() {
+        let pass = [
+            "a { color: var($foo-color); }",
+            "a { color: var(bar.$baz); }",
+            "a { --#{$bar}: 0; }",
+            "a { color: var( #{$bar} ); }",
+            "a { color: var( --#{$bar} ); }",
+        ];
+        Tester::new(NAME, json!(["/foo-.+/"]), pass, [])
+            .with_custom_syntax("postcss-scss")
+            .test();
+    }
+
+    #[test]
+    fn custom_property_pattern_at_property() {
+        let pattern = "/^[a-z]+(?:-[a-z]+)*$/";
+        let pass = ["@property --foo-bar {}", "@property --foo, --bar {}"];
+        let fail = [
+            reject(
+                "@property --Foo-bar {}",
+                None,
+                expected("--Foo-bar", pattern),
+                (1, 11, 1, 20),
+            ),
+            reject(
+                "@property --foo- {}",
+                None,
+                expected("--foo-", pattern),
+                (1, 11, 1, 17),
+            ),
+            reject(
+                "@property --foo, --Bar {}",
+                None,
+                expected("--Bar", pattern),
+                (1, 18, 1, 23),
+            ),
+        ];
+        Tester::new(NAME, json!([pattern]), pass, fail).test();
+    }
+}

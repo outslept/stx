@@ -2,7 +2,8 @@ use std::collections::HashSet;
 
 use crate::{
     context::LintContext,
-    rules::{Rule, value_utils::PatternMatcher},
+    rules::Rule,
+    utils::{OptionMatcher, parse_option_matchers},
 };
 use oxc_css_parser::{
     Span,
@@ -11,35 +12,13 @@ use oxc_css_parser::{
 
 #[derive(Default)]
 pub struct FontFamilyNoDuplicateNames {
-    pub ignore_font_family_names: Vec<PatternMatcher>,
+    pub ignore_font_family_names: Vec<OptionMatcher>,
 }
 
 impl FontFamilyNoDuplicateNames {
     pub fn from_secondary(secondary: Option<&serde_json::Map<String, serde_json::Value>>) -> Self {
-        let mut ignore_font_family_names = Vec::new();
-        if let Some(arr) = secondary
-            .and_then(|m| m.get("ignoreFontFamilyNames"))
-            .and_then(|v| v.as_array())
-        {
-            for item in arr {
-                if let Some(s) = item.as_str() {
-                    let pattern = if let Some(inner) = s.strip_prefix('/') {
-                        if let Some(pat) = inner.strip_suffix("/i") {
-                            format!("(?i){pat}")
-                        } else if let Some(pat) = inner.strip_suffix('/') {
-                            pat.to_string()
-                        } else {
-                            s.to_string()
-                        }
-                    } else {
-                        format!("^{}$", regex::escape(s))
-                    };
-                    ignore_font_family_names.push(PatternMatcher::new(Some(&pattern)));
-                }
-            }
-        }
         Self {
-            ignore_font_family_names,
+            ignore_font_family_names: parse_option_matchers(secondary, "ignoreFontFamilyNames"),
         }
     }
 }
@@ -288,4 +267,119 @@ fn is_number_or_dimension(token: &str) -> bool {
         }
     }
     bytes[i].is_ascii_digit()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tester::{Tester, reject};
+    use serde_json::json;
+
+    const RULE_NAME: &str = "font-family-no-duplicate-names";
+
+    fn rejected(name: &str) -> String {
+        format!("Duplicate font-family name \"{name}\"")
+    }
+
+    #[test]
+    fn default_config() {
+        let pass = [
+            "a { font-family: \"Lucida Grande\", \"Arial\", sans-serif; }",
+            "a { font: 1em \"Lucida Grande\", 'Arial', sans-serif; }",
+            "a { font: 1em \"Lucida Grande\", 'Arial', \"sans-serif\", sans-serif; }",
+            "a { font-family: Times, serif; }",
+            "b { font: normal 14px/32px -apple-system, BlinkMacSystemFont, sans-serif; }",
+        ];
+        let fail = [
+            reject(
+                "a { font-family: \"Lucida Grande\", 'Arial', sans-serif, sans-serif; }",
+                None,
+                rejected("sans-serif"),
+                (1, 56, 1, 66),
+            ),
+            reject(
+                "a { font-family: 'Arial', \"Lucida Grande\", Arial, sans-serif; }",
+                None,
+                rejected("Arial"),
+                (1, 44, 1, 49),
+            ),
+            reject(
+                "a { fOnT-fAmIlY: '  Lucida Grande ', \"Lucida Grande\", sans-serif; }",
+                None,
+                rejected("Lucida Grande"),
+                (1, 38, 1, 53),
+            ),
+            reject(
+                "a { font-family: 'Times', Times, \"serif\", serif; }",
+                None,
+                rejected("Times"),
+                (1, 27, 1, 32),
+            ),
+            reject(
+                "a { FONT: italic 300 16px/30px Arial, \" Arial\", serif; }",
+                None,
+                rejected("Arial"),
+                (1, 39, 1, 46),
+            ),
+            reject(
+                "b { font: normal 14px/32px -apple-system, BlinkMacSystemFont, sans-serif, sans-serif; }",
+                None,
+                rejected("sans-serif"),
+                (1, 75, 1, 85),
+            ),
+        ];
+
+        Tester::new(RULE_NAME, json!([true]), pass, fail).test();
+    }
+
+    #[test]
+    fn ignore_font_family_names_strings_and_regexes() {
+        let pass = [
+            "pre { font-family: monospace, monospace }",
+            "pre { font: 1em monospace, monospace}",
+            "pre { font-family: monospace, \"Roberto Mono\", monospace}",
+            "pre { font-family: \"my-font\", \"my-font\", sans-serif}",
+            "pre { font-family: \"your-font\", \"YOUR-font\", sans-serif}",
+        ];
+        let fail = [
+            reject(
+                "pre { font-family: \"Roberto Mono\", \"Roberto Mono\", monospace}",
+                None,
+                rejected("Roberto Mono"),
+                (1, 36, 1, 50),
+            ),
+            reject(
+                "pre { font-family: My-font, \"My-font\", sans-serif}",
+                None,
+                rejected("My-font"),
+                (1, 29, 1, 38),
+            ),
+        ];
+
+        Tester::new(
+            RULE_NAME,
+            json!([true, { "ignoreFontFamilyNames": ["monospace", "/my-/", "/^YOUR-/i"] }]),
+            pass,
+            fail,
+        )
+        .test();
+    }
+
+    #[test]
+    fn ignore_font_family_names_regex() {
+        let pass = ["pre { font-family: \"my-font\", \"my-font\", sans-serif}"];
+        let fail = [reject(
+            "pre { font-family: \"Roberto Mono\", \"Roberto Mono\", monospace}",
+            None,
+            rejected("Roberto Mono"),
+            (1, 36, 1, 50),
+        )];
+
+        Tester::new(
+            RULE_NAME,
+            json!([true, { "ignoreFontFamilyNames": ["/my-/"] }]),
+            pass,
+            fail,
+        )
+        .test();
+    }
 }

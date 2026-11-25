@@ -188,7 +188,7 @@ impl Rule for PropertyNoVendorPrefix {
                 ctx.report_with_fix(
                     self.name(),
                     ident.span,
-                    format!("Unexpected vendor-prefix \"{}\"", prop),
+                    format!("Vendor-prefixed property \"{}\"", prop),
                     Some(Fix::single(ident.span, unprefixed.to_string())),
                 );
             }

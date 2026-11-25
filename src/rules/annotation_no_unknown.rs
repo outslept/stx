@@ -5,90 +5,103 @@
 use oxc_css_parser::{Span, ast::Declaration};
 use serde_json::{Map, Value};
 
-use crate::context::LintContext;
-use crate::rules::Rule;
-use crate::utils::{
-    OptionMatcher, decl_value_raw, is_standard_syntax_value, options_matches, parse_option_matchers,
+use crate::{
+    context::LintContext,
+    declare_stx_lint,
+    rules::Rule,
+    utils::{
+        OptionMatcher, decl_value_raw, is_standard_syntax_declaration, is_standard_syntax_value,
+        options_matches, parse_option_matchers,
+    },
 };
 
-/// ## `annotation-no-unknown`
-///
-/// Disallow unknown annotations in declaration values (such as `!imprtant` instead of `!important`).
-///
-/// ### What it does
-///
-/// Checks declaration values for annotation tokens (words starting with `!`) that are not
-/// recognized as standard CSS `!important`.
-///
-/// ### Why is this bad?
-///
-/// Unknown annotations are almost always typos of `!important` (e.g. `!imprtant`) or leftover
-/// preprocessor flags in plain CSS. Browsers ignore or invalidate declarations containing
-/// unrecognized annotations.
-///
-/// ### Options
-///
-/// #### Primary
-///
-/// - `true`: Enable the rule.
-///
-/// ```json
-/// {
-///   "annotation-no-unknown": true
-/// }
-/// ```
-///
-/// #### Secondary (optional)
-///
-/// - `"ignoreAnnotations": ["array", "of", "strings", "/or/", "/regex/"]`: Ignore specific
-///   annotations (matched without the leading `!`).
-///
-/// ```json
-/// {
-///   "annotation-no-unknown": [
-///     true,
-///     {
-///       "ignoreAnnotations": ["default", "/^--foo-/", "--bar"]
-///     }
-///   ]
-/// }
-/// ```
-///
-/// ### Examples
-///
-/// #### Default (`true`)
-///
-/// **Incorrect:**
-/// ```css
-/// a {
-///   color: green !imprtant;
-/// }
-/// ```
-///
-/// **Correct:**
-/// ```css
-/// a {
-///   color: green !important;
-/// }
-/// ```
-///
-/// #### With `{ "ignoreAnnotations": ["/^--foo-/", "--bar"] }`
-///
-/// **Correct:**
-/// ```css
-/// a {
-///   color: green !--foo--bar;
-///   color: green !--bar;
-/// }
-/// ```
-///
-/// ### References
-///
-/// - [Stylelint Documentation: `annotation-no-unknown`](https://stylelint.io/user-guide/rules/annotation-no-unknown)
-#[derive(Default)]
+fn unknown_annotation_diagnostic(annotation: &str) -> String {
+    format!("Unknown annotation \"{annotation}\"")
+}
+
+#[derive(Debug, Default, Clone)]
 pub struct AnnotationNoUnknown {
-    /// Compiled matchers for the `"ignoreAnnotations"` secondary option.
-    pub ignore_annotations: Vec<OptionMatcher>,
+    ignore_annotations: Vec<OptionMatcher>,
+}
+
+declare_stx_lint! {
+    /// Disallow unknown annotations in declaration values (such as `!imprtant` instead of `!important`).
+    ///
+    /// ### What it does
+    ///
+    /// Checks declaration values for annotation tokens (words starting with `!`) that are not
+    /// recognized as standard CSS `!important`.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// Unknown annotations are almost always typos of `!important` (e.g. `!imprtant`) or leftover
+    /// preprocessor flags in plain CSS. Browsers ignore or invalidate declarations containing
+    /// unrecognized annotations.
+    ///
+    /// ### Options
+    ///
+    /// #### Primary
+    ///
+    /// - `true`: Enable the rule.
+    ///
+    /// ```json
+    /// {
+    ///   "annotation-no-unknown": true
+    /// }
+    /// ```
+    ///
+    /// #### Secondary (optional)
+    ///
+    /// - `"ignoreAnnotations": ["array", "of", "strings", "/or/", "/regex/"]`: Ignore specific
+    ///   annotations (matched without the leading `!`).
+    ///
+    /// ```json
+    /// {
+    ///   "annotation-no-unknown": [
+    ///     true,
+    ///     {
+    ///       "ignoreAnnotations": ["default", "/^--foo-/", "--bar"]
+    ///     }
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// ### Examples
+    ///
+    /// #### Default (`true`)
+    ///
+    /// **Incorrect:**
+    /// ```css
+    /// a {
+    ///   color: green !imprtant;
+    /// }
+    /// ```
+    ///
+    /// **Correct:**
+    /// ```css
+    /// a {
+    ///   color: green !important;
+    /// }
+    /// ```
+    ///
+    /// #### With `{ "ignoreAnnotations": ["/^--foo-/", "--bar"] }`
+    ///
+    /// **Correct:**
+    /// ```css
+    /// a {
+    ///   color: green !--foo--bar;
+    ///   color: green !--bar;
+    /// }
+    /// ```
+    ///
+    /// ### References
+    ///
+    /// - [Stylelint Documentation: `annotation-no-unknown`](https://stylelint.io/user-guide/rules/annotation-no-unknown)
+    AnnotationNoUnknown,
+    "annotation-no-unknown",
+    correctness,
+    fix = none,
+    recommended = true,
 }
 
 impl AnnotationNoUnknown {
@@ -102,12 +115,11 @@ impl AnnotationNoUnknown {
 
 impl Rule for AnnotationNoUnknown {
     fn name(&self) -> &'static str {
-        "annotation-no-unknown"
+        Self::NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {
-        // Standard `!important` (in any ASCII case) is already parsed into `decl.important`.
-        if decl.important.is_some() {
+        if !is_standard_syntax_declaration(decl) {
             return;
         }
 
@@ -115,15 +127,15 @@ impl Rule for AnnotationNoUnknown {
             return;
         };
 
-        // Fast path: skip if there is no `!` or if the value uses non-standard preprocessor
-        // interpolation (e.g. `color: #{$green} !imprtant;`).
         if !raw_value.contains('!') || !is_standard_syntax_value(raw_value) {
             return;
         }
 
         for_each_annotation_word(raw_value, |word, rel_start, rel_end| {
             let token_value = &word[1..];
-            if options_matches(&self.ignore_annotations, token_value) {
+            if token_value.eq_ignore_ascii_case("important")
+                || options_matches(&self.ignore_annotations, token_value)
+            {
                 return;
             }
 
@@ -131,9 +143,22 @@ impl Rule for AnnotationNoUnknown {
                 start: value_span.start + rel_start,
                 end: value_span.start + rel_end,
             };
-            ctx.report(self.name(), span, format!("Unknown annotation \"{word}\""));
+            ctx.report(Self::NAME, span, unknown_annotation_diagnostic(word));
         });
     }
+}
+
+fn skip_quoted(bytes: &[u8], mut i: usize) -> usize {
+    let quote = bytes[i];
+    i += 1;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\\' => i = (i + 2).min(bytes.len()),
+            b if b == quote => return i + 1,
+            _ => i += 1,
+        }
+    }
+    i
 }
 
 /// Scans a raw CSS declaration value in the same manner as `postcss-value-parser`,
@@ -146,9 +171,7 @@ fn for_each_annotation_word<'a>(raw: &'a str, mut callback: impl FnMut(&'a str, 
 
     while i < len {
         match bytes[i] {
-            // Whitespace, dividers (`,`, `:`, `/`), and parentheses act as word boundaries.
             b' ' | b'\t' | b'\n' | b'\r' | b'\x0C' | b',' | b':' | b'/' | b'(' | b')' => {
-                // Skip block comments `/* ... */`.
                 if bytes[i] == b'/' && i + 1 < len && bytes[i + 1] == b'*' {
                     i += 2;
                     while i + 1 < len && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
@@ -159,22 +182,7 @@ fn for_each_annotation_word<'a>(raw: &'a str, mut callback: impl FnMut(&'a str, 
                     i += 1;
                 }
             }
-            // Skip quoted string literals (`"..."` and `'...'`).
-            b'"' | b'\'' => {
-                let quote = bytes[i];
-                i += 1;
-                while i < len {
-                    if bytes[i] == b'\\' {
-                        i = (i + 2).min(len);
-                    } else if bytes[i] == quote {
-                        i += 1;
-                        break;
-                    } else {
-                        i += 1;
-                    }
-                }
-            }
-            // Consume a value word token.
+            b'"' | b'\'' => i = skip_quoted(bytes, i),
             _ => {
                 let word_start = i;
                 while i < len {
@@ -184,29 +192,16 @@ fn for_each_annotation_word<'a>(raw: &'a str, mut callback: impl FnMut(&'a str, 
                         _ => i += 1,
                     }
                 }
-
                 let word = &raw[word_start..i];
 
-                // In `postcss-value-parser`, `url(...)` arguments are treated as a single token,
+                // `postcss-value-parser` treats `url(...)` arguments as a single token,
                 // so `!` inside `url(https://example.com/!important)` is not an annotation word.
                 if word.eq_ignore_ascii_case("url") && i < len && bytes[i] == b'(' {
                     i += 1;
                     while i < len && bytes[i] != b')' {
-                        if bytes[i] == b'"' || bytes[i] == b'\'' {
-                            let quote = bytes[i];
-                            i += 1;
-                            while i < len {
-                                if bytes[i] == b'\\' {
-                                    i = (i + 2).min(len);
-                                } else if bytes[i] == quote {
-                                    i += 1;
-                                    break;
-                                } else {
-                                    i += 1;
-                                }
-                            }
-                        } else {
-                            i += 1;
+                        match bytes[i] {
+                            b'"' | b'\'' => i = skip_quoted(bytes, i),
+                            _ => i += 1,
                         }
                     }
                     if i < len && bytes[i] == b')' {
@@ -220,5 +215,67 @@ fn for_each_annotation_word<'a>(raw: &'a str, mut callback: impl FnMut(&'a str, 
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{AnnotationNoUnknown, unknown_annotation_diagnostic};
+    use crate::tester::{Tester, reject};
+
+    #[test]
+    fn ignore_annotations() {
+        let pass = [
+            "a { color: green !important; }",
+            "a { color: green !IMPORTANT; }",
+            "a { color: green !ImPoRtAnT; }",
+            "a { color: green !--foo--bar; }",
+            "a { color: green !--bar; }",
+        ];
+
+        let fail = [
+            reject(
+                "a { color: green !imprtant }",
+                None,
+                unknown_annotation_diagnostic("!imprtant"),
+                (1, 18, 1, 27),
+            ),
+            reject(
+                "a { color: green !IMPRTANT }",
+                None,
+                unknown_annotation_diagnostic("!IMPRTANT"),
+                (1, 18, 1, 27),
+            ),
+            reject(
+                "a { color: green !ImPrTaNt }",
+                None,
+                unknown_annotation_diagnostic("!ImPrTaNt"),
+                (1, 18, 1, 27),
+            ),
+        ];
+
+        Tester::new(
+            AnnotationNoUnknown::NAME,
+            json!([
+                true,
+                {
+                    "ignoreAnnotations": ["/^--foo-/", "--bar"]
+                }
+            ]),
+            pass,
+            fail,
+        )
+        .test();
+    }
+
+    #[test]
+    fn scss_syntax() {
+        let pass = ["a { color: #{$green} !imprtant; }"];
+
+        Tester::new(AnnotationNoUnknown::NAME, json!([true]), pass, [])
+            .with_custom_syntax("postcss-scss")
+            .test();
     }
 }

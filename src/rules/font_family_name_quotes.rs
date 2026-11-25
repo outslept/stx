@@ -1,10 +1,8 @@
 use crate::{
     context::LintContext,
     fix::Fix,
-    rules::{
-        Rule,
-        value_utils::{ValueToken, ValueTokenKind, declaration_value_span, tokenize_value},
-    },
+    rules::Rule,
+    utils::{ValueToken, ValueTokenKind, declaration_value_span, font_size_end, tokenize_value},
 };
 use oxc_css_parser::{
     Span,
@@ -49,6 +47,8 @@ const FONT_FAMILY_KEYWORDS: &[&str] = &[
     "unset",
     "revert",
     "revert-layer",
+    "-apple-system",
+    "blinkmacsystemfont",
 ];
 
 fn is_keyword(s: &str) -> bool {
@@ -112,7 +112,7 @@ impl FontFamilyNameQuotes {
                 ctx.report_with_fix(
                     self.name(),
                     tok.span,
-                    format!("Unexpected quotes around \"{}\"", inner),
+                    format!("Expected no quotes around \"{}\"", inner),
                     Some(Fix::single(tok.span, inner.to_string())),
                 );
                 return;
@@ -128,7 +128,7 @@ impl FontFamilyNameQuotes {
                 ctx.report_with_fix(
                     self.name(),
                     tok.span,
-                    format!("Unexpected quotes around \"{}\"", inner),
+                    format!("Expected no quotes around \"{}\"", inner),
                     Some(Fix::single(tok.span, inner.to_string())),
                 );
             }
@@ -177,16 +177,32 @@ impl Rule for FontFamilyNameQuotes {
             return;
         };
         let prop: &str = ident.name;
-        if !prop.eq_ignore_ascii_case("font-family") {
+        let is_shorthand = prop.eq_ignore_ascii_case("font");
+        if !is_shorthand && !prop.eq_ignore_ascii_case("font-family") {
             return;
         }
 
         let imp_start = decl.important.as_ref().map(|i| i.span.start);
-        let Some(val_span) =
+        let Some(mut val_span) =
             declaration_value_span(ctx.source, ident.span.end, decl.span.end, imp_start)
         else {
             return;
         };
+        if is_shorthand {
+            let Some(offset) = font_size_end(ctx.slice(val_span)) else {
+                return;
+            };
+            let mut start = val_span.start as usize + offset;
+            while ctx
+                .source
+                .as_bytes()
+                .get(start)
+                .is_some_and(u8::is_ascii_whitespace)
+            {
+                start += 1;
+            }
+            val_span.start = start as u32;
+        }
 
         let tokens = tokenize_value(ctx.source, val_span);
         let mut current = Vec::new();
@@ -210,5 +226,48 @@ impl Rule for FontFamilyNameQuotes {
             }
         }
         self.check_family_group(&current, ctx);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tester::{Tester, reject};
+    use serde_json::json;
+
+    #[test]
+    fn checks_font_shorthand_families() {
+        let fail = [reject(
+            "a { font: 1em Lucida Grande, Arial, sans-serif; }",
+            None,
+            "Expected quotes around \"Lucida Grande\"",
+            (1, 15, 1, 28),
+        )];
+        Tester::new(
+            "font-family-name-quotes",
+            json!("always-where-recommended"),
+            [],
+            &fail,
+        )
+        .test();
+    }
+
+    #[test]
+    fn leaves_system_font_names_unquoted() {
+        let fail = [reject(
+            "a { font-family: '-apple-system'; }",
+            None,
+            "Expected no quotes around \"-apple-system\"",
+            (1, 18, 1, 33),
+        )];
+        Tester::new(
+            "font-family-name-quotes",
+            json!("always-unless-keyword"),
+            [
+                "a { font-family: -apple-system, BlinkMacSystemFont, sans-serif; }",
+                "a { font: 1em -apple-system, BlinkMacSystemFont, sans-serif; }",
+            ],
+            &fail,
+        )
+        .test();
     }
 }

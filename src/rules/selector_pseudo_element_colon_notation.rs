@@ -1,10 +1,8 @@
 use crate::{
     context::LintContext,
     fix::Fix,
-    rules::{
-        Rule,
-        value_utils::{SelectorItemKind, scan_selector_items},
-    },
+    rules::Rule,
+    utils::{SelectorItemKind, scan_selector_items},
 };
 use oxc_css_parser::ast::SelectorList;
 

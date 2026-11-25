@@ -1,9 +1,7 @@
 use crate::{
     context::LintContext,
-    rules::{
-        Rule,
-        value_utils::{PatternMatcher, SelectorItemKind, scan_selector_items},
-    },
+    rules::Rule,
+    utils::{PatternMatcher, SelectorItemKind, scan_selector_items},
 };
 use oxc_css_parser::ast::SelectorList;
 
@@ -24,11 +22,45 @@ impl Rule for SelectorClassPattern {
                     self.name(),
                     item.span,
                     format!(
-                        "Expected class selector \".{}\" to match pattern \"{}\"",
+                        "Expected \".{}\" to match pattern \"{}\"",
                         item.name, self.matcher.raw_pattern
                     ),
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tester::{Tester, reject};
+    use serde_json::json;
+
+    #[test]
+    fn pattern_messages() {
+        Tester::new(
+            "selector-class-pattern",
+            json!("/^[A-Z]+$/"),
+            ["a #foo > [foo='bar'], .FOO {}", "a /* .foo */ {}"],
+            [reject(
+                "a,\n\t.foo {}",
+                None,
+                "Expected \".foo\" to match pattern \"/^[A-Z]+$/\"",
+                (2, 2, 2, 6),
+            )],
+        )
+        .test();
+        Tester::new(
+            "selector-class-pattern",
+            json!("^[A-Z]+$"),
+            [".FOO {}"],
+            [reject(
+                ".ABABA > .bar {}",
+                None,
+                "Expected \".bar\" to match pattern \"^[A-Z]+$\"",
+                (1, 10, 1, 14),
+            )],
+        )
+        .test();
     }
 }

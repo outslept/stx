@@ -1,96 +1,166 @@
-use crate::{context::LintContext, rules::Rule};
-use oxc_css_parser::{Span, ast::ComponentValue};
+use crate::{
+    context::LintContext,
+    rules::Rule,
+    utils::{ValueTokenKind, is_standard_syntax_value, tokenize_value},
+};
+use oxc_css_parser::{Span, ast::Declaration};
+
+const NAME: &str = "function-linear-gradient-no-nonstandard-direction";
+const SIDES: [&str; 4] = ["top", "left", "bottom", "right"];
 
 pub struct FunctionLinearGradientNoNonstandardDirection;
 
-fn is_valid_direction(dir: &str) -> bool {
-    let lower = dir.trim().to_ascii_lowercase();
-    if let Some(rest) = lower.strip_prefix("to ") {
-        let parts: Vec<&str> = rest.split_whitespace().collect();
-        return match parts.as_slice() {
-            ["top" | "bottom" | "left" | "right"] => true,
-            ["top" | "bottom", "left" | "right"] => true,
-            ["left" | "right", "top" | "bottom"] => true,
-            _ => false,
-        };
-    }
-
-    for unit in ["deg", "grad", "rad", "turn"] {
-        if let Some(num_str) = lower.strip_suffix(unit) {
-            return num_str.trim().parse::<f64>().is_ok();
-        }
-    }
-
-    false
-}
-
-fn looks_like_direction(arg: &str) -> bool {
-    let lower = arg.trim().to_ascii_lowercase();
-    if lower.starts_with("to ")
-        || lower.starts_with("top")
-        || lower.starts_with("bottom")
-        || lower.starts_with("left")
-        || lower.starts_with("right")
-    {
-        return true;
-    }
-
-    if lower
-        .chars()
-        .next()
-        .is_some_and(|c| c.is_ascii_digit() || c == '-' || c == '+' || c == '.')
-    {
-        return true;
-    }
-
-    false
-}
-
 impl Rule for FunctionLinearGradientNoNonstandardDirection {
     fn name(&self) -> &'static str {
-        "function-linear-gradient-no-nonstandard-direction"
+        NAME
     }
 
-    fn check_component_value<'a>(&self, val: &'a ComponentValue<'a>, ctx: &mut LintContext<'a>) {
-        if let ComponentValue::Function(func) = val {
-            let raw = ctx.slice(func.span);
-            let Some(paren_idx) = raw.find('(') else {
-                return;
+    fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {
+        let span = Span {
+            start: decl.colon_span.end,
+            end: decl
+                .important
+                .as_ref()
+                .map_or(decl.span.end, |imp| imp.span.start),
+        };
+        if !ctx.slice(span).contains('(') {
+            return;
+        }
+        let tokens = tokenize_value(ctx.source, span);
+        let mut url_depth = 0usize;
+        for (i, token) in tokens.iter().enumerate() {
+            if url_depth > 0 {
+                if token.kind == ValueTokenKind::Function || token.raw == "(" {
+                    url_depth += 1;
+                } else if token.raw == ")" {
+                    url_depth -= 1;
+                }
+                continue;
+            }
+            if token.kind != ValueTokenKind::Function {
+                continue;
+            }
+            let name = token.raw.to_ascii_lowercase();
+            let legacy = match name.as_str() {
+                "linear-gradient(" => false,
+                "-webkit-linear-gradient("
+                | "-moz-linear-gradient("
+                | "-o-linear-gradient("
+                | "-ms-linear-gradient(" => true,
+                "url(" => {
+                    url_depth = 1;
+                    continue;
+                }
+                _ => continue,
             };
-            let func_name = raw[..paren_idx].trim();
-            if !func_name.eq_ignore_ascii_case("linear-gradient")
-                && !func_name.eq_ignore_ascii_case("repeating-linear-gradient")
-            {
-                return;
+            let mut depth = 0usize;
+            let mut end = span.end;
+            for arg in &tokens[i + 1..] {
+                match arg.raw {
+                    "," | ")" if depth == 0 => {
+                        end = arg.span.start;
+                        break;
+                    }
+                    "(" | "[" | "{" => depth += 1,
+                    ")" | "]" | "}" => depth = depth.saturating_sub(1),
+                    _ if arg.kind == ValueTokenKind::Function => depth += 1,
+                    _ => {}
+                }
             }
-
-            let inner_start = func.span.start as usize + paren_idx + 1;
-            let inner_end = (func.span.end as usize).saturating_sub(1);
-            if inner_start >= inner_end || inner_end > ctx.source.len() {
-                return;
-            }
-
-            let inner = &ctx.source[inner_start..inner_end];
-            let Some(comma_idx) = inner.find(',') else {
-                return;
-            };
-
-            let first_arg = &inner[..comma_idx];
-            let trimmed = first_arg.trim();
-            if trimmed.is_empty() || !looks_like_direction(trimmed) {
-                return;
-            }
-
-            if !is_valid_direction(trimmed) {
-                let leading_ws = first_arg.len() - first_arg.trim_start().len();
-                let start = (inner_start + leading_ws) as u32;
-                let end = start + trimmed.len() as u32;
+            let start = token.span.end;
+            let arg = ctx.slice_range(start, end).trim_end();
+            if is_nonstandard(arg.trim_start(), legacy) {
                 ctx.report(
-                    self.name(),
-                    Span { start, end },
-                    format!("Unexpected nonstandard direction \"{trimmed}\""),
+                    NAME,
+                    Span {
+                        start,
+                        end: start + arg.len() as u32,
+                    },
+                    "Nonstandard direction",
                 );
             }
         }
+    }
+}
+
+fn is_nonstandard(arg: &str, legacy: bool) -> bool {
+    if !is_standard_syntax_value(arg) {
+        return false;
+    }
+    let arg = arg.to_ascii_lowercase();
+    if arg.starts_with("var(")
+        || arg
+            .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .any(|word| word == "in")
+    {
+        return false;
+    }
+    let angle_char = |c: char| c.is_ascii_digit() || c == '.';
+    if arg.starts_with(angle_char) {
+        return !matches!(
+            arg.trim_start_matches(angle_char),
+            "deg" | "grad" | "rad" | "turn"
+        );
+    }
+    if !SIDES.iter().any(|side| arg.contains(side)) {
+        return false;
+    }
+    let direction = if legacy {
+        arg.as_str()
+    } else if let Some(direction) = arg.strip_prefix("to ") {
+        direction
+    } else {
+        return true;
+    };
+    let mut sides = direction.split(' ');
+    let first = sides.next().unwrap_or_default();
+    !SIDES.contains(&first)
+        || sides
+            .next()
+            .is_some_and(|second| second == first || !SIDES.contains(&second))
+        || sides.next().is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::NAME;
+    use crate::tester::{Tester, reject};
+    use serde_json::json;
+
+    #[test]
+    fn distinguishes_modern_and_legacy_directions_from_color_stops() {
+        Tester::new(
+            NAME,
+            json!(true),
+            [
+                "a { x: -WebKit-linear-gradient(bottom right, red, blue); }",
+                "a { x: linear-gradient(to right in oklab, red, blue); }",
+                "a { x: linear-gradient(.25turn, red, blue); }",
+                "a { x: linear-gradient(var(--top, red), blue); }",
+                "a { x: linear-gradient(rgb(1, 2, 3), blue); }",
+                "a { x: repeating-linear-gradient(bottom, red, blue); }",
+            ],
+            [
+                reject(
+                    "a { x: linear-gradient(  top  , red, blue); }",
+                    None,
+                    "Nonstandard direction",
+                    (1, 24, 1, 29),
+                ),
+                reject(
+                    "a { x: -ms-linear-gradient(to top, red, blue); }",
+                    None,
+                    "Nonstandard direction",
+                    (1, 28, 1, 34),
+                ),
+                reject(
+                    "a { x: linear-gradient(45px, red, blue); }",
+                    None,
+                    "Nonstandard direction",
+                    (1, 24, 1, 28),
+                ),
+            ],
+        )
+        .test();
     }
 }

@@ -1,11 +1,26 @@
-use crate::{context::LintContext, rules::Rule};
+use crate::{
+    context::LintContext,
+    rules::Rule,
+    utils::{OptionMatcher, options_matches, parse_option_matchers},
+};
 use oxc_css_parser::{Span, ast::ComponentValue};
 
-pub struct FunctionNoUnknown;
+pub struct FunctionNoUnknown {
+    ignore_functions: Vec<OptionMatcher>,
+}
+
+impl FunctionNoUnknown {
+    pub fn from_config(secondary: Option<&serde_json::Map<String, serde_json::Value>>) -> Self {
+        Self {
+            ignore_functions: parse_option_matchers(secondary, "ignoreFunctions"),
+        }
+    }
+}
 
 const KNOWN_FUNCTIONS: &[&str] = &[
     "abs",
     "acos",
+    "adjust",
     "anchor",
     "anchor-size",
     "annotation",
@@ -21,9 +36,12 @@ const KNOWN_FUNCTIONS: &[&str] = &[
     "circle",
     "clamp",
     "color",
+    "color-stop",
     "color-mix",
     "conic-gradient",
     "contrast",
+    "contrast-color",
+    "content",
     "cos",
     "counter",
     "counters",
@@ -37,12 +55,14 @@ const KNOWN_FUNCTIONS: &[&str] = &[
     "exp",
     "fit-content",
     "format",
+    "from",
     "grayscale",
     "hsl",
     "hsla",
     "hue-rotate",
     "hwb",
     "hypot",
+    "if",
     "image",
     "image-set",
     "inset",
@@ -59,6 +79,7 @@ const KNOWN_FUNCTIONS: &[&str] = &[
     "matrix",
     "matrix3d",
     "max",
+    "media",
     "min",
     "minmax",
     "mod",
@@ -88,6 +109,7 @@ const KNOWN_FUNCTIONS: &[&str] = &[
     "rotatey",
     "rotatez",
     "round",
+    "running",
     "saturate",
     "scale",
     "scale3d",
@@ -103,6 +125,7 @@ const KNOWN_FUNCTIONS: &[&str] = &[
     "skewy",
     "sqrt",
     "steps",
+    "string",
     "styleset",
     "stylistic",
     "supports",
@@ -113,6 +136,7 @@ const KNOWN_FUNCTIONS: &[&str] = &[
     "target-counters",
     "target-text",
     "tech",
+    "to",
     "translate",
     "translate3d",
     "translatex",
@@ -142,7 +166,9 @@ impl Rule for FunctionNoUnknown {
             }
 
             let lower = func_name.to_ascii_lowercase();
-            if KNOWN_FUNCTIONS.contains(&lower.as_str()) {
+            if KNOWN_FUNCTIONS.contains(&lower.as_str())
+                || options_matches(&self.ignore_functions, func_name)
+            {
                 return;
             }
 
@@ -154,8 +180,47 @@ impl Rule for FunctionNoUnknown {
             ctx.report(
                 self.name(),
                 name_span,
-                format!("Unexpected unknown function \"{func_name}\""),
+                format!("Unknown function \"{func_name}\""),
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tester::Tester;
+    use serde_json::json;
+
+    #[test]
+    fn recognizes_legacy_and_paged_media_functions() {
+        Tester::new(
+            "function-no-unknown",
+            json!(true),
+            [
+                "a { background: -webkit-gradient(linear, 0 50%, 0 100%, from(white), color-stop(0.5, yellow), to(red)); }",
+                "a { position: running(); }",
+                "h1 { string-set: Chapter content(); }",
+                "@top-right { content: string(Chapter); }",
+                "a { color: contrast-color(var(--qux)); }",
+            ],
+            [],
+        )
+        .test();
+    }
+
+    #[test]
+    fn ignores_configured_functions() {
+        Tester::new(
+            "function-no-unknown",
+            json!([true, {"ignoreFunctions": ["theme", "/^foo-/", "/^bar$/i"]}]),
+            [
+                "a { transform: theme(1px); }",
+                "a { transform: foo-func(1px); }",
+                "a { transform: bar(1px); }",
+                "a { transform: BAR(1px); }",
+            ],
+            [],
+        )
+        .test();
     }
 }

@@ -1,11 +1,8 @@
 use crate::{
     context::LintContext,
     fix::Fix,
-    rules::{
-        Rule,
-        function_url_quotes::UrlQuoteMode,
-        value_utils::{SelectorItemKind, scan_selector_items},
-    },
+    rules::{Rule, function_url_quotes::UrlQuoteMode},
+    utils::{SelectorItemKind, scan_selector_items},
 };
 use oxc_css_parser::{Span, ast::SelectorList};
 
@@ -89,7 +86,7 @@ impl Rule for SelectorAttributeQuotes {
                             ctx.report_with_fix(
                                 self.name(),
                                 val_span,
-                                format!("Unexpected quotes around \"{}\"", unquoted),
+                                format!("Expected no quotes around \"{}\"", unquoted),
                                 Some(Fix::single(val_span, unquoted.to_string())),
                             );
                         }

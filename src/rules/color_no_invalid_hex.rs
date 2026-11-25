@@ -288,3 +288,95 @@ fn skip_url_args(bytes: &[u8], mut i: usize, limit: usize) -> usize {
         i
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::tester::{Tester, reject, reject_message};
+
+    const NAME: &str = "color-no-invalid-hex";
+
+    fn rejected(hex: &str) -> String {
+        format!("Invalid hex color \"{hex}\"")
+    }
+
+    #[test]
+    fn default() {
+        let pass = &[
+            "a { color: pink; }",
+            "a { color: #000; }",
+            "a { something: #000, #fff, #ababab; }",
+            "a { color: #0000ffcc; }",
+            "a { color:#00fc; }",
+            "a { padding: 000; }",
+            "a::before { content: \"#ababa\"; }",
+            "a { background-image: svg-load('x.svg', fill=url(#a)); }",
+            "a { background-image: url(#a); }",
+            "a { background-image: url(x.svg#a); }",
+            "@font-face {\nfont-family: dashicons;\nsrc: url(data:application/font-woff;charset=utf-8;base64, ABCDEF==) format(\"woff\"),\nurl(../fonts/dashicons.ttf) format(\"truetype\"),\nurl(../fonts/dashicons.svg#dashicons) format(\"svg\");\nfont-weight: normal;\nfont-style: normal;\n}",
+        ];
+
+        let fail = &[
+            reject(
+                "a { color: #ababa; }",
+                None,
+                rejected("#ababa"),
+                (1, 12, 1, 18),
+            ),
+            reject(
+                "a { something: #00, #fff, #ababab; }",
+                None,
+                rejected("#00"),
+                (1, 16, 1, 19),
+            ),
+            reject(
+                "a { something: #000, #fff1az, #ababab; }",
+                None,
+                rejected("#fff1az"),
+                (1, 22, 1, 29),
+            ),
+            reject(
+                "a { something:#000,#fff,#12345aa; }",
+                None,
+                rejected("#12345aa"),
+                (1, 25, 1, 33),
+            ),
+        ];
+
+        Tester::new(NAME, json!([true]), pass, fail).test();
+    }
+
+    #[test]
+    fn less() {
+        let pass = &["a { color: #colors[somecolor]; }"];
+
+        Tester::new(NAME, json!([true]), pass, [])
+            .with_custom_syntax("postcss-less")
+            .test();
+    }
+
+    #[test]
+    fn scss() {
+        let pass = &["a { border-#$side: 0; }", "a { box-sizing: #$type-box; }"];
+
+        Tester::new(NAME, json!([true]), pass, [])
+            .with_custom_syntax("postcss-scss")
+            .test();
+    }
+
+    #[test]
+    #[ignore = "naive-css-in-js is not supported"]
+    fn css_in_js() {
+        let pass = &["css` color: #ffff; `;"];
+        let fail = &[reject_message(
+            "css` color: #fffff; `;",
+            None,
+            rejected("#fffff"),
+        )];
+
+        Tester::new(NAME, json!([true]), pass, fail)
+            .with_custom_syntax("naive-css-in-js")
+            .test();
+    }
+}

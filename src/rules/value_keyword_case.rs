@@ -1,163 +1,208 @@
 use crate::{
     context::LintContext,
     fix::Fix,
-    rules::{
-        Rule,
-        function_name_case::CaseMode,
-        value_utils::{ValueTokenKind, declaration_value_span, tokenize_value},
+    rules::{Rule, function_name_case::CaseMode},
+    utils::{
+        ANIMATION_NAME_KEYWORDS, ANIMATION_SHORTHAND_KEYWORDS, CAMEL_CASE_KEYWORDS,
+        COUNTER_INCREMENT_KEYWORDS, COUNTER_RESET_KEYWORDS, FONT_FAMILY_KEYWORDS,
+        FONT_SHORTHAND_KEYWORDS, GRID_AREA_KEYWORDS, GRID_COLUMN_KEYWORDS, GRID_ROW_KEYWORDS,
+        LIST_STYLE_SHORTHAND_KEYWORDS, LIST_STYLE_TYPE_KEYWORDS, OptionMatcher,
+        SYSTEM_COLORS_KEYWORDS, ValueTokenKind, declaration_value_span, in_set_ignore_case,
+        is_standard_syntax_value, options_matches, parse_option_matchers, secondary_bool,
+        tokenize_value,
     },
 };
 use oxc_css_parser::ast::{Declaration, InterpolableIdent};
+use serde_json::{Map, Value};
+
+const NAME: &str = "value-keyword-case";
+const IGNORED_FUNCTIONS: &[&str] = &["url", "var", "counter", "counters", "attr"];
 
 pub struct ValueKeywordCase {
-    pub mode: CaseMode,
-    pub camel_case_svg_keywords: bool,
+    mode: CaseMode,
+    camel_case_svg_keywords: bool,
+    ignore_properties: Vec<OptionMatcher>,
+    ignore_keywords: Vec<OptionMatcher>,
+    ignore_functions: Vec<OptionMatcher>,
 }
 
-impl Default for ValueKeywordCase {
-    fn default() -> Self {
+impl ValueKeywordCase {
+    pub fn new(mode: CaseMode, secondary: Option<&Map<String, Value>>) -> Self {
         Self {
-            mode: CaseMode::Lower,
-            camel_case_svg_keywords: false,
+            mode,
+            camel_case_svg_keywords: secondary_bool(secondary, "camelCaseSvgKeywords")
+                .unwrap_or(false),
+            ignore_properties: parse_option_matchers(secondary, "ignoreProperties"),
+            ignore_keywords: parse_option_matchers(secondary, "ignoreKeywords"),
+            ignore_functions: parse_option_matchers(secondary, "ignoreFunctions"),
         }
     }
 }
 
-const IGNORED_PROPERTIES: &[&str] = &[
-    "font-family",
-    "font",
-    "animation",
-    "animation-name",
-    "counter-reset",
-    "counter-increment",
-    "counter-set",
-    "grid-area",
-    "grid-row",
-    "grid-row-start",
-    "grid-row-end",
-    "grid-column",
-    "grid-column-start",
-    "grid-column-end",
-    "list-style-type",
-    "list-style",
-    "will-change",
-    "container-name",
-    "container",
-    "view-transition-name",
-];
-
-const IGNORED_FUNCTIONS: &[&str] = &[
-    "var(",
-    "url(",
-    "attr(",
-    "counter(",
-    "counters(",
-    "env(",
-    "theme(",
-];
-
-const CAMEL_CASE_SVG_KEYWORDS: &[&str] = &[
-    "currentColor",
-    "optimizeSpeed",
-    "optimizeLegibility",
-    "geometricPrecision",
-    "sRGB",
-    "linearRGB",
-    "crispEdges",
-    "visiblePainted",
-    "visibleFill",
-    "visibleStroke",
-    " butt",
-];
+fn is_keyword(property: &str, word: &str) -> bool {
+    let contains = |keywords| in_set_ignore_case(keywords, word);
+    match property {
+        "animation" => contains(ANIMATION_SHORTHAND_KEYWORDS) || contains(ANIMATION_NAME_KEYWORDS),
+        "animation-name" => contains(ANIMATION_NAME_KEYWORDS),
+        "font" => contains(FONT_SHORTHAND_KEYWORDS) || contains(FONT_FAMILY_KEYWORDS),
+        "font-family" => contains(FONT_FAMILY_KEYWORDS),
+        "counter-increment" => contains(COUNTER_INCREMENT_KEYWORDS),
+        "counter-reset" => contains(COUNTER_RESET_KEYWORDS),
+        "grid-row" | "grid-row-start" | "grid-row-end" => contains(GRID_ROW_KEYWORDS),
+        "grid-column" | "grid-column-start" | "grid-column-end" => contains(GRID_COLUMN_KEYWORDS),
+        "grid-area" => contains(GRID_AREA_KEYWORDS),
+        "list-style" => {
+            contains(LIST_STYLE_SHORTHAND_KEYWORDS) || contains(LIST_STYLE_TYPE_KEYWORDS)
+        }
+        "list-style-type" => contains(LIST_STYLE_TYPE_KEYWORDS),
+        "counter-set" | "container" | "container-name" | "view-transition-name" => false,
+        _ => true,
+    }
+}
 
 impl Rule for ValueKeywordCase {
     fn name(&self) -> &'static str {
-        "value-keyword-case"
+        NAME
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {
         let InterpolableIdent::Literal(ident) = &decl.name else {
             return;
         };
-        let prop: &str = ident.name;
-        if prop.starts_with("--")
-            || IGNORED_PROPERTIES
-                .iter()
-                .any(|p| p.eq_ignore_ascii_case(prop))
-        {
+        if options_matches(&self.ignore_properties, ident.name) {
             return;
         }
-
         let imp_start = decl.important.as_ref().map(|i| i.span.start);
-        let Some(val_span) =
+        let Some(value_span) =
             declaration_value_span(ctx.source, ident.span.end, decl.span.end, imp_start)
         else {
             return;
         };
-
-        let tokens = tokenize_value(ctx.source, val_span);
-        let mut ignored_depth = 0usize;
-        let mut func_stack: Vec<bool> = Vec::new();
-
-        for tok in tokens {
-            match tok.kind {
+        let value = ctx.slice(value_span);
+        if value.contains('#') || !is_standard_syntax_value(value) {
+            return;
+        }
+        let property = ident.name.to_ascii_lowercase();
+        let mut depth = 0usize;
+        let mut skipped_at = None;
+        for token in tokenize_value(ctx.source, value_span) {
+            match token.kind {
                 ValueTokenKind::Function => {
-                    let is_ignored = IGNORED_FUNCTIONS
-                        .iter()
-                        .any(|f| tok.raw.eq_ignore_ascii_case(f));
-                    func_stack.push(is_ignored);
-                    if is_ignored {
-                        ignored_depth += 1;
+                    depth += 1;
+                    let name = token.raw.trim_end_matches('(');
+                    if skipped_at.is_none()
+                        && (in_set_ignore_case(IGNORED_FUNCTIONS, name)
+                            || options_matches(&self.ignore_functions, name))
+                    {
+                        skipped_at = Some(depth);
                     }
                 }
+                ValueTokenKind::Other if token.raw == "(" => depth += 1,
                 ValueTokenKind::CloseParen => {
-                    if let Some(was_ignored) = func_stack.pop() {
-                        if was_ignored {
-                            ignored_depth = ignored_depth.saturating_sub(1);
-                        }
+                    if skipped_at == Some(depth) {
+                        skipped_at = None;
                     }
+                    depth = depth.saturating_sub(1);
                 }
-                ValueTokenKind::Ident if ignored_depth == 0 => {
-                    if tok.raw.starts_with("--")
-                        || tok.raw.starts_with('$')
-                        || tok.raw.starts_with('@')
+                ValueTokenKind::Ident if skipped_at.is_none() => {
+                    let mut span = token.span;
+                    if span.start > value_span.start
+                        && ctx.source.as_bytes()[span.start as usize - 1] == b'!'
+                    {
+                        span.start -= 1;
+                    }
+                    let word = ctx.slice(span);
+                    if matches!(word, "-")
+                        || !is_standard_syntax_value(word)
+                        || in_set_ignore_case(SYSTEM_COLORS_KEYWORDS, word)
+                        || !is_keyword(&property, word)
+                        || options_matches(&self.ignore_keywords, word)
                     {
                         continue;
                     }
-
-                    if self.camel_case_svg_keywords {
-                        if let Some(&svg_kw) = CAMEL_CASE_SVG_KEYWORDS
-                            .iter()
-                            .find(|k| k.eq_ignore_ascii_case(tok.raw))
-                        {
-                            if tok.raw != svg_kw {
-                                ctx.report_with_fix(
-                                    self.name(),
-                                    tok.span,
-                                    format!("Expected \"{}\" to be \"{}\"", tok.raw, svg_kw),
-                                    Some(Fix::single(tok.span, svg_kw.to_string())),
-                                );
-                            }
-                            continue;
-                        }
-                    }
-
                     let expected = match self.mode {
-                        CaseMode::Lower => tok.raw.to_ascii_lowercase(),
-                        CaseMode::Upper => tok.raw.to_ascii_uppercase(),
+                        CaseMode::Lower if self.camel_case_svg_keywords => CAMEL_CASE_KEYWORDS
+                            .iter()
+                            .find(|keyword| keyword.eq_ignore_ascii_case(word))
+                            .map_or_else(|| word.to_lowercase(), |keyword| (*keyword).to_owned()),
+                        CaseMode::Lower => word.to_lowercase(),
+                        CaseMode::Upper => word.to_uppercase(),
                     };
-
-                    if tok.raw != expected {
+                    if word != expected {
                         ctx.report_with_fix(
-                            self.name(),
-                            tok.span,
-                            format!("Expected \"{}\" to be \"{}\"", tok.raw, expected),
-                            Some(Fix::single(tok.span, expected)),
+                            NAME,
+                            span,
+                            format!("Expected \"{word}\" to be \"{expected}\""),
+                            Fix::single(span, expected),
                         );
                     }
                 }
                 _ => {}
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::NAME;
+    use crate::tester::{Tester, reject};
+    use serde_json::json;
+
+    #[test]
+    fn lower_preserves_hashes_and_custom_identifiers() {
+        let pass = [
+            "a { color: #FFF; }",
+            "a { color: WindowText; }",
+            "a { animation: Fancy 1s; font: 14px SomeFont, serif; }",
+            "a { display: var(--Size, BLOCK); }",
+        ];
+        let fail = [
+            reject(
+                "a { animation: INHERIT; }",
+                "a { animation: inherit; }",
+                "Expected \"INHERIT\" to be \"inherit\"",
+                (1, 16, 1, 23),
+            ),
+            reject(
+                "a { display: block !Import; }",
+                "a { display: block !import; }",
+                "Expected \"!Import\" to be \"!import\"",
+                (1, 20, 1, 27),
+            ),
+        ];
+        Tester::new(NAME, json!("lower"), pass, fail)
+            .with_fix(true)
+            .test();
+    }
+
+    #[test]
+    fn ignores_and_camel_case_follow_mode() {
+        Tester::new(
+            NAME,
+            json!(["lower", {"ignoreFunctions": ["t"], "ignoreProperties": ["BACKGROUND"], "ignoreKeywords": ["/^Flex$/"]}]),
+            ["a { display: t(BLOCK) Flex; BACKGROUND: Red; }"],
+            [reject(
+                "a { color: RED; }",
+                "a { color: red; }",
+                "Expected \"RED\" to be \"red\"",
+                (1, 12, 1, 15),
+            )],
+        )
+        .with_fix(true)
+        .test();
+        Tester::new(
+            NAME,
+            json!(["upper", {"camelCaseSvgKeywords": true}]),
+            ["a { color: CURRENTCOLOR; }"],
+            [reject(
+                "a { color: currentColor; }",
+                "a { color: CURRENTCOLOR; }",
+                "Expected \"currentColor\" to be \"CURRENTCOLOR\"",
+                (1, 12, 1, 24),
+            )],
+        )
+        .with_fix(true)
+        .test();
     }
 }

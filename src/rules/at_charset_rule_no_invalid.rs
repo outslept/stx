@@ -2,10 +2,11 @@
 //!
 //! Disallow invalid `@charset` rules.
 
+use std::borrow::Cow;
+
 use oxc_css_parser::{Span, ast::Stylesheet};
 
-use crate::context::LintContext;
-use crate::rules::Rule;
+use crate::{context::LintContext, declare_stx_lint, rules::Rule};
 
 const REASON_BYTE_ORDER_MARK: &str = "expected no byte order mark before it";
 const REASON_POSITION: &str = "expected it to be at the very start of the stylesheet";
@@ -14,89 +15,94 @@ const REASON_SPACE: &str = "expected a single space after it";
 const REASON_QUOTES: &str = "expected double quotes around the encoding label";
 const REASON_SEMICOLON: &str = "expected a semicolon directly after the closing quote";
 
-/// ## `at-charset-rule-no-invalid`
-///
-/// Disallow invalid `@charset` rules according to the CSS Syntax specification.
-///
-/// ### What it does
-///
-/// Validates that every `@charset` rule in a stylesheet strictly conforms to the byte-stream
-/// requirements defined by the CSS Syntax Module Level 3 specification:
-///
-/// 1. No UTF-8 Byte Order Mark (`\u{FEFF}`) precedes the rule.
-/// 2. The rule starts at the very first character of the stylesheet (no leading whitespace,
-///    comments, or preceding statements).
-/// 3. The at-rule name is lowercase (`@charset`).
-/// 4. Exactly one ASCII space (`' '`) follows `@charset`.
-/// 5. The encoding label is wrapped in double quotes (`"..."`).
-/// 6. A semicolon (`;`) immediately follows the closing double quote (with no intervening
-///    whitespace, extra tokens, or block `{}`).
-///
-/// ### Why is this bad?
-///
-/// Unlike normal CSS at-rules, `@charset` is parsed by browsers using a strict byte-sequence
-/// check (`@charset "<encoding>";`) at the very beginning of the stylesheet. Any deviation in
-/// casing, spacing, quoting, or placement causes the browser to completely ignore the `@charset`
-/// declaration.
-///
-/// ### Options
-///
-/// #### Primary
-///
-/// - `true`: Enable the rule.
-///
-/// ```json
-/// {
-///   "at-charset-rule-no-invalid": true
-/// }
-/// ```
-///
-/// ### Examples
-///
-/// **Incorrect:**
-/// ```css
-/// @CHARSET "utf-8";
-/// ```
-/// ```css
-/// @charset 'utf-8';
-/// ```
-/// ```css
-/// @charset  "utf-8";
-/// ```
-/// ```css
-/// /* comment */
-/// @charset "utf-8";
-/// ```
-///
-/// **Correct:**
-/// ```css
-/// @charset "utf-8";
-/// ```
-///
-/// ### References
-///
-/// - [Stylelint Documentation: `at-charset-rule-no-invalid`](https://stylelint.io/user-guide/rules/at-charset-rule-no-invalid)
-/// - [CSS Syntax Module Level 3: Determining the fallback encoding](https://www.w3.org/TR/css-syntax-3/#determine-the-fallback-encoding)
-#[derive(Default)]
+fn invalid_at_charset_diagnostic(reason: &str) -> String {
+    format!("Invalid \"@charset\" rule, {reason}")
+}
+
+#[derive(Debug, Default, Clone, Copy)]
 pub struct AtCharsetRuleNoInvalid;
+
+declare_stx_lint! {
+    /// Disallow invalid `@charset` rules according to the CSS Syntax specification.
+    ///
+    /// ### What it does
+    ///
+    /// Validates that every `@charset` rule in a stylesheet strictly conforms to the byte-stream
+    /// requirements defined by the CSS Syntax Module Level 3 specification:
+    ///
+    /// 1. No UTF-8 Byte Order Mark (`\u{FEFF}`) precedes the rule.
+    /// 2. The rule starts at the very first character of the stylesheet (no leading whitespace,
+    ///    comments, or preceding statements).
+    /// 3. The at-rule name is lowercase (`@charset`).
+    /// 4. Exactly one ASCII space (`' '`) follows `@charset`.
+    /// 5. The encoding label is wrapped in double quotes (`"..."`).
+    /// 6. A semicolon (`;`) immediately follows the closing double quote (with no intervening
+    ///    whitespace, extra tokens, or block `{}`).
+    ///
+    /// ### Why is this bad?
+    ///
+    /// Unlike normal CSS at-rules, `@charset` is parsed by browsers using a strict byte-sequence
+    /// check (`@charset "<encoding>";`) at the very beginning of the stylesheet. Any deviation in
+    /// casing, spacing, quoting, or placement causes the browser to completely ignore the `@charset`
+    /// declaration.
+    ///
+    /// ### Options
+    ///
+    /// #### Primary
+    ///
+    /// - `true`: Enable the rule.
+    ///
+    /// ```json
+    /// {
+    ///   "at-charset-rule-no-invalid": true
+    /// }
+    /// ```
+    ///
+    /// ### Examples
+    ///
+    /// **Incorrect:**
+    /// ```css
+    /// @CHARSET "utf-8";
+    /// ```
+    /// ```css
+    /// @charset 'utf-8';
+    /// ```
+    /// ```css
+    /// @charset  "utf-8";
+    /// ```
+    /// ```css
+    /// /* comment */
+    /// @charset "utf-8";
+    /// ```
+    ///
+    /// **Correct:**
+    /// ```css
+    /// @charset "utf-8";
+    /// ```
+    ///
+    /// ### References
+    ///
+    /// - [Stylelint Documentation: `at-charset-rule-no-invalid`](https://stylelint.io/user-guide/rules/at-charset-rule-no-invalid)
+    /// - [CSS Syntax Module Level 3: Determining the fallback encoding](https://www.w3.org/TR/css-syntax-3/#determine-the-fallback-encoding)
+    AtCharsetRuleNoInvalid,
+    "at-charset-rule-no-invalid",
+    correctness,
+    fix = none,
+    recommended = true,
+}
 
 impl Rule for AtCharsetRuleNoInvalid {
     fn name(&self) -> &'static str {
-        "at-charset-rule-no-invalid"
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, _stylesheet: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {
-        // Fast path: skip stylesheets that do not contain `@`.
         if !ctx.source.contains('@') {
             return;
         }
 
-        // PostCSS strips a leading UTF-8 BOM (`\u{FEFF}`, 3 bytes) from the input stream
-        // and records `input.hasBOM = true`.
-        let (has_bom, css) = match ctx.source.strip_prefix('\u{FEFF}') {
-            Some(stripped) => (true, stripped),
-            None => (false, ctx.source),
-        };
+        let css = ctx.source;
+        let has_bom = ctx.has_bom;
 
         let tokens = tokenize_css(css);
         let mut idx = 0;
@@ -105,7 +111,6 @@ impl Rule for AtCharsetRuleNoInvalid {
 
         while idx < tokens.len() {
             let tok = tokens[idx];
-
             match tok.kind {
                 TokenKind::Space | TokenKind::Comment => {
                     idx += 1;
@@ -136,16 +141,15 @@ impl Rule for AtCharsetRuleNoInvalid {
 
                     let rule_start = tok.start;
                     let mut rule_end = tok.end;
-                    let mut params: Vec<CssToken<'_>> = Vec::new();
                     let mut inner_brackets: Vec<TokenKind> = Vec::new();
                     let mut open_block = false;
-                    let mut ended_without_semi = false;
-
+                    let mut ended_without_semi = true;
                     let mut j = idx + 1;
+                    let mut params_end = j;
+
                     while j < tokens.len() {
                         let t = tokens[j];
                         j += 1;
-
                         match t.kind {
                             TokenKind::OpenParen => inner_brackets.push(TokenKind::CloseParen),
                             TokenKind::OpenBracket => inner_brackets.push(TokenKind::CloseBracket),
@@ -156,116 +160,109 @@ impl Rule for AtCharsetRuleNoInvalid {
                             }
                             _ => {}
                         }
-
                         if inner_brackets.is_empty() {
-                            if t.kind == TokenKind::Semicolon {
-                                rule_end = t.end;
-                                break;
-                            } else if t.kind == TokenKind::OpenBrace {
-                                open_block = true;
-                                break;
-                            } else if t.kind == TokenKind::CloseBrace {
-                                ended_without_semi = true;
-                                break;
-                            } else {
-                                params.push(t);
+                            match t.kind {
+                                TokenKind::Semicolon => {
+                                    ended_without_semi = false;
+                                    rule_end = t.end;
+                                    break;
+                                }
+                                TokenKind::OpenBrace => {
+                                    ended_without_semi = false;
+                                    open_block = true;
+                                    break;
+                                }
+                                TokenKind::CloseBrace => break,
+                                _ => params_end = j,
                             }
                         } else {
-                            params.push(t);
+                            params_end = j;
                         }
-
-                        if j == tokens.len() {
-                            ended_without_semi = true;
-                            break;
-                        }
-                    }
-
-                    if idx + 1 == tokens.len() {
-                        ended_without_semi = true;
                     }
 
                     // If `@charset` is followed by a `{ ... }` block, find the closing `}`
                     // so the reported span covers the entire at-rule node.
                     if open_block {
                         let mut brace_depth = 1usize;
-                        let mut k = j;
                         rule_end = css.len();
-                        while k < tokens.len() {
-                            match tokens[k].kind {
+                        for t in &tokens[j..] {
+                            match t.kind {
                                 TokenKind::OpenBrace => brace_depth += 1,
                                 TokenKind::CloseBrace => {
                                     brace_depth -= 1;
                                     if brace_depth == 0 {
-                                        rule_end = tokens[k].end;
+                                        rule_end = t.end;
                                         break;
                                     }
                                 }
                                 _ => {}
                             }
-                            k += 1;
                         }
                     }
 
-                    // Extract trailing spaces/comments into `between` (matching PostCSS `raws.between`).
-                    let mut between = String::new();
-                    while let Some(last) = params.last() {
-                        if last.kind != TokenKind::Space && last.kind != TokenKind::Comment {
+                    let mut params = &tokens[idx + 1..params_end];
+                    let mut has_between = false;
+                    while let Some((last, rest)) = params.split_last() {
+                        if !matches!(last.kind, TokenKind::Space | TokenKind::Comment) {
                             break;
                         }
-                        let popped = params.pop().unwrap();
-                        between.insert_str(0, popped.raw);
+                        has_between = true;
+                        params = rest;
                     }
 
-                    let mut after_name = String::new();
-                    let mut params_str = String::new();
-
-                    if !params.is_empty() {
+                    let mut after_name = "";
+                    if let Some(last) = params.last() {
                         if ended_without_semi {
-                            rule_end = params.last().unwrap().end;
-                            between.clear();
+                            rule_end = last.end;
+                            has_between = false;
                         }
-                        while let Some(first) = params.first() {
-                            if first.kind != TokenKind::Space && first.kind != TokenKind::Comment {
+                        let after_name_start = tok.end;
+                        let mut after_name_end = tok.end;
+                        while let Some((first, rest)) = params.split_first() {
+                            if !matches!(first.kind, TokenKind::Space | TokenKind::Comment) {
                                 break;
                             }
-                            let shifted = params.remove(0);
-                            after_name.push_str(shifted.raw);
+                            after_name_end = first.end;
+                            params = rest;
                         }
-                        for p in &params {
-                            if p.kind != TokenKind::Comment {
-                                params_str.push_str(p.raw);
-                            }
-                        }
+                        after_name = &css[after_name_start..after_name_end];
                     } else if ended_without_semi {
                         rule_end = tok.end;
-                        between.clear();
+                        has_between = false;
                     }
 
+                    let params_str: Cow<'_, str> =
+                        if params.iter().any(|p| p.kind == TokenKind::Comment) {
+                            params
+                                .iter()
+                                .filter(|p| p.kind != TokenKind::Comment)
+                                .map(|p| p.raw)
+                                .collect::<String>()
+                                .into()
+                        } else if let Some((first, last)) = params.first().zip(params.last()) {
+                            Cow::Borrowed(&css[first.start..last.end])
+                        } else {
+                            Cow::Borrowed("")
+                        };
+
                     let span = Span {
-                        start: css_offset_to_source_offset(css, rule_start, has_bom),
-                        end: css_offset_to_source_offset(css, rule_end, has_bom),
+                        start: rule_start as u32,
+                        end: rule_end as u32,
                     };
 
                     let mut report_reason = |reason: &str| {
-                        ctx.report(
-                            self.name(),
-                            span,
-                            format!("Invalid \"@charset\" rule, {reason}"),
-                        );
+                        ctx.report(Self::NAME, span, invalid_at_charset_diagnostic(reason));
                     };
 
                     if has_bom {
                         report_reason(REASON_BYTE_ORDER_MARK);
                     }
-
                     if rule_start != 0 {
                         report_reason(REASON_POSITION);
                     }
-
                     if name != "charset" {
                         report_reason(REASON_NAME);
                     }
-
                     if after_name != " " {
                         report_reason(REASON_SPACE);
                     }
@@ -277,7 +274,8 @@ impl Rule for AtCharsetRuleNoInvalid {
 
                     let has_extra_content_in_prelude =
                         label.is_some_and(|l| l.len() != params_str.len());
-                    if !between.is_empty()
+
+                    if has_between
                         || has_extra_content_in_prelude
                         || open_block
                         || ended_without_semi
@@ -302,30 +300,6 @@ fn match_encoding_label(params: &str) -> Option<&str> {
     let rest = params.strip_prefix('"')?;
     let closing_quote = rest.find('"')?;
     Some(&params[..closing_quote + 2])
-}
-
-/// Converts a byte offset in `css` (after stripping any leading `\u{FEFF}` BOM)
-/// into a byte offset in `ctx.source` that produces identical `(line, column)`
-/// coordinates to PostCSS.
-fn css_offset_to_source_offset(css: &str, css_offset: usize, has_bom: bool) -> u32 {
-    if !has_bom {
-        return css_offset as u32;
-    }
-    // On line 1, PostCSS column numbers exclude the 1-character BOM (`\u{FEFF}`, 3 bytes).
-    if !css[..css_offset].contains('\n') {
-        if css_offset == 0 {
-            0
-        } else {
-            let prev_char_idx = css[..css_offset]
-                .char_indices()
-                .next_back()
-                .map(|(idx, _)| idx)
-                .unwrap_or(0);
-            (3 + prev_char_idx) as u32
-        }
-    } else {
-        (3 + css_offset) as u32
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -360,31 +334,21 @@ fn tokenize_css(css: &str) -> Vec<CssToken<'_>> {
 
     while i < len {
         let start = i;
-        match bytes[i] {
+        let kind = match bytes[i] {
             b' ' | b'\t' | b'\n' | b'\r' | b'\x0C' => {
                 i += 1;
                 while i < len && matches!(bytes[i], b' ' | b'\t' | b'\n' | b'\r' | b'\x0C') {
                     i += 1;
                 }
-                tokens.push(CssToken {
-                    kind: TokenKind::Space,
-                    raw: &css[start..i],
-                    start,
-                    end: i,
-                });
+                TokenKind::Space
             }
             b'/' if i + 1 < len && bytes[i + 1] == b'*' => {
                 i += 2;
                 while i + 1 < len && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
                     i += 1;
                 }
-                i = if i + 1 < len { i + 2 } else { len };
-                tokens.push(CssToken {
-                    kind: TokenKind::Comment,
-                    raw: &css[start..i],
-                    start,
-                    end: i,
-                });
+                i = (i + 2).min(len);
+                TokenKind::Comment
             }
             b'"' | b'\'' => {
                 let quote = bytes[i];
@@ -399,75 +363,35 @@ fn tokenize_css(css: &str) -> Vec<CssToken<'_>> {
                         i += 1;
                     }
                 }
-                tokens.push(CssToken {
-                    kind: TokenKind::Other,
-                    raw: &css[start..i],
-                    start,
-                    end: i,
-                });
+                TokenKind::Other
             }
             b';' => {
                 i += 1;
-                tokens.push(CssToken {
-                    kind: TokenKind::Semicolon,
-                    raw: &css[start..i],
-                    start,
-                    end: i,
-                });
+                TokenKind::Semicolon
             }
             b'{' => {
                 i += 1;
-                tokens.push(CssToken {
-                    kind: TokenKind::OpenBrace,
-                    raw: &css[start..i],
-                    start,
-                    end: i,
-                });
+                TokenKind::OpenBrace
             }
             b'}' => {
                 i += 1;
-                tokens.push(CssToken {
-                    kind: TokenKind::CloseBrace,
-                    raw: &css[start..i],
-                    start,
-                    end: i,
-                });
+                TokenKind::CloseBrace
             }
             b'(' => {
                 i += 1;
-                tokens.push(CssToken {
-                    kind: TokenKind::OpenParen,
-                    raw: &css[start..i],
-                    start,
-                    end: i,
-                });
+                TokenKind::OpenParen
             }
             b')' => {
                 i += 1;
-                tokens.push(CssToken {
-                    kind: TokenKind::CloseParen,
-                    raw: &css[start..i],
-                    start,
-                    end: i,
-                });
+                TokenKind::CloseParen
             }
             b'[' => {
                 i += 1;
-                tokens.push(CssToken {
-                    kind: TokenKind::OpenBracket,
-                    raw: &css[start..i],
-                    start,
-                    end: i,
-                });
+                TokenKind::OpenBracket
             }
             b']' => {
                 i += 1;
-                tokens.push(CssToken {
-                    kind: TokenKind::CloseBracket,
-                    raw: &css[start..i],
-                    start,
-                    end: i,
-                });
+                TokenKind::CloseBracket
             }
             b'@' => {
                 i += 1;
@@ -497,17 +421,11 @@ fn tokenize_css(css: &str) -> Vec<CssToken<'_>> {
                         i += 1;
                     }
                 }
-                let kind = if i > start + 1 {
+                if i > start + 1 {
                     TokenKind::AtWord
                 } else {
                     TokenKind::Other
-                };
-                tokens.push(CssToken {
-                    kind,
-                    raw: &css[start..i],
-                    start,
-                    end: i,
-                });
+                }
             }
             _ => {
                 i += 1;
@@ -536,15 +454,173 @@ fn tokenize_css(css: &str) -> Vec<CssToken<'_>> {
                         i += 1;
                     }
                 }
-                tokens.push(CssToken {
-                    kind: TokenKind::Other,
-                    raw: &css[start..i],
-                    start,
-                    end: i,
-                });
+                TokenKind::Other
             }
-        }
+        };
+
+        tokens.push(CssToken {
+            kind,
+            raw: &css[start..i],
+            start,
+            end: i,
+        });
     }
 
     tokens
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{AtCharsetRuleNoInvalid, invalid_at_charset_diagnostic as rejected};
+    use crate::tester::{Tester, reject, reject_warnings};
+
+    #[test]
+    fn default_config() {
+        let pass = &[
+            "@charset \"utf-8\";",
+            "@charset \"UTF-8\";",
+            "@charset \"iso-8859-15\";",
+            "@charset \"utf-8\";\na {}",
+        ];
+
+        let fail = &[
+            reject(
+                "\u{FEFF}@charset \"utf-8\";",
+                None,
+                rejected("expected no byte order mark before it"),
+                (1, 1, 1, 18),
+            ),
+            reject(
+                " @charset \"utf-8\";",
+                None,
+                rejected("expected it to be at the very start of the stylesheet"),
+                (1, 2, 1, 19),
+            ),
+            reject(
+                "\n@charset \"utf-8\";",
+                None,
+                rejected("expected it to be at the very start of the stylesheet"),
+                (2, 1, 2, 18),
+            ),
+            reject(
+                "a {}\n@charset \"utf-8\";",
+                None,
+                rejected("expected it to be at the very start of the stylesheet"),
+                (2, 1, 2, 18),
+            ),
+            reject(
+                "/* comment */\n@charset \"utf-8\";",
+                None,
+                rejected("expected it to be at the very start of the stylesheet"),
+                (2, 1, 2, 18),
+            ),
+            reject(
+                "@CHARSET \"utf-8\";",
+                None,
+                rejected("expected it to be lowercase"),
+                (1, 1, 1, 18),
+            ),
+            reject(
+                "@Charset \"utf-8\";",
+                None,
+                rejected("expected it to be lowercase"),
+                (1, 1, 1, 18),
+            ),
+            reject(
+                "@charset  \"utf-8\";",
+                None,
+                rejected("expected a single space after it"),
+                (1, 1, 1, 19),
+            ),
+            reject(
+                "@charset\t\"utf-8\";",
+                None,
+                rejected("expected a single space after it"),
+                (1, 1, 1, 18),
+            ),
+            reject(
+                "@charset\n\"utf-8\";",
+                None,
+                rejected("expected a single space after it"),
+                (1, 1, 2, 9),
+            ),
+            reject(
+                "@charset\"utf-8\";",
+                None,
+                rejected("expected a single space after it"),
+                (1, 1, 1, 17),
+            ),
+            reject(
+                "@charset 'utf-8';",
+                None,
+                rejected("expected double quotes around the encoding label"),
+                (1, 1, 1, 18),
+            ),
+            reject(
+                "@charset utf-8;",
+                None,
+                rejected("expected double quotes around the encoding label"),
+                (1, 1, 1, 16),
+            ),
+            reject(
+                "@charset \"utf-8\" ;",
+                None,
+                rejected("expected a semicolon directly after the closing quote"),
+                (1, 1, 1, 19),
+            ),
+            reject(
+                "@charset \"utf-8\"",
+                None,
+                rejected("expected a semicolon directly after the closing quote"),
+                (1, 1, 1, 17),
+            ),
+            reject(
+                "@charset \"utf-8\" {}",
+                None,
+                rejected("expected a semicolon directly after the closing quote"),
+                (1, 1, 1, 20),
+            ),
+            reject(
+                "@charset \"utf-8\" extra;",
+                None,
+                rejected("expected a semicolon directly after the closing quote"),
+                (1, 1, 1, 24),
+            ),
+            reject_warnings(
+                "@charset;",
+                None,
+                vec![
+                    (rejected("expected a single space after it"), (1, 1, 1, 10)),
+                    (
+                        rejected("expected double quotes around the encoding label"),
+                        (1, 1, 1, 10),
+                    ),
+                ],
+            ),
+            reject_warnings(
+                " @CHARSET\t'utf-8' ;",
+                None,
+                vec![
+                    (
+                        rejected("expected it to be at the very start of the stylesheet"),
+                        (1, 2, 1, 20),
+                    ),
+                    (rejected("expected it to be lowercase"), (1, 2, 1, 20)),
+                    (rejected("expected a single space after it"), (1, 2, 1, 20)),
+                    (
+                        rejected("expected double quotes around the encoding label"),
+                        (1, 2, 1, 20),
+                    ),
+                    (
+                        rejected("expected a semicolon directly after the closing quote"),
+                        (1, 2, 1, 20),
+                    ),
+                ],
+            ),
+        ];
+
+        Tester::new(AtCharsetRuleNoInvalid::NAME, json!([true]), pass, fail).test();
+    }
 }

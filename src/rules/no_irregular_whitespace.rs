@@ -146,3 +146,143 @@ impl Rule for NoIrregularWhitespace {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tester::{Tester, reject, reject_warnings};
+    use serde_json::json;
+
+    const REJECTED: &str = "Irregular whitespace";
+
+    #[test]
+    fn default_config() {
+        let pass = [
+            " ",
+            "\n",
+            "/* Irregular\u{00A0}whitespace\nin\u{00A0}multi line comments\nare\u{00A0}allowed */",
+            "/* stylelint-disable-next-line no-irregular-whitespace */\n\u{00A0}b, /* stylelint-disable-next-line no-irregular-whitespace */\na\u{00A0}b\n/* stylelint-disable-next-line no-irregular-whitespace */\n\u{00A0}\n{}",
+            "/* stylelint-disable-next-line no-irregular-whitespace */\n\u{00A0}@media\n/* stylelint-disable-next-line no-irregular-whitespace */\n\u{00A0} /* stylelint-disable-next-line no-irregular-whitespace */\nonly\u{00A0}screen\n{}",
+            ".foo {\n\t/* stylelint-disable-next-line no-irregular-whitespace */\n\tpadding\u{00A0}: /* stylelint-disable-next-line no-irregular-whitespace */\n\t\u{00A0} /* stylelint-disable-next-line no-irregular-whitespace */\n\t1px\u{00A0}2px\n\t/* stylelint-disable-next-line no-irregular-whitespace */\n\tcalc(5px\u{00A0}+ 6px);\n}",
+            "a { content: '\u{00A0}'; }",
+            "a { content: \"foo \t \n  bar\"; }",
+            "@charset \"\u{00A0}\"",
+            "a[id=\"\u{00A0}\"] {}",
+            "a { animation-name: \"foo\u{00A0}\" }",
+            "a { animation-name: 'ba\u{00A0}r' }",
+            "a { font-family: 'Times\u{0085}New\u{00A0}\u{00A0}Roman', serif; }",
+            "@font-feature-values \"foo\u{00A0}bar\"",
+            "a[title=\"irregular\u{000B}whitespace\"] { color: pink; }",
+            "a[title=\"irregular\u{000C}whitespace\"] { color: pink; }",
+            "a[title=\"irregular\u{00A0}whitespace\"] { color: pink; }",
+            "a[title=\"irregular\u{0085}whitespace\"] { color: pink; }",
+            "a[title=\"irregular\u{1680}whitespace\"] { color: pink; }",
+            "a[title=\"irregular\u{180E}whitespace\"] { color: pink; }",
+            "a[title=\"irregular\u{FEFF}whitespace\"] { color: pink; }",
+            "a[title=\"irregular\u{2000}whitespace\"] { color: pink; }",
+            "a[title=\"irregular\u{2001}whitespace\"] { color: pink; }",
+            "a[title=\"irregular\u{2002}whitespace\"] { color: pink; }",
+            "a[title=\"irregular\u{2003}whitespace\"] { color: pink; }",
+            "a[title=\"irregular\u{2004}whitespace\"] { color: pink; }",
+            "a[title=\"irregular\u{2005}whitespace\"] { color: pink; }",
+            "a[title=\"irregular\u{2006}whitespace\"] { color: pink; }",
+            "a[title=\"irregular\u{2007}whitespace\"] { color: pink; }",
+            "a[title=\"irregular\u{2008}whitespace\"] { color: pink; }",
+            "a[title=\"irregular\u{2009}whitespace\"] { color: pink; }",
+            "a[title=\"irregular\u{200A}whitespace\"] { color: pink; }",
+            "a[title=\"irregular\u{200B}whitespace\"] { color: pink; }",
+            "a[title=\"irregular\u{2028}whitespace\"] { color: pink; }",
+            "a[title=\"irregular\u{2029}whitespace\"] { color: pink; }",
+            "a[title=\"irregular\u{202F}whitespace\"] { color: pink; }",
+            "a[title=\"irregular\u{205F}whitespace\"] { color: pink; }",
+            "a[title=\"irregular\u{3000}whitespace\"] { color: pink; }",
+            ":lang(\"en\u{00A0}us \")",
+            ":not([data-id=\"a\u{00A0}b\"])",
+            "a[data-x='foo \u{00A0}  bar'] {}",
+            ":is(.class[attr=\"\u{00A0}a\"])",
+            ":is(input[type=\"checkbox\u{00A0}\"])",
+            "a[class='\u{00A0}foo'] {}",
+            "a[id='f\u{00A0}oo'] {}",
+            "[data-y=\"foo\tbar\"] {}",
+            "input[placeholder=\"foo\u{2009}bar\"] {}",
+            ":nth-child(\" 2n+ 1\u{00A0}\")",
+            "a/*foo\u{00A0}bar*/[attr=\"test\"] {}",
+            "a { /* comment\u{00A0}*/ color: red; }",
+            "a { grid-template-areas: /* \"comment\u{00A0}\" */ none /* \"\u{00A0}comment \" */; }",
+            "a { grid-template-areas: /* comment\u{00A0} */ none /* \u{00A0}comment */; }",
+            "a { cursor: url(\"pointer.cur\u{00A0}\"), pointer; }",
+            "@counter-style custom-list { symbols: \"-\u{00A0}\" \"◦\" \"‣\"; }",
+        ];
+        let fail = [
+            reject("@\u{00A0}charset \"utf-8\"", None, REJECTED, (1, 2, 1, 3)),
+            reject("@charset\u{00A0} \"utf-8\"", None, REJECTED, (1, 9, 1, 10)),
+            reject(
+                ".firstClass\u{00A0}.secondClass { color: pink; }",
+                None,
+                REJECTED,
+                (1, 12, 1, 13),
+            ),
+            reject(
+                ".firstClass .secondClass \u{00A0}{ color: pink; }",
+                None,
+                REJECTED,
+                (1, 26, 1, 27),
+            ),
+            reject("margin: 1rem\u{00A0}2rem;", None, REJECTED, (1, 13, 1, 14)),
+            reject("margin: 1rem 2rem\u{00A0};", None, REJECTED, (1, 18, 1, 19)),
+            reject("$variable\u{00A0}: 5rem;", None, REJECTED, (1, 10, 1, 11)),
+            reject("@media screen {\u{000C}}", None, REJECTED, (1, 16, 1, 17)),
+            reject(".a {\u{000C}}", None, REJECTED, (1, 5, 1, 6)),
+            reject(".a {\u{000C}\u{000C}}", None, REJECTED, (1, 5, 1, 7)),
+            reject_warnings(
+                "/* a comment */\n\u{00A0}b, /* a comment */\na\u{00A0}b\n/* a comment */\n\u{00A0}\n{}",
+                None,
+                vec![
+                    (REJECTED.to_string(), (2, 1, 2, 2)),
+                    (REJECTED.to_string(), (3, 2, 3, 3)),
+                    (REJECTED.to_string(), (5, 1, 5, 2)),
+                ],
+            ),
+            reject_warnings(
+                "/* a comment */\n\u{00A0}@media\n/* a comment */\n\u{00A0} /* a comment */\nonly\u{00A0}screen\n{}",
+                None,
+                vec![
+                    (REJECTED.to_string(), (2, 1, 2, 2)),
+                    (REJECTED.to_string(), (4, 1, 4, 2)),
+                    (REJECTED.to_string(), (5, 5, 5, 6)),
+                ],
+            ),
+            reject_warnings(
+                ".foo {\n\t/* a comment */\n\tpadding\u{00A0}: /* a comment */\n\t\u{00A0} /* a comment */\n\t1px\u{00A0}2px\n\t/* a comment */\n\tcalc(5px\u{00A0}+ 6px);\n}",
+                None,
+                vec![
+                    (REJECTED.to_string(), (3, 9, 3, 10)),
+                    (REJECTED.to_string(), (4, 2, 4, 3)),
+                    (REJECTED.to_string(), (5, 5, 5, 6)),
+                    (REJECTED.to_string(), (7, 10, 7, 11)),
+                ],
+            ),
+            reject_warnings(
+                "a {\n\tgrid-template:\n\t\t\"a a\u{00A0}a\" 40px\n\t\t\"b c c\" 40px\n\t\t\"b\u{00A0}c c\" 40px / 1fr 1fr 1fr;\n}",
+                None,
+                vec![
+                    (REJECTED.to_string(), (3, 7, 3, 8)),
+                    (REJECTED.to_string(), (5, 5, 5, 6)),
+                ],
+            ),
+            reject(
+                "a { grid-template-areas: \"a\u{00A0}a\" \"b b\"; }",
+                None,
+                REJECTED,
+                (1, 28, 1, 29),
+            ),
+            reject(
+                "a { grid: \"foo\u{00A0}\" 1fr /* \u{00A0}comment */ \"bar\" 1fr; }",
+                None,
+                REJECTED,
+                (1, 15, 1, 16),
+            ),
+        ];
+
+        Tester::new("no-irregular-whitespace", json!([true]), pass, fail).test();
+    }
+}

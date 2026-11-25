@@ -1,7 +1,38 @@
-use crate::{context::LintContext, rules::Rule};
-use oxc_css_parser::ast::{Declaration, InterpolableIdent};
+use crate::{
+    context::{AstParent, LintContext},
+    rules::Rule,
+    utils::{OptionMatcher, options_matches, parse_option_matchers, secondary_bool},
+};
+use oxc_css_parser::{
+    Span,
+    ast::{Declaration, InterpolableIdent},
+};
+use serde_json::{Map, Value};
 
-pub struct PropertyNoUnknown;
+pub struct PropertyNoUnknown {
+    ignore_properties: Vec<OptionMatcher>,
+    ignore_selectors: Vec<OptionMatcher>,
+    ignore_at_rules: Vec<OptionMatcher>,
+    check_prefixed: bool,
+}
+
+impl PropertyNoUnknown {
+    pub fn from_config(secondary: Option<&Map<String, Value>>) -> Self {
+        Self {
+            ignore_properties: parse_option_matchers(secondary, "ignoreProperties"),
+            ignore_selectors: parse_option_matchers(secondary, "ignoreSelectors"),
+            ignore_at_rules: parse_option_matchers(secondary, "ignoreAtRules"),
+            check_prefixed: secondary_bool(secondary, "checkPrefixed").unwrap_or(false),
+        }
+    }
+}
+
+const KNOWN_PREFIXED_PROPERTIES: &[&str] = &[
+    "-webkit-overflow-scrolling",
+    "-moz-box-flex",
+    "-khtml-opacity",
+    "-moz-align-self",
+];
 
 const KNOWN_PROPERTIES: &[&str] = &[
     "accent-color",
@@ -146,6 +177,7 @@ const KNOWN_PROPERTIES: &[&str] = &[
     "container-type",
     "content",
     "content-visibility",
+    "corner-shape",
     "counter-increment",
     "counter-reset",
     "counter-set",
@@ -299,6 +331,7 @@ const KNOWN_PROPERTIES: &[&str] = &[
     "min-inline-size",
     "min-width",
     "mix-blend-mode",
+    "navigation",
     "object-fit",
     "object-position",
     "offset",
@@ -502,22 +535,109 @@ impl Rule for PropertyNoUnknown {
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {
+        if ctx
+            .ancestors
+            .iter()
+            .any(|parent| matches!(parent, AstParent::AtRule(_)))
+            && !ctx
+                .ancestors
+                .iter()
+                .any(|parent| matches!(parent, AstParent::QualifiedRule(_)))
+        {
+            return;
+        }
+        if ctx.ancestors.iter().any(|parent| {
+            matches!(parent, AstParent::AtRule(at_rule) if at_rule.name.name.eq_ignore_ascii_case("font-face"))
+        }) {
+            return;
+        }
         if let InterpolableIdent::Literal(ident) = &decl.name {
             let prop: &str = ident.name;
-            if prop.starts_with("--") || prop.starts_with('-') || prop.starts_with('$') {
+            let (prop, span) = prop.strip_prefix('*').map_or((prop, ident.span), |prop| {
+                (
+                    prop,
+                    Span {
+                        start: ident.span.start + 1,
+                        end: ident.span.end,
+                    },
+                )
+            });
+            if prop.starts_with("--")
+                || prop.starts_with('$')
+                || (prop.starts_with('-') && !self.check_prefixed)
+                || options_matches(&self.ignore_properties, prop)
+                || ctx.ancestors.iter().rev().any(|parent| match parent {
+                    AstParent::AtRule(at_rule) => {
+                        options_matches(&self.ignore_at_rules, at_rule.name.name)
+                    }
+                    AstParent::QualifiedRule(rule) => {
+                        options_matches(&self.ignore_selectors, ctx.slice(rule.selector.span))
+                    }
+                    _ => false,
+                })
+            {
                 return;
             }
 
             let lower = prop.to_ascii_lowercase();
-            if KNOWN_PROPERTIES.contains(&lower.as_str()) {
+            if KNOWN_PROPERTIES.contains(&lower.as_str())
+                || (self.check_prefixed
+                    && (KNOWN_PREFIXED_PROPERTIES.contains(&lower.as_str())
+                        || crate::utils::PREVIOUSLY_KNOWN_PREFIXED_PROPERTIES
+                            .contains(&lower.as_str())))
+            {
                 return;
             }
 
-            ctx.report(
-                self.name(),
-                ident.span,
-                format!("Unexpected unknown property \"{prop}\""),
-            );
+            ctx.report(self.name(), span, format!("Unknown property \"{prop}\""));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tester::{Tester, reject_message};
+    use serde_json::json;
+
+    #[test]
+    fn check_prefixed_accepts_known_properties() {
+        let pass = [
+            "a { -webkit-overflow-scrolling: auto; }",
+            "a { -moz-box-flex: 0; }",
+            "a { -khtml-opacity: 0.5; }",
+            "a { -moz-align-self: center; }",
+        ];
+        let fail = [reject_message(
+            "a { -moz-overflow-scrolling: auto; }",
+            None,
+            "Unknown property \"-moz-overflow-scrolling\"",
+        )];
+        Tester::new(
+            "property-no-unknown",
+            json!([true, {"checkPrefixed": true}]),
+            pass,
+            &fail,
+        )
+        .test();
+    }
+
+    #[test]
+    fn handles_asterisk_property_hacks() {
+        let fail = [reject_message(
+            ".foo { *wdth: 100px; }",
+            None,
+            "Unknown property \"wdth\"",
+        )];
+        Tester::new(
+            "property-no-unknown",
+            json!(true),
+            [
+                "a { *width: 100px; }",
+                "@font-face { foo: 0; }",
+                "@foo { bar: 0; }",
+            ],
+            &fail,
+        )
+        .test();
     }
 }

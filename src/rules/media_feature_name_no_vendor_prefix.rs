@@ -1,10 +1,8 @@
 use crate::{
     context::LintContext,
     fix::Fix,
-    rules::{
-        Rule,
-        value_utils::{ValueTokenKind, at_rule_prelude_span, tokenize_value},
-    },
+    rules::Rule,
+    utils::{ValueTokenKind, at_rule_prelude_span, tokenize_value},
 };
 use oxc_css_parser::ast::AtRule;
 
@@ -58,7 +56,7 @@ impl Rule for MediaFeatureNameNoVendorPrefix {
                     ctx.report_with_fix(
                         self.name(),
                         tok.span,
-                        "Unexpected vendor-prefix".to_string(),
+                        "Vendor-prefixed media feature name".to_string(),
                         Some(Fix::single(tok.span, unprefixed.to_string())),
                     );
                 }

@@ -359,3 +359,69 @@ fn is_word_char(b: u8) -> bool {
             b',' | b'/' | b'(' | b')' | b'{' | b'}' | b';' | b':' | b'"' | b'\''
         )
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::tester::{Tester, reject, reject_warnings};
+
+    const NAME: &str = "color-hex-alpha";
+
+    fn expected(hex: &str) -> String {
+        format!("Expected alpha channel in \"{hex}\"")
+    }
+
+    #[test]
+    fn always() {
+        let pass = &[
+            "a { color: #ffff; }",
+            "a { color: #ffffffff; }",
+            "a { background: linear-gradient(to left, #fffa, #000000aa 100%); }",
+            "a { background: url(#fff); }",
+        ];
+
+        let fail = &[
+            reject("a { color: #fff; }", None, expected("#fff"), (1, 12, 1, 16)),
+            reject(
+                "a { color: #ffffff; }",
+                None,
+                expected("#ffffff"),
+                (1, 12, 1, 19),
+            ),
+            reject_warnings(
+                "a { background: linear-gradient(to left, #fff, #000000 100%); }",
+                None,
+                vec![
+                    (expected("#fff"), (1, 42, 1, 46)),
+                    (expected("#000000"), (1, 48, 1, 55)),
+                ],
+            ),
+        ];
+
+        Tester::new(NAME, json!(["always"]), pass, fail).test();
+    }
+
+    #[test]
+    fn never() {
+        let pass = &["a { color: #fff; }", "a { color: #ffffff; }"];
+        let fail = &[reject(
+            "a { color: #ffff; }",
+            None,
+            "Expected no alpha channel in \"#ffff\"",
+            (1, 12, 1, 17),
+        )];
+
+        Tester::new(NAME, json!(["never"]), pass, fail).test();
+    }
+
+    #[test]
+    fn always_scss() {
+        let pass = &["a { color: #{f}; }", "$var: #ffff;"];
+        let fail = &[reject("$var: #fff", None, expected("#fff"), (1, 7, 1, 11))];
+
+        Tester::new(NAME, json!(["always"]), pass, fail)
+            .with_custom_syntax("postcss-scss")
+            .test();
+    }
+}

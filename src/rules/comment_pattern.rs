@@ -71,3 +71,62 @@ fn extract_comment_text(raw: &str) -> &str {
         raw.trim()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::tester::{Tester, reject};
+
+    const RULE_NAME: &str = "comment-pattern";
+
+    fn expected(pattern: &str) -> String {
+        format!("Expected comment to match pattern \"{pattern}\"")
+    }
+
+    #[test]
+    fn regex_pattern() {
+        let pattern = "/foo-.+/";
+        let pass = [
+            "/* foo-valid yay */",
+            "/* foo--\nmulti-line\n\n\r\n\r\n\n\r\n\t\n*/",
+        ];
+        let fail = [
+            reject("/* not foo- */", None, expected(pattern), (1, 1, 1, 15)),
+            reject("/**/", None, expected(pattern), (1, 1, 1, 5)),
+        ];
+
+        Tester::new(RULE_NAME, json!([pattern]), pass, fail).test();
+    }
+
+    #[test]
+    fn string_pattern() {
+        let pattern = "foo-.+";
+        let pass = [
+            "/* foo-valid yay */",
+            "/* foo--\nmulti-line\n\n\r\n\r\n\n\r\n\t\n*/",
+        ];
+        let fail = [
+            reject("/* not foo- */", None, expected(pattern), (1, 1, 1, 15)),
+            reject("/**/", None, expected(pattern), (1, 1, 1, 5)),
+        ];
+
+        Tester::new(RULE_NAME, json!([pattern]), pass, fail).test();
+    }
+
+    #[test]
+    fn scss() {
+        let pattern = "/foo-.+/";
+        let pass = ["a {} // foo-ok", "// foo-ok"];
+        let fail = [reject(
+            "a {} // not-foo",
+            None,
+            expected(pattern),
+            (1, 6, 1, 16),
+        )];
+
+        Tester::new(RULE_NAME, json!([pattern]), pass, fail)
+            .with_custom_syntax("postcss-scss")
+            .test();
+    }
+}

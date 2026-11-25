@@ -391,7 +391,7 @@ fn skip_string(ctx: &LintContext<'_>, mut pos: u32, len: u32) -> u32 {
 /// Returns the byte at `pos` in the source string.
 #[inline]
 fn byte_at(ctx: &LintContext<'_>, pos: u32) -> u8 {
-    ctx.slice_range(pos, pos + 1).as_bytes()[0]
+    ctx.source.as_bytes()[pos as usize]
 }
 
 /// Returns `true` if `b` can start a CSS identifier.
@@ -414,4 +414,155 @@ fn is_word_char(b: u8) -> bool {
             b,
             b',' | b'/' | b'(' | b')' | b'{' | b'}' | b';' | b':' | b'"' | b'\''
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::tester::{Tester, reject, reject_message};
+
+    const NAME: &str = "color-hex-length";
+
+    fn expected(actual: &str, expected: &str) -> String {
+        format!("Expected \"{actual}\" to be \"{expected}\"")
+    }
+
+    #[test]
+    fn short() {
+        let pass = &[
+            "a { color: pink; }",
+            "a { color: #000; }",
+            "a { color: #FFF; }",
+            "a { color: #f00; }",
+            "a { color: #0000; }",
+            "a { color: #FFFF; }",
+            "a { color: #f000; }",
+            "a { something: #000, #fff, #aba; }",
+            "a { color: #ff; }",
+            "a { color: #ffffffa; }",
+            "a { color: #fffffffffff; }",
+            "a { padding: 000000; }",
+            "a::before { content: \"#ABABAB\"; }",
+            "a { color: white /* #FFFFFF */; }",
+            "a { background: url(somefile.swvg#abcdef)}",
+        ];
+
+        let fail = &[
+            reject(
+                "a { color: #FFFFFF; }",
+                "a { color: #FFF; }",
+                expected("#FFFFFF", "#FFF"),
+                (1, 12, 1, 19),
+            )
+            .with_edit_info(0, (15, 18, "")),
+            reject(
+                "a { color: #FfaAFF; }",
+                "a { color: #FaF; }",
+                expected("#FfaAFF", "#FaF"),
+                (1, 12, 1, 19),
+            )
+            .with_edit_info(0, (13, 17, "a")),
+            reject(
+                "a { color: #00aa00aa; }",
+                "a { color: #0a0a; }",
+                expected("#00aa00aa", "#0a0a"),
+                (1, 12, 1, 21),
+            )
+            .with_edit_info(0, (13, 19, "a0")),
+            reject(
+                "a { something: #fff, #aba, #00ffAAaa; }",
+                "a { something: #fff, #aba, #0fAa; }",
+                expected("#00ffAAaa", "#0fAa"),
+                (1, 28, 1, 37),
+            )
+            .with_edit_info(0, (29, 35, "fA")),
+        ];
+
+        Tester::new(NAME, json!(["short"]), pass, fail)
+            .with_fix(true)
+            .with_compute_edit_info(true)
+            .test();
+    }
+
+    #[test]
+    fn long() {
+        let pass = &[
+            "a { color: pink; }",
+            "a { color: #000000; }",
+            "a { color: #FFFFFF; }",
+            "a { color: #f00000; }",
+            "a { color: #00000000; }",
+            "a { color: #FFFFFFFF; }",
+            "a { color: #f0000000; }",
+            "a { something: #000000, #ffffff, #ababab; }",
+            "a { color: #ff; }",
+            "a { color: #ffffffa; }",
+            "a { color: #fffffffffff; }",
+            "a { padding: 000; }",
+            "a::before { content: \"#ABA\"; }",
+            "a { color: white /* #FFF */; }",
+            "a { background: url(somefile.swvg#abc)}",
+            "a { background: url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\"><path fill=\"#000\" d=\"M32 2a24 24 0 0 0-24 24c0 16.2 21.6 34.8 22.5 35.5a2.4 2.4 0 0 0 3 0C34.4 60.8 56 42.2 56 26A24 24 0 0 0 32 2zm0 32a8 8 0 1 1 8-8 8 8 0 0 1-8 8z\"/></svg>'); }",
+        ];
+
+        let fail = &[
+            reject(
+                "a { color: #FFF; }",
+                "a { color: #FFFFFF; }",
+                expected("#FFF", "#FFFFFF"),
+                (1, 12, 1, 16),
+            )
+            .with_edit_info(0, (14, 15, "FFFF")),
+            reject(
+                "a { color: #Ffa; }",
+                "a { color: #FFffaa; }",
+                expected("#Ffa", "#FFffaa"),
+                (1, 12, 1, 16),
+            )
+            .with_edit_info(0, (13, 14, "Fffa")),
+            reject(
+                "a { color: #0a0a; }",
+                "a { color: #00aa00aa; }",
+                expected("#0a0a", "#00aa00aa"),
+                (1, 12, 1, 17),
+            )
+            .with_edit_info(0, (13, 15, "0aa00a")),
+            reject(
+                "a { something: #000000, #ffffff, #aba; }",
+                "a { something: #000000, #ffffff, #aabbaa; }",
+                expected("#aba", "#aabbaa"),
+                (1, 34, 1, 38),
+            )
+            .with_edit_info(0, (35, 36, "abba")),
+            reject(
+                "a { background: url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\"><path fill=\"#000\" d=\"M32 2a24 24 0 0 0-24 24c0 16.2 21.6 34.8 22.5 35.5a2.4 2.4 0 0 0 3 0C34.4 60.8 56 42.2 56 26A24 24 0 0 0 32 2zm0 32a8 8 0 1 1 8-8 8 8 0 0 1-8 8z\"/></svg>') #fff; }",
+                "a { background: url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\"><path fill=\"#000\" d=\"M32 2a24 24 0 0 0-24 24c0 16.2 21.6 34.8 22.5 35.5a2.4 2.4 0 0 0 3 0C34.4 60.8 56 42.2 56 26A24 24 0 0 0 32 2zm0 32a8 8 0 1 1 8-8 8 8 0 0 1-8 8z\"/></svg>') #ffffff; }",
+                expected("#fff", "#ffffff"),
+                (1, 283, 1, 287),
+            )
+            .with_edit_info(0, (285, 286, "ffff")),
+        ];
+
+        Tester::new(NAME, json!(["long"]), pass, fail)
+            .with_fix(true)
+            .with_compute_edit_info(true)
+            .test();
+    }
+
+    #[test]
+    #[ignore = "naive-css-in-js is not supported"]
+    fn short_css_in_js() {
+        let pass = &["export default <svg style={{ color: \"#fff\" }} />;"];
+        let fail = &[reject_message(
+            "export default <svg style={{ color: \"#ffffff\" }} />;",
+            "export default <svg style={{ color: \"#fff\" }} />;",
+            expected("#ffffff", "#fff"),
+        )];
+
+        Tester::new(NAME, json!(["short"]), pass, fail)
+            .with_custom_syntax("naive-css-in-js")
+            .with_fix(true)
+            .test();
+    }
 }

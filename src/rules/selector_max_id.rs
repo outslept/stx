@@ -382,3 +382,303 @@ fn strip_comments_and_strings(s: &str) -> String {
     }
     String::from_utf8_lossy(&out).into_owned()
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::tester::{Tester, reject, reject_warnings};
+
+    const NAME: &str = "selector-max-id";
+
+    fn expected(selector: &str, max: usize) -> String {
+        format!("Too many ID selectors in \"{selector}\", maximum {max}")
+    }
+
+    #[test]
+    fn sanity_checks() {
+        let pass = [
+            "foo {}",
+            ".bar {}",
+            "foo .bar {}",
+            "[foo] {}",
+            ":root { --foo: 1px; }",
+            "html { --foo: 1px; }",
+            ":root { --custom-property-set: {} }",
+            "html { --custom-property-set: {} }",
+            "/* stylelint-disable-next-line selector-max-id */\n#foo, /* stylelint-disable-next-line selector-max-id */\n#bar,\n/* stylelint-disable-next-line selector-max-id */\n#baz\n{}",
+        ];
+        let fail = [
+            reject("#foo {}", None, expected("#foo", 0), (1, 1, 1, 5)),
+            reject(
+                ".bar #foo {}",
+                None,
+                expected(".bar #foo", 0),
+                (1, 1, 1, 10),
+            ),
+            reject(
+                ".bar > #foo {}",
+                None,
+                expected(".bar > #foo", 0),
+                (1, 1, 1, 12),
+            ),
+            reject("#foo.bar {}", None, expected("#foo.bar", 0), (1, 1, 1, 9)),
+            reject(
+                ".foo, .bar, #foo.baz {}",
+                None,
+                expected("#foo.baz", 0),
+                (1, 13, 1, 21),
+            ),
+            reject(
+                "#foo [lang^=en] {}",
+                None,
+                expected("#foo [lang^=en]", 0),
+                (1, 1, 1, 16),
+            ),
+            reject(
+                "#foo[lang^=en] {}",
+                None,
+                expected("#foo[lang^=en]", 0),
+                (1, 1, 1, 15),
+            ),
+            reject("* #foo {}", None, expected("* #foo", 0), (1, 1, 1, 7)),
+            reject("#foo * {}", None, expected("#foo *", 0), (1, 1, 1, 7)),
+            reject("*#foo {}", None, expected("*#foo", 0), (1, 1, 1, 6)),
+            reject(
+                "#foo:hover {}",
+                None,
+                expected("#foo:hover", 0),
+                (1, 1, 1, 11),
+            ),
+            reject(
+                ":not(#foo) {}",
+                None,
+                expected(":not(#foo)", 0),
+                (1, 1, 1, 11),
+            ),
+            reject_warnings(
+                "/* a comment */\n#foo, /* a comment */\n#bar,\n/* a comment */\n#foo\n{}",
+                None,
+                vec![
+                    (expected("#foo", 0), (2, 1, 2, 5)),
+                    (expected("#bar", 0), (3, 1, 3, 5)),
+                    (expected("#foo", 0), (5, 1, 5, 5)),
+                ],
+            ),
+        ];
+        Tester::new(NAME, json!([0]), pass, fail).test();
+    }
+
+    #[test]
+    fn standard_tests() {
+        let pass = [
+            "#foo {}",
+            "#foo:hover {}",
+            "#foo #bar {}",
+            "#foo, \n#bar {}",
+            "#foo #bar, \n#bar #foo {}",
+            "#foo { #bar {} }",
+            "#foo { #bar > & {} }",
+            "#foo, #bar { & > #foo {} }",
+            "@media print { #foo #bar {} }",
+            "#foo { @media print { #bar {} } }",
+            ".foo { @media print { #bar #baz {} } }",
+            "#foo { #baz { .quux {} } }",
+            "#foo { .baz { #quux {} } }",
+        ];
+        let fail = [
+            reject(
+                "#foo #bar #baz {}",
+                None,
+                expected("#foo #bar #baz", 2),
+                (1, 1, 1, 15),
+            ),
+            reject(
+                "#foo #bar:not(#baz) {}",
+                None,
+                expected("#foo #bar:not(#baz)", 2),
+                (1, 1, 1, 20),
+            ),
+            reject(
+                ":--foo(#foo) #bar #baz {}",
+                None,
+                expected(":--foo(#foo) #bar #baz", 2),
+                (1, 1, 1, 23),
+            ),
+            reject(
+                "#foo, \n#bar #baz #foo {}",
+                None,
+                expected("#bar #baz #foo", 2),
+                (2, 1, 2, 15),
+            ),
+            reject(
+                "#foo #bar #baz:not(#quux) {}",
+                None,
+                expected("#foo #bar #baz:not(#quux)", 2),
+                (1, 1, 1, 26),
+            ),
+            reject(
+                ".foo { @media print { #bar #baz #foo {} } }",
+                None,
+                expected("#bar #baz #foo", 2),
+                (1, 23, 1, 37),
+            ),
+        ];
+        Tester::new(NAME, json!([2]), pass, fail).test();
+    }
+
+    #[test]
+    fn scss_max_0() {
+        let pass = [
+            "@keyframes spin { #{50% - $n} {} }",
+            "@for $n from 1 through 10 { .n-#{$n} { content: \"n: #{1 + 1}\"; } }",
+            "@for $n from 1 through 10 { .n#{$n}-#{$n} { content: \"n: #{1 + 1}\"; } }",
+            "@for $n from 1 through 10 { .n#{$n}n#{$n} { content: \"n: #{1 + 1}\"; } }",
+            "@each $n in $vals { .n-#{$n} { content: \"n: #{1 + 1}\"; } }",
+            "@while $n < 10 { .n-#{$n} { content: \"n: #{1 + 1}\"; } }",
+            "div:nth-child(#{map-get($foo, bar)}) {}",
+            "@for $n from 1 through 10 { .n-#{$n} #foo {} }",
+        ];
+        let fail = [
+            reject(
+                "#foo { @include test {} }",
+                None,
+                expected("#foo", 0),
+                (1, 1, 1, 5),
+            ),
+            reject(
+                ".bar #foo { @include test {} }",
+                None,
+                expected(".bar #foo", 0),
+                (1, 1, 1, 10),
+            ),
+            reject(
+                ".bar > #foo { @include test {} }",
+                None,
+                expected(".bar > #foo", 0),
+                (1, 1, 1, 12),
+            ),
+            reject(
+                "#foo.bar { @include test {} }",
+                None,
+                expected("#foo.bar", 0),
+                (1, 1, 1, 9),
+            ),
+            reject(
+                ".foo, .bar, #foo.baz { @include test {} }",
+                None,
+                expected("#foo.baz", 0),
+                (1, 13, 1, 21),
+            ),
+            reject(
+                "#foo [lang^=en] { @include test {} }",
+                None,
+                expected("#foo [lang^=en]", 0),
+                (1, 1, 1, 16),
+            ),
+            reject(
+                "#foo[lang^=en] { @include test {} }",
+                None,
+                expected("#foo[lang^=en]", 0),
+                (1, 1, 1, 15),
+            ),
+            reject(
+                "* #foo { @include test {} }",
+                None,
+                expected("* #foo", 0),
+                (1, 1, 1, 7),
+            ),
+            reject(
+                "#foo * { @include test {} }",
+                None,
+                expected("#foo *", 0),
+                (1, 1, 1, 7),
+            ),
+            reject(
+                "*#foo { @include test {} }",
+                None,
+                expected("*#foo", 0),
+                (1, 1, 1, 6),
+            ),
+            reject(
+                "#foo:hover { @include test {} }",
+                None,
+                expected("#foo:hover", 0),
+                (1, 1, 1, 11),
+            ),
+            reject(
+                ":not(#foo) { @include test {} }",
+                None,
+                expected(":not(#foo)", 0),
+                (1, 1, 1, 11),
+            ),
+            reject(
+                "@include test { #foo {} }",
+                None,
+                expected("#foo", 0),
+                (1, 17, 1, 21),
+            ),
+        ];
+        Tester::new(NAME, json!([0]), pass, fail)
+            .with_custom_syntax("postcss-scss")
+            .test();
+    }
+
+    #[test]
+    fn less_max_0() {
+        let pass = [
+            ".for(@n: 1) when (@n <= 10) { .n-@{n} { content: %(\"n: %d\", 1 + 1); } .for(@n + 1); }",
+            ".for(@n: 1) when (@n <= 10) { .n-@{n}-@{n} { content: %(\"n: %d\", 1 + 1); } .for(@n + 1); }",
+            ".for(@n: 1) when (@n <= 10) { .n-@{n}n@{n} { content: %(\"n: %d\", 1 + 1); } .for(@n + 1); }",
+            ".each(@vals, @n: 1) when (@n <= length(@vals)) { @val: extract(@vals, @n); .n-@{val} { content: %(\"n: %d\", 1 + 1); } .each(@vals, @n + 1); }",
+            ".while(@n: 0) when (@n < 10) { .n-@{n} { content: %(\"n: %d\", 1 + 1); } .while(@n + 1) }",
+            ".for(@n: 1) when (@n <= 10) { .n-@{n} #foo {} .for(@n + 1) }",
+        ];
+        Tester::new(NAME, json!([0]), pass, [])
+            .with_custom_syntax("postcss-less")
+            .test();
+    }
+
+    #[test]
+    fn scss_max_2() {
+        let pass = [
+            "#foo { @if ($p == 1) { #bar {} } }",
+            ".foo { @if ($p == 1) { #bar #baz {} } }",
+        ];
+        let fail = [
+            reject(
+                "#foo #bar #baz { @if ($p == 1) { #bar {} } }",
+                None,
+                expected("#foo #bar #baz", 2),
+                (1, 1, 1, 15),
+            ),
+            reject(
+                ".foo { @if ($p == 1) { #bar #baz #foo {} } }",
+                None,
+                expected("#bar #baz #foo", 2),
+                (1, 24, 1, 38),
+            ),
+        ];
+        Tester::new(NAME, json!([2]), pass, fail)
+            .with_custom_syntax("postcss-scss")
+            .test();
+    }
+
+    #[test]
+    fn ignore_context_functional_pseudo_classes() {
+        let pass = ["a:not(#foo) {}", "a:has(#foo) {}", "a:not(:is(#foo)) {}"];
+        let fail = [reject(
+            "a:matches(#foo) {}",
+            None,
+            expected("a:matches(#foo)", 0),
+            (1, 1, 1, 16),
+        )];
+        Tester::new(
+            NAME,
+            json!([0, { "ignoreContextFunctionalPseudoClasses": [":not", "/^:(h|H)as$/"] }]),
+            pass,
+            fail,
+        )
+        .test();
+    }
+}

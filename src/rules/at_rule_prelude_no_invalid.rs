@@ -2,128 +2,79 @@
 //!
 //! Reference: <https://stylelint.io/user-guide/rules/at-rule-prelude-no-invalid>
 
+use std::ops::Deref;
+
 use oxc_css_parser::{Span, ast::Stylesheet};
 use serde_json::{Map, Value};
 
 use crate::context::LintContext;
+use crate::declare_stx_lint;
 use crate::rules::Rule;
+use crate::utils::has_interpolation;
 use crate::utils::options::{OptionMatcher, options_matches, parse_option_matchers};
 use crate::utils::reference::is_css_wide_keyword;
-use crate::utils::text::has_interpolation;
 
-/// [`at-rule-prelude-no-invalid`](https://stylelint.io/user-guide/rules/at-rule-prelude-no-invalid)
-///
-/// Disallow invalid preludes for at-rules.
-///
-/// ### What it does
-///
-/// Validates the prelude (parameters between the `@<name>` and `{` or `;`) of
-/// standard CSS at-rules against their W3C specification grammars:
-///
-/// - `@layer`: optional `<layer-name>#` (comma-separated identifiers or
-///   dot-separated identifier paths).
-/// - `@property`: `<custom-property-name>#` (comma-separated `<dashed-ident>`
-///   tokens starting with `--`).
-/// - `@scope`: `[ ( <scope-start> ) ]? [ to ( <scope-end> ) ]?`.
-/// - `@font-palette-values` / `@position-try`: a single `<dashed-ident>`
-///   starting with `--`.
-/// - `@font-feature-values`: `<family-name>#` (comma-separated font family
-///   names consisting of `<string>` or `<custom-ident>+`).
-/// - `@counter-style`: `<counter-style-name>` (`<custom-ident>`).
-/// - `@color-profile`: `<dashed-ident> | device-cmyk`.
-///
-/// Unknown or custom at-rules are ignored.
-///
-/// ### Why is this bad?
-///
-/// An at-rule with a malformed prelude (such as `@property foo` without `--`,
-/// `@layer "foo"` with a string, or `@scope .foo` without parentheses) is
-/// invalid according to the CSS specification and will be ignored by the browser.
-///
-/// ### Primary Option
-///
-/// - `true`: enable the rule.
-///
-/// ### Secondary Options
-///
-/// ```json
-/// {
-///   "ignoreAtRules": ["property", "/^font-/"]
-/// }
-/// ```
-///
-/// - `ignoreAtRules`: an array of strings or regular expressions (wrapped in
-///   `/.../` or `/.../i`) matching at-rule names (without the leading `@`) to
-///   ignore.
-///
-/// ### Examples
-///
-/// #### Incorrect
-///
-/// ```css
-/// @layer "foo";
-/// @property foo {}
-/// @scope .foo {}
-/// @font-palette-values foo {}
-/// @font-feature-values #foo {}
-/// ```
-///
-/// #### Correct
-///
-/// ```css
-/// @layer foo;
-/// @property --foo {}
-/// @scope (.foo) {}
-/// @font-palette-values --foo {}
-/// @font-feature-values Font One {}
-/// ```
-pub struct AtRulePreludeNoInvalid {
+declare_stx_lint! {
+    /// Disallow invalid preludes for at-rules.
+    AtRulePreludeNoInvalid,
+    "at-rule-prelude-no-invalid",
+    correctness,
+    fix = none,
+    recommended = true,
+}
+
+#[derive(Default)]
+pub struct AtRulePreludeNoInvalidConfig {
     /// Compiled matchers for the `ignoreAtRules` secondary option.
     ignore_at_rules: Vec<OptionMatcher>,
 }
 
-impl Default for AtRulePreludeNoInvalid {
-    fn default() -> Self {
-        Self::new(None)
+/// [`at-rule-prelude-no-invalid`](https://stylelint.io/user-guide/rules/at-rule-prelude-no-invalid)
+///
+/// Disallow invalid preludes for at-rules.
+#[derive(Default)]
+pub struct AtRulePreludeNoInvalid(AtRulePreludeNoInvalidConfig);
+
+impl Deref for AtRulePreludeNoInvalid {
+    type Target = AtRulePreludeNoInvalidConfig;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
 impl AtRulePreludeNoInvalid {
     /// Creates a new `at-rule-prelude-no-invalid` rule instance from secondary options.
     pub fn new(secondary: Option<&Map<String, Value>>) -> Self {
-        Self {
+        Self(AtRulePreludeNoInvalidConfig {
             ignore_at_rules: parse_option_matchers(secondary, "ignoreAtRules"),
-        }
+        })
     }
+}
 
-    /// Formats the diagnostic message when an invalid at-rule prelude is found.
-    #[inline]
-    fn rejected_message(at_rule: &str, prelude: &str) -> String {
-        format!("Invalid prelude \"{prelude}\" for at-rule \"{at_rule}\"")
-    }
+/// Formats the diagnostic message when an invalid at-rule prelude is found.
+#[inline]
+fn rejected_message(at_rule: &str, prelude: &str) -> String {
+    format!("Invalid prelude \"{prelude}\" for at-rule \"{at_rule}\"")
 }
 
 impl Rule for AtRulePreludeNoInvalid {
     fn name(&self) -> &'static str {
-        "at-rule-prelude-no-invalid"
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, _ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {
         let len = u32::try_from(ctx.source.len()).unwrap_or(u32::MAX);
         let mut i: u32 = 0;
-
         // Track whether the scanner is at a position where a statement / at-rule can start.
         let mut at_statement_start = true;
-
         while i < len {
             let b = byte_at(ctx, i);
-
             // Whitespace preserves `at_statement_start`.
             if b.is_ascii_whitespace() {
                 i += 1;
                 continue;
             }
-
             // Skip block comments `/* ... */` (preserving `at_statement_start`).
             if b == b'/' && i + 1 < len && byte_at(ctx, i + 1) == b'*' {
                 i += 2;
@@ -133,7 +84,6 @@ impl Rule for AtRulePreludeNoInvalid {
                 i = if i + 1 < len { i + 2 } else { len };
                 continue;
             }
-
             // Skip single-line comments `// ...` when not part of a URL scheme (`://`).
             if b == b'/'
                 && i + 1 < len
@@ -146,46 +96,38 @@ impl Rule for AtRulePreludeNoInvalid {
                 }
                 continue;
             }
-
             // Skip quoted string literals.
             if b == b'"' || b == b'\'' {
                 at_statement_start = false;
                 i = skip_string(ctx, i, len);
                 continue;
             }
-
             // Statement delimiters allow an at-rule to follow.
             if matches!(b, b'{' | b'}' | b';') {
                 at_statement_start = true;
                 i += 1;
                 continue;
             }
-
             // Check for an at-rule at the start of a statement.
             if b == b'@' && at_statement_start {
                 let at_start = i;
                 let name_start = i + 1;
-
                 if name_start < len && is_ident_start(byte_at(ctx, name_start)) {
                     let mut name_end = name_start + 1;
                     while name_end < len && is_ident_char(byte_at(ctx, name_end)) {
                         name_end += 1;
                     }
-
                     let header_end = find_at_rule_header_end(ctx, name_end, len);
-
                     // Ignore Less variable declarations (`@var: ...`) and Less mixin calls (`@mixin(...)`).
                     let next_non_ws = skip_spaces_and_tabs(ctx, name_end, len);
                     let is_less_construct = next_non_ws < len
                         && (byte_at(ctx, next_non_ws) == b':'
                             || (next_non_ws == name_end && byte_at(ctx, next_non_ws) == b'('));
-
                     if !is_less_construct {
                         let name = ctx.slice_range(name_start, name_end);
                         let (prelude_start, prelude_end) =
                             trim_prelude_range(ctx, name_end, header_end);
                         let prelude = ctx.slice_range(prelude_start, prelude_end);
-
                         if !has_interpolation(name)
                             && !has_interpolation(prelude)
                             && !options_matches(&self.ignore_at_rules, name)
@@ -196,17 +138,14 @@ impl Rule for AtRulePreludeNoInvalid {
                                 start: prelude_start,
                                 end: prelude_end,
                             };
-
-                            ctx.report(self.name(), span, Self::rejected_message(at_name, prelude));
+                            ctx.report(Self::NAME, span, rejected_message(at_name, prelude));
                         }
                     }
-
                     at_statement_start = false;
                     i = header_end;
                     continue;
                 }
             }
-
             at_statement_start = false;
             i += 1;
         }
@@ -268,7 +207,6 @@ fn is_valid_scope_prelude(prelude: &str) -> bool {
     if s.is_empty() {
         return true;
     }
-
     // Optional `(<scope-start>)`
     if s.starts_with('(') {
         let Some(after_first) = consume_parenthesized_group(s) else {
@@ -279,7 +217,6 @@ fn is_valid_scope_prelude(prelude: &str) -> bool {
             return true;
         }
     }
-
     // Optional `to (<scope-end>)`
     if s.len() >= 2 && s[..2].eq_ignore_ascii_case("to") {
         let after_to = s[2..].trim_start();
@@ -289,7 +226,6 @@ fn is_valid_scope_prelude(prelude: &str) -> bool {
             return rest.trim().is_empty();
         }
     }
-
     false
 }
 
@@ -417,10 +353,8 @@ fn is_quoted_string(s: &str) -> bool {
 /// Finds the end of an at-rule header (the position of `{`, `;`, `}`, or EOF).
 fn find_at_rule_header_end(ctx: &LintContext<'_>, mut pos: u32, len: u32) -> u32 {
     let mut paren_depth: u32 = 0;
-
     while pos < len {
         let b = byte_at(ctx, pos);
-
         // Skip block comments.
         if b == b'/' && pos + 1 < len && byte_at(ctx, pos + 1) == b'*' {
             pos += 2;
@@ -430,13 +364,11 @@ fn find_at_rule_header_end(ctx: &LintContext<'_>, mut pos: u32, len: u32) -> u32
             pos = if pos + 1 < len { pos + 2 } else { len };
             continue;
         }
-
         // Skip quoted strings.
         if b == b'"' || b == b'\'' {
             pos = skip_string(ctx, pos, len);
             continue;
         }
-
         if b == b'(' {
             paren_depth += 1;
         } else if b == b')' {
@@ -444,10 +376,8 @@ fn find_at_rule_header_end(ctx: &LintContext<'_>, mut pos: u32, len: u32) -> u32
         } else if paren_depth == 0 && matches!(b, b'{' | b';' | b'}') {
             return pos;
         }
-
         pos += 1;
     }
-
     len
 }
 
@@ -505,4 +435,76 @@ fn skip_spaces_and_tabs(ctx: &LintContext<'_>, mut idx: u32, len: u32) -> u32 {
         idx += 1;
     }
     idx
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tester::{Tester, reject};
+    use serde_json::json;
+
+    #[test]
+    fn default_options() {
+        let pass = vec![
+            "@layer;",
+            "@layer foo;",
+            "@media (min-width: 100px) {}",
+            "@counter-style foo {}",
+            "@property --foo {}",
+            "@property --foo, --bar {}",
+            "@foo bar;",
+        ];
+
+        let fail = vec![
+            reject(
+                "@layer \"foo\";",
+                None,
+                rejected_message("@layer", "\"foo\""),
+                (1, 8, 1, 13),
+            ),
+            reject(
+                "@property  foo {}",
+                None,
+                rejected_message("@property", "foo"),
+                (1, 12, 1, 15),
+            ),
+            reject(
+                "@scope .foo {}",
+                None,
+                rejected_message("@scope", ".foo"),
+                (1, 8, 1, 12),
+            ),
+            reject(
+                "@font-palette-values foo {}",
+                None,
+                rejected_message("@font-palette-values", "foo"),
+                (1, 22, 1, 25),
+            ),
+            reject(
+                "@font-feature-values #foo {}",
+                None,
+                rejected_message("@font-feature-values", "#foo"),
+                (1, 22, 1, 26),
+            ),
+        ];
+
+        Tester::new(AtRulePreludeNoInvalid::NAME, json!(true), &pass, &fail).test();
+    }
+
+    #[test]
+    fn ignore_at_rules() {
+        let pass = vec![
+            "@property foo;",
+            "@font-palette-values foo {}",
+            "@font-feature-values #foo {}",
+        ];
+
+        Tester::new(
+            AtRulePreludeNoInvalid::NAME,
+            json!([true, { "ignoreAtRules": ["property", "/^font-/"] }]),
+            &pass,
+            &[],
+        )
+        .test();
+    }
 }

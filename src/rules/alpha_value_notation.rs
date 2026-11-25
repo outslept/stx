@@ -1,306 +1,566 @@
-//! Rule: `alpha-value-notation`
-//!
-//! Specify percentage or number notation for alpha-values.
-
-use oxc_css_parser::ast::{ComponentValue, Declaration};
-use serde_json::{Map, Value};
-
 use crate::{
-    context::{AstParent, LintContext},
+    context::LintContext,
+    declare_stx_lint,
     fix::Fix,
-    rules::{
-        Rule,
-        value_utils::{
-            ValueToken, ValueTokenKind, extract_function_name_and_args, format_clean_float,
-            tokenize_value,
-        },
-    },
+    rules::Rule,
     utils::{
-        LEGACY_NOTATION_COLOR_FUNCTIONS, OptionMatcher, decl_value_span, ident_name,
-        in_set_ignore_case, options_matches_ignore_case, parse_option_matchers,
+        OptionMatcher, ValueToken, ValueTokenKind, decl_value_span, ident_name, in_set_ignore_case,
+        is_standard_syntax_value, options_matches, parse_option_matchers, tokenize_value,
     },
 };
-
-/// Target notation mode for [`AlphaValueNotation`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum AlphaNotationMode {
-    /// Require alpha values to be written as percentages (e.g. `50%`).
+use oxc_css_parser::ast::Declaration;
+use serde::Deserialize;
+use serde_json::{Map, Value};
+declare_stx_lint!(
+    /// Specify percentage or number notation for alpha-values (`alpha-value-notation`).
+    AlphaValueNotation,
+    "alpha-value-notation",
+    style,
+    fix = fix,
+    recommended = false,
+    short_description = "Specify percentage or number notation for alpha-values.",
+);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AlphaMode {
     #[default]
-    Percentage,
-    /// Require alpha values to be written as unitless numbers (e.g. `0.5`).
     Number,
+    Percentage,
 }
-
-impl AlphaNotationMode {
-    /// Returns the opposite notation mode (used when `exceptProperties` matches).
-    #[inline]
-    fn flipped(self) -> Self {
-        match self {
-            Self::Percentage => Self::Number,
-            Self::Number => Self::Percentage,
-        }
-    }
+#[derive(Debug, Default)]
+pub struct AlphaValueNotation {
+    pub mode: AlphaMode,
+    pub except_properties: Vec<OptionMatcher>,
 }
-
-/// CSS properties whose values represent an alpha/opacity channel directly.
-const ALPHA_PROPERTIES: &[&str] = &[
+const ALPHA_PROPS: &[&str] = &[
     "opacity",
+    "shape-image-threshold",
     "fill-opacity",
     "flood-opacity",
     "stop-opacity",
     "stroke-opacity",
-    "shape-image-threshold",
 ];
-
-/// Color functions that may contain an alpha channel argument.
-const ALPHA_COLOR_FUNCTIONS: &[&str] = &[
-    "rgb", "rgba", "hsl", "hsla", "hwb", "lab", "lch", "oklab", "oklch", "color",
+const ALPHA_FUNCTION_NAMES: &[&str] = &[
+    "color", "hsl", "hsla", "rgb", "rgba", "hwb", "lab", "lch", "oklab", "oklch",
 ];
-
-/// ## `alpha-value-notation`
-///
-/// Specify percentage or number notation for alpha-values (`"percentage"` or `"number"`).
-///
-/// ### What it does
-///
-/// Enforces consistent notation (`0.5` vs `50%`) for alpha values in:
-/// - Alpha-specific properties (`opacity`, `fill-opacity`, `flood-opacity`, `stop-opacity`,
-///   `stroke-opacity`, `shape-image-threshold`)
-/// - Color functions (`rgb()`, `rgba()`, `hsl()`, `hsla()`, `hwb()`, `lab()`, `lch()`,
-///   `oklab()`, `oklch()`, `color()`)
-///
-/// ### Why is this bad?
-///
-/// Mixing number (`0.5`) and percentage (`50%`) notations for alpha channels across a
-/// stylesheet hurts readability and consistency.
-///
-/// ### Options
-///
-/// #### Primary
-///
-/// - `"percentage"`: Alpha values must always use percentage notation (e.g. `50%`).
-/// - `"number"`: Alpha values must always use number notation (e.g. `0.5`).
-///
-/// ```json
-/// {
-///   "alpha-value-notation": "percentage"
-/// }
-/// ```
-///
-/// #### Secondary (optional)
-///
-/// - `"exceptProperties": ["array", "of", "properties", "/or/", "/regex/"]`: Reverse the
-///   primary option for matching property names.
-///
-/// ```json
-/// {
-///   "alpha-value-notation": [
-///     "percentage",
-///     {
-///       "exceptProperties": ["opacity"]
-///     }
-///   ]
-/// }
-/// ```
-///
-/// ### Examples
-///
-/// #### `"percentage"`
-///
-/// **Incorrect:**
-/// ```css
-/// a {
-///   opacity: 0.5;
-///   color: rgb(0 0 0 / 0.5);
-/// }
-/// ```
-///
-/// **Correct:**
-/// ```css
-/// a {
-///   opacity: 50%;
-///   color: rgb(0 0 0 / 50%);
-/// }
-/// ```
-///
-/// #### `"number"`
-///
-/// **Incorrect:**
-/// ```css
-/// a {
-///   opacity: 50%;
-///   color: rgb(0 0 0 / 50%);
-/// }
-/// ```
-///
-/// **Correct:**
-/// ```css
-/// a {
-///   opacity: 0.5;
-///   color: rgb(0 0 0 / 0.5);
-/// }
-/// ```
-///
-/// ### References
-///
-/// - [Stylelint Documentation: `alpha-value-notation`](https://stylelint.io/user-guide/rules/alpha-value-notation)
-#[derive(Default)]
-pub struct AlphaValueNotation {
-    /// Primary notation mode (`"percentage"` or `"number"`).
-    pub mode: AlphaNotationMode,
-    /// Compiled matchers for the `"exceptProperties"` secondary option.
-    pub except_properties: Vec<OptionMatcher>,
+pub fn expected(unfixed: &str, fixed: &str) -> String {
+    format!("Expected \"{unfixed}\" to be \"{fixed}\"")
 }
-
 impl AlphaValueNotation {
-    /// Constructs [`AlphaValueNotation`] from primary and secondary configuration options.
     pub fn from_config(primary: &Value, secondary: Option<&Map<String, Value>>) -> Self {
-        let mode = if primary.as_str() == Some("number") {
-            AlphaNotationMode::Number
-        } else {
-            AlphaNotationMode::Percentage
-        };
-
+        let mode = serde_json::from_value::<AlphaMode>(primary.clone()).unwrap_or_default();
+        let except_properties = parse_option_matchers(secondary, "exceptProperties");
         Self {
             mode,
-            except_properties: parse_option_matchers(secondary, "exceptProperties"),
+            except_properties,
         }
     }
-
-    /// Returns the effective [`AlphaNotationMode`] for a given declaration property,
-    /// flipping the configured mode if the property matches `"exceptProperties"`.
-    fn effective_mode_for_prop(&self, prop: Option<&str>) -> AlphaNotationMode {
-        if let Some(p) = prop {
-            if options_matches_ignore_case(&self.except_properties, p) {
-                return self.mode.flipped();
+    fn effective_mode(&self, prop_name: &str) -> AlphaMode {
+        if options_matches(&self.except_properties, prop_name) {
+            match self.mode {
+                AlphaMode::Number => AlphaMode::Percentage,
+                AlphaMode::Percentage => AlphaMode::Number,
             }
+        } else {
+            self.mode
         }
-        self.mode
     }
-
-    /// Finds the property name of the nearest enclosing `Declaration` in the AST ancestry.
-    fn enclosing_decl_prop<'a>(&self, ctx: &LintContext<'a>) -> Option<&'a str> {
-        for parent in ctx.ancestry.iter().rev() {
-            if let AstParent::Declaration(decl) = parent {
-                return ident_name(&decl.name);
-            }
-        }
-        None
-    }
-
-    /// Validates a single alpha value token against `mode` and reports an autofixable diagnostic
-    /// if its notation does not match.
-    fn check_token(
+    fn check_alpha_token<'a>(
         &self,
-        token: &ValueToken<'_>,
-        mode: AlphaNotationMode,
-        ctx: &mut LintContext<'_>,
+        token: &ValueToken<'a>,
+        prop_name: &str,
+        ctx: &mut LintContext<'a>,
     ) {
-        match mode {
-            AlphaNotationMode::Percentage => {
-                if token.kind == ValueTokenKind::Number {
-                    if let Ok(val) = token.raw.parse::<f64>() {
-                        if (0.0..=1.0).contains(&val) {
-                            let expected = format!("{}%", format_clean_float(val * 100.0));
-                            ctx.report_with_fix(
-                                self.name(),
-                                token.span,
-                                format!("Expected \"{}\" to be \"{}\"", token.raw, expected),
-                                Some(Fix::single(token.span, expected)),
-                            );
-                        }
-                    }
+        if !is_standard_syntax_value(token.raw) {
+            return;
+        }
+        if !matches!(
+            token.kind,
+            ValueTokenKind::Number | ValueTokenKind::Percentage
+        ) {
+            return;
+        }
+        let expectation = self.effective_mode(prop_name);
+        match (expectation, &token.kind) {
+            (AlphaMode::Number, ValueTokenKind::Number)
+            | (AlphaMode::Percentage, ValueTokenKind::Percentage) => {}
+            (AlphaMode::Number, ValueTokenKind::Percentage) => {
+                if let Some(fixed) = as_number(token.raw) {
+                    let msg = expected(token.raw, &fixed);
+                    ctx.report_with_fix(
+                        Self::NAME,
+                        token.span,
+                        msg,
+                        Fix::single(token.span, fixed),
+                    );
                 }
             }
-            AlphaNotationMode::Number => {
-                if token.kind == ValueTokenKind::Percentage {
-                    let num_part = &token.raw[..token.raw.len() - 1];
-                    if let Ok(val) = num_part.parse::<f64>() {
-                        let expected = format_clean_float(val / 100.0);
-                        ctx.report_with_fix(
-                            self.name(),
-                            token.span,
-                            format!("Expected \"{}\" to be \"{}\"", token.raw, expected),
-                            Some(Fix::single(token.span, expected)),
-                        );
-                    }
+            (AlphaMode::Percentage, ValueTokenKind::Number) => {
+                if let Some(fixed) = as_percentage(token.raw) {
+                    let msg = expected(token.raw, &fixed);
+                    ctx.report_with_fix(
+                        Self::NAME,
+                        token.span,
+                        msg,
+                        Fix::single(token.span, fixed),
+                    );
                 }
             }
+            _ => {}
         }
     }
 }
-
 impl Rule for AlphaValueNotation {
     fn name(&self) -> &'static str {
-        "alpha-value-notation"
+        Self::NAME
     }
-
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {
-        let Some(prop) = ident_name(&decl.name) else {
+        let Some(prop_name) = ident_name(&decl.name) else {
             return;
         };
-
-        if !in_set_ignore_case(ALPHA_PROPERTIES, prop) {
-            return;
-        }
-
         let Some(val_span) = decl_value_span(ctx.source, decl) else {
             return;
         };
-
+        let val_raw = ctx.slice_range(val_span.start, val_span.end);
+        if !val_raw.bytes().any(|b| b.is_ascii_digit()) {
+            return;
+        }
+        let is_alpha_prop = in_set_ignore_case(ALPHA_PROPS, prop_name);
         let tokens = tokenize_value(ctx.source, val_span);
-        if tokens.len() == 1 {
-            let mode = self.effective_mode_for_prop(Some(prop));
-            self.check_token(&tokens[0], mode, ctx);
+        for (i, tok) in tokens.iter().enumerate() {
+            if is_alpha_prop
+                && matches!(
+                    tok.kind,
+                    ValueTokenKind::Number | ValueTokenKind::Percentage
+                )
+            {
+                self.check_alpha_token(tok, prop_name, ctx);
+            } else if tok.kind == ValueTokenKind::Function
+                && in_set_ignore_case(
+                    ALPHA_FUNCTION_NAMES,
+                    tok.raw.strip_suffix('(').unwrap_or(tok.raw),
+                )
+            {
+                let close_idx = find_closing_paren(&tokens, i);
+                if let Some(alpha_tok) = find_alpha_in_function(&tokens[i + 1..close_idx]) {
+                    self.check_alpha_token(alpha_tok, prop_name, ctx);
+                }
+            }
         }
     }
-
-    fn check_component_value<'a>(&self, val: &'a ComponentValue<'a>, ctx: &mut LintContext<'a>) {
-        let ComponentValue::Function(func) = val else {
-            return;
-        };
-
-        let Some((fn_name, _, args_span)) = extract_function_name_and_args(ctx.source, func.span)
-        else {
-            return;
-        };
-
-        if !in_set_ignore_case(ALPHA_COLOR_FUNCTIONS, fn_name) {
-            return;
-        }
-
-        let prop = self.enclosing_decl_prop(ctx);
-        let mode = self.effective_mode_for_prop(prop);
-        let tokens = tokenize_value(ctx.source, args_span);
-
-        let mut depth = 0usize;
-        let mut slash_idx = None;
-        let mut comma_indices = Vec::new();
-
-        for (idx, tok) in tokens.iter().enumerate() {
-            match tok.kind {
-                ValueTokenKind::Function => depth += 1,
-                ValueTokenKind::CloseParen => depth = depth.saturating_sub(1),
-                ValueTokenKind::Slash if depth == 0 => slash_idx = Some(idx),
-                ValueTokenKind::Comma if depth == 0 => comma_indices.push(idx),
-                _ => {}
+}
+#[inline]
+fn is_open_paren(tok: &ValueToken<'_>) -> bool {
+    tok.kind == ValueTokenKind::Function || tok.raw == "("
+}
+fn find_closing_paren(tokens: &[ValueToken<'_>], open_idx: usize) -> usize {
+    let mut depth = 1usize;
+    let mut i = open_idx + 1;
+    while i < tokens.len() {
+        if is_open_paren(&tokens[i]) {
+            depth += 1;
+        } else if tokens[i].kind == ValueTokenKind::CloseParen {
+            depth -= 1;
+            if depth == 0 {
+                return i;
             }
         }
-
-        // Modern space-separated syntax: `rgb(0 0 0 / 50%)`
-        if let Some(s_idx) = slash_idx {
-            let after = &tokens[s_idx + 1..];
-            if after.len() == 1 {
-                self.check_token(&after[0], mode, ctx);
-            }
-        } else if comma_indices.len() == 3
-            && in_set_ignore_case(LEGACY_NOTATION_COLOR_FUNCTIONS, fn_name)
-        {
-            // Legacy comma-separated 4-argument syntax: `rgba(0, 0, 0, 50%)`
-            let after = &tokens[comma_indices[2] + 1..];
-            if after.len() == 1 {
-                self.check_token(&after[0], mode, ctx);
+        i += 1;
+    }
+    tokens.len()
+}
+fn skip_parenthesized(tokens: &[ValueToken<'_>], open_idx: usize) -> usize {
+    let close_idx = find_closing_paren(tokens, open_idx);
+    (close_idx + 1).min(tokens.len())
+}
+fn has_top_level_comma(args: &[ValueToken<'_>]) -> bool {
+    let mut depth = 0usize;
+    for tok in args {
+        if is_open_paren(tok) {
+            depth += 1;
+        } else if tok.kind == ValueTokenKind::CloseParen {
+            depth = depth.saturating_sub(1);
+        } else if tok.kind == ValueTokenKind::Comma && depth == 0 {
+            return true;
+        }
+    }
+    false
+}
+fn is_word_boundary(tok: &ValueToken<'_>) -> bool {
+    is_open_paren(tok)
+        || matches!(
+            tok.kind,
+            ValueTokenKind::Comma
+                | ValueTokenKind::Slash
+                | ValueTokenKind::String
+                | ValueTokenKind::CloseParen
+        )
+}
+fn find_alpha_in_function<'t, 'a>(args: &'t [ValueToken<'a>]) -> Option<&'t ValueToken<'a>> {
+    if has_top_level_comma(args) {
+        let mut count = 0usize;
+        let mut fourth_tok: Option<&'t ValueToken<'a>> = None;
+        let mut i = 0usize;
+        while i < args.len() {
+            if matches!(
+                args[i].kind,
+                ValueTokenKind::Comma | ValueTokenKind::Slash | ValueTokenKind::String
+            ) {
+                i += 1;
+            } else if is_open_paren(&args[i]) {
+                count += 1;
+                i = skip_parenthesized(args, i);
+            } else {
+                let start = i;
+                i += 1;
+                while i < args.len()
+                    && !is_word_boundary(&args[i])
+                    && args[i - 1].span.end == args[i].span.start
+                {
+                    i += 1;
+                }
+                count += 1;
+                if count == 4 && i == start + 1 {
+                    fourth_tok = Some(&args[start]);
+                }
             }
         }
+        return if count == 4 { fourth_tok } else { None };
+    }
+    let mut i = 0usize;
+    let mut found_slash = false;
+    while i < args.len() {
+        if is_open_paren(&args[i]) {
+            i = skip_parenthesized(args, i);
+        } else if args[i].kind == ValueTokenKind::Slash {
+            found_slash = true;
+            i += 1;
+            break;
+        } else {
+            i += 1;
+        }
+    }
+    if !found_slash {
+        return None;
+    }
+    while i < args.len() {
+        if matches!(
+            args[i].kind,
+            ValueTokenKind::Comma | ValueTokenKind::Slash | ValueTokenKind::String
+        ) {
+            i += 1;
+        } else if is_open_paren(&args[i]) {
+            i = skip_parenthesized(args, i);
+        } else {
+            let start = i;
+            i += 1;
+            while i < args.len()
+                && !is_word_boundary(&args[i])
+                && args[i - 1].span.end == args[i].span.start
+            {
+                i += 1;
+            }
+            return (i == start + 1).then_some(&args[start]);
+        }
+    }
+    None
+}
+fn as_percentage(value: &str) -> Option<String> {
+    let number: f64 = value.parse().ok()?;
+    Some(format!("{}%", format_float(number * 100.0)))
+}
+fn as_number(value: &str) -> Option<String> {
+    let num_str = value.strip_suffix('%')?;
+    let number: f64 = num_str.parse().ok()?;
+    Some(format_float(number / 100.0))
+}
+fn format_float(n: f64) -> String {
+    let clean = if n == 0.0 || !n.is_finite() { 0.0 } else { n };
+    let formatted = format!("{clean:.6}");
+    formatted
+        .trim_end_matches('0')
+        .trim_end_matches('.')
+        .to_string()
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tester::{FailCase, Tester, reject};
+    use serde_json::json;
+    fn reject_case<'a>(
+        code: &'a str,
+        fixed: &'a str,
+        message: String,
+        (line, column, end_line, end_column): (usize, usize, usize, usize),
+    ) -> FailCase<'a> {
+        reject(
+            code,
+            Some(fixed),
+            message,
+            (line, column, end_line, end_column),
+        )
+    }
+    #[test]
+    fn test_number_mode_default() {
+        let pass = vec![
+            "a { opacity: 0 }",
+            "a { opacity: 0.5 }",
+            "a { opacity: 1 }",
+            "a { fill-opacity: 0.25 }",
+            "a { shape-image-threshold: 0.7 }",
+            "a { flood-opacity: 0.8 }",
+            "a { stop-opacity: 0.9 }",
+            "a { stroke-opacity: 0.1 }",
+            "a { color: rgb(0 0 0 / 0.5) }",
+            "a { color: rgba(0, 0, 0, 0.5) }",
+            "a { color: hsl(0 0% 0% / 0.5) }",
+            "a { color: hsla(0, 0%, 0%, 0.5) }",
+            "a { color: hwb(0 0% 0% / 0.5) }",
+            "a { color: lab(0% 0 0 / 0.5) }",
+            "a { color: lch(0% 0 0 / 0.5) }",
+            "a { color: oklab(0% 0 0 / 0.5) }",
+            "a { color: oklch(0% 0 0 / 0.5) }",
+            "a { color: color(srgb 0 0 0 / 0.5) }",
+            "a { color: rgb(0 0 0) }",
+            "a { color: hsl(0, 0%, 50%) }",
+            "a { opacity: var(--alpha) }",
+            "a { opacity: var(--alpha, 0.5) }",
+            "a { color: rgba(0, 0, 0, var(--alpha)) }",
+            "a { color: rgb(0 0 0 / var(--alpha)) }",
+            "a { color: rgb(0, 0, 0, var(--alpha, 50%)) }",
+            "a { width: 50% }",
+            "a { background: linear-gradient(50%, red, blue) }",
+            "a { color: rgb(0, 0, 0, 50%, 50%) }",
+        ];
+        let fail = vec![
+            reject_case(
+                "a { opacity: 10% }",
+                "a { opacity: 0.1 }",
+                expected("10%", "0.1"),
+                (1, 14, 1, 17),
+            ),
+            reject_case(
+                "a { opacity: 50% }",
+                "a { opacity: 0.5 }",
+                expected("50%", "0.5"),
+                (1, 14, 1, 17),
+            ),
+            reject_case(
+                "a { shape-image-threshold: 50% }",
+                "a { shape-image-threshold: 0.5 }",
+                expected("50%", "0.5"),
+                (1, 28, 1, 31),
+            ),
+            reject_case(
+                "a { fill-opacity: 50% }",
+                "a { fill-opacity: 0.5 }",
+                expected("50%", "0.5"),
+                (1, 19, 1, 22),
+            ),
+            reject_case(
+                "a { flood-opacity: 50% }",
+                "a { flood-opacity: 0.5 }",
+                expected("50%", "0.5"),
+                (1, 20, 1, 23),
+            ),
+            reject_case(
+                "a { stop-opacity: 50% }",
+                "a { stop-opacity: 0.5 }",
+                expected("50%", "0.5"),
+                (1, 19, 1, 22),
+            ),
+            reject_case(
+                "a { stroke-opacity: 50% }",
+                "a { stroke-opacity: 0.5 }",
+                expected("50%", "0.5"),
+                (1, 21, 1, 24),
+            ),
+            reject_case(
+                "a { opacity: 14.3% }",
+                "a { opacity: 0.143 }",
+                expected("14.3%", "0.143"),
+                (1, 14, 1, 19),
+            ),
+            reject_case(
+                "a { opacity: 14.36% }",
+                "a { opacity: 0.1436 }",
+                expected("14.36%", "0.1436"),
+                (1, 14, 1, 20),
+            ),
+            reject_case(
+                "a { color: rgb(0 0 0 / 50%) }",
+                "a { color: rgb(0 0 0 / 0.5) }",
+                expected("50%", "0.5"),
+                (1, 24, 1, 27),
+            ),
+            reject_case(
+                "a { color: rgba(0, 0, 0, 50%) }",
+                "a { color: rgba(0, 0, 0, 0.5) }",
+                expected("50%", "0.5"),
+                (1, 26, 1, 29),
+            ),
+            reject_case(
+                "a { color: hsl(0 0% 0% / 50%) }",
+                "a { color: hsl(0 0% 0% / 0.5) }",
+                expected("50%", "0.5"),
+                (1, 26, 1, 29),
+            ),
+            reject_case(
+                "a { opacity: var(--alpha, 50%) }",
+                "a { opacity: var(--alpha, 0.5) }",
+                expected("50%", "0.5"),
+                (1, 27, 1, 30),
+            ),
+            reject_case(
+                "a { opacity: +50% }",
+                "a { opacity: 0.5 }",
+                expected("+50%", "0.5"),
+                (1, 14, 1, 18),
+            ),
+            reject_case(
+                "a { OPACITY: 50% }",
+                "a { OPACITY: 0.5 }",
+                expected("50%", "0.5"),
+                (1, 14, 1, 17),
+            ),
+            reject_case(
+                "a { COLOR: RGB(0 0 0 / 50%) }",
+                "a { COLOR: RGB(0 0 0 / 0.5) }",
+                expected("50%", "0.5"),
+                (1, 24, 1, 27),
+            ),
+        ];
+        Tester::new("alpha-value-notation", Some(json!("number")), pass, fail).test();
+    }
+    #[test]
+    fn test_percentage_mode() {
+        let pass = vec![
+            "a { opacity: 0% }",
+            "a { opacity: 50% }",
+            "a { opacity: 100% }",
+            "a { color: rgb(0 0 0 / 50%) }",
+            "a { color: rgba(0, 0, 0, 50%) }",
+            "a { color: hsl(0 0% 0% / 50%) }",
+            "a { line-height: 1.5 }",
+            "a { z-index: 1 }",
+        ];
+        let fail = vec![
+            reject_case(
+                "a { opacity: 0.1 }",
+                "a { opacity: 10% }",
+                expected("0.1", "10%"),
+                (1, 14, 1, 17),
+            ),
+            reject_case(
+                "a { opacity: 0.5 }",
+                "a { opacity: 50% }",
+                expected("0.5", "50%"),
+                (1, 14, 1, 17),
+            ),
+            reject_case(
+                "a { opacity: .5 }",
+                "a { opacity: 50% }",
+                expected(".5", "50%"),
+                (1, 14, 1, 16),
+            ),
+            reject_case(
+                "a { opacity: 0 }",
+                "a { opacity: 0% }",
+                expected("0", "0%"),
+                (1, 14, 1, 15),
+            ),
+            reject_case(
+                "a { opacity: 1 }",
+                "a { opacity: 100% }",
+                expected("1", "100%"),
+                (1, 14, 1, 15),
+            ),
+            reject_case(
+                "a { color: rgb(0 0 0 / 0.5) }",
+                "a { color: rgb(0 0 0 / 50%) }",
+                expected("0.5", "50%"),
+                (1, 24, 1, 27),
+            ),
+            reject_case(
+                "a { color: rgba(0, 0, 0, 0.25) }",
+                "a { color: rgba(0, 0, 0, 25%) }",
+                expected("0.25", "25%"),
+                (1, 26, 1, 30),
+            ),
+        ];
+        Tester::new(
+            "alpha-value-notation",
+            Some(json!("percentage")),
+            pass,
+            fail,
+        )
+        .test();
+    }
+    #[test]
+    fn test_except_properties_string_and_regex() {
+        let config = json!(["number", { "exceptProperties": ["opacity", "/^fill-/"] }]);
+        let pass = vec![
+            "a { opacity: 50% }",
+            "a { fill-opacity: 50% }",
+            "a { stop-opacity: 0.5 }",
+            "a { color: rgb(0 0 0 / 0.5) }",
+        ];
+        let fail = vec![
+            reject_case(
+                "a { opacity: 0.5 }",
+                "a { opacity: 50% }",
+                expected("0.5", "50%"),
+                (1, 14, 1, 17),
+            ),
+            reject_case(
+                "a { fill-opacity: 0.5 }",
+                "a { fill-opacity: 50% }",
+                expected("0.5", "50%"),
+                (1, 19, 1, 22),
+            ),
+            reject_case(
+                "a { stop-opacity: 50% }",
+                "a { stop-opacity: 0.5 }",
+                expected("50%", "0.5"),
+                (1, 19, 1, 22),
+            ),
+        ];
+        Tester::new("alpha-value-notation", Some(config), pass, fail).test();
+    }
+    #[test]
+    fn test_relative_color_alpha() {
+        Tester::new(
+            "alpha-value-notation",
+            Some(json!("number")),
+            [],
+            [
+                reject(
+                    "a { color: hsl(from var(--base) h s l / 50%) }",
+                    Some("a { color: hsl(from var(--base) h s l / 0.5) }"),
+                    expected("50%", "0.5"),
+                    (1, 41, 1, 44),
+                ),
+                reject(
+                    "a { color: color(from red srgb r g b / 25%) }",
+                    Some("a { color: color(from red srgb r g b / 0.25) }"),
+                    expected("25%", "0.25"),
+                    (1, 40, 1, 43),
+                ),
+            ],
+        )
+        .with_fix(true)
+        .test();
+    }
+
+    #[test]
+    fn test_preprocessor_ignores() {
+        let pass = vec![
+            "a { opacity: $alpha }",
+            "a { opacity: @alpha }",
+            "a { color: rgba(0, 0, 0, #{$alpha}) }",
+            "a { color: rgba(0, 0, 0, $alpha) }",
+        ];
+        let fail = vec![];
+        Tester::new("alpha-value-notation", Some(json!("number")), pass, fail).test();
     }
 }

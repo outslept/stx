@@ -2,69 +2,45 @@
 //!
 //! Reference: <https://stylelint.io/user-guide/rules/at-rule-disallowed-list>
 
+use std::ops::Deref;
+
+use oxc_css_parser::Span;
+use oxc_css_parser::ast::Stylesheet;
+
 use crate::config::RuleSetting;
 use crate::context::LintContext;
+use crate::declare_stx_lint;
 use crate::rules::Rule;
 use crate::utils::{
     OptionMatcher, has_interpolation, options_matches, parse_primary_option_matchers,
 };
-use oxc_css_parser::Span;
-use oxc_css_parser::ast::Stylesheet;
+
+declare_stx_lint! {
+    /// Specify a list of disallowed at-rules.
+    AtRuleDisallowedList,
+    "at-rule-disallowed-list",
+    restriction,
+    fix = none,
+    recommended = false,
+}
+
+#[derive(Default)]
+pub struct AtRuleDisallowedListConfig {
+    /// Compiled matchers for disallowed at-rule names (without the leading `@`).
+    disallowed: Vec<OptionMatcher>,
+}
 
 /// Enforces that standard-syntax at-rules do not match a configured disallowed
 /// list of at-rule names or regular expressions.
-///
-/// # What it does
-///
-/// Checks every standard-syntax at-rule in a stylesheet and reports a diagnostic
-/// when its name (excluding the leading `@`) matches any entry in the primary
-/// option list. Non-standard preprocessor constructs (such as Less mixins and
-/// variable declarations) are ignored.
-///
-/// # Why is this bad?
-///
-/// Certain at-rules (for example `@extend`, `@import`, or specific vendor-prefixed
-/// at-rules) may be forbidden by project conventions, performance guidelines, or
-/// target browser policies.
-///
-/// # Options
-///
-/// ## Primary Option
-///
-/// `string | RegExp | Array<string | RegExp>`: disallowed at-rule names (without
-/// the leading `@`) or regular expressions.
-///
-/// ```json
-/// {
-///   "at-rule-disallowed-list": ["extend", "supports", "/^(-webkit-|-moz-)?keyframes$/i"]
-/// }
-/// ```
-///
-/// # Examples
-///
-/// Given `["extend", "/^(-webkit-|-moz-)?keyframes$/i"]`:
-///
-/// ## Incorrect
-///
-/// ```scss
-/// a { @extend %placeholder; }
-/// @keyframes name { from { top: 10px; } to { top: 20px; } }
-/// @-moz-keyframes name { from { top: 10px; } to { top: 20px; } }
-/// ```
-///
-/// ## Correct
-///
-/// ```scss
-/// a { color: pink; }
-/// @mixin name($p) {}
-/// ```
-///
-/// # References
-///
-/// - [Stylelint: `at-rule-disallowed-list`](https://stylelint.io/user-guide/rules/at-rule-disallowed-list)
-pub struct AtRuleDisallowedList {
-    /// Compiled matchers for disallowed at-rule names (without the leading `@`).
-    disallowed: Vec<OptionMatcher>,
+#[derive(Default)]
+pub struct AtRuleDisallowedList(AtRuleDisallowedListConfig);
+
+impl Deref for AtRuleDisallowedList {
+    type Target = AtRuleDisallowedListConfig;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 impl AtRuleDisallowedList {
@@ -77,19 +53,20 @@ impl AtRuleDisallowedList {
         if disallowed.is_empty() {
             return None;
         }
-        Some(Self { disallowed })
+        Some(Self(AtRuleDisallowedListConfig { disallowed }))
     }
+}
 
-    /// Formats the diagnostic message when an `at_rule` (including the leading
-    /// `@`) matches the disallowed list.
-    fn rejected_message(at_rule: &str) -> String {
-        format!("Disallowed at-rule \"{at_rule}\"")
-    }
+/// Formats the diagnostic message when an `at_rule` (including the leading
+/// `@`) matches the disallowed list.
+#[inline]
+fn rejected_message(at_rule: &str) -> String {
+    format!("Disallowed at-rule \"{at_rule}\"")
 }
 
 impl Rule for AtRuleDisallowedList {
     fn name(&self) -> &'static str {
-        "at-rule-disallowed-list"
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, _ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {
@@ -102,12 +79,6 @@ impl Rule for AtRuleDisallowedList {
             let Some(b) = byte_at(ctx, pos) else {
                 break;
             };
-
-            // Skip UTF-8 BOM at the start of the file.
-            if pos == 0 && ctx.source.starts_with('\u{feff}') {
-                pos += 3;
-                continue;
-            }
 
             // Skip whitespace.
             if b.is_ascii_whitespace() {
@@ -153,7 +124,6 @@ impl Rule for AtRuleDisallowedList {
                     let at_pos = pos;
                     let name_start = at_pos + 1;
                     let name_end = scan_ident_end(ctx, name_start, len);
-
                     if name_end > name_start {
                         let name = ctx.slice_range(name_start, name_end);
                         if is_standard_at_rule_after_name(ctx, name_end, len)
@@ -161,12 +131,12 @@ impl Rule for AtRuleDisallowedList {
                         {
                             let at_name = ctx.slice_range(at_pos, name_end);
                             ctx.report(
-                                self.name(),
+                                Self::NAME,
                                 Span {
                                     start: at_pos,
                                     end: name_end,
                                 },
-                                Self::rejected_message(at_name),
+                                rejected_message(at_name),
                             );
                         }
                         pos = name_end;
@@ -212,7 +182,6 @@ fn is_standard_at_rule_after_name(ctx: &LintContext<'_>, name_end: u32, len: u32
 
     let mut pos = name_end;
     let mut paren_depth: u32 = 0;
-
     while pos < len {
         let Some(b) = byte_at(ctx, pos) else {
             break;
@@ -245,7 +214,6 @@ fn is_standard_at_rule_after_name(ctx: &LintContext<'_>, name_end: u32, len: u32
     if prelude.starts_with(':') || has_interpolation(prelude) {
         return false;
     }
-
     true
 }
 
@@ -298,4 +266,119 @@ fn byte_at(ctx: &LintContext<'_>, offset: u32) -> Option<u8> {
         .as_bytes()
         .first()
         .copied()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tester::{Tester, reject};
+    use serde_json::json;
+
+    #[test]
+    fn array_config() {
+        let pass = vec!["a { color: pink; }", "@mixin name ($p) {}"];
+
+        let fail = vec![
+            reject(
+                "a { @extend %placeholder; }",
+                None,
+                rejected_message("@extend"),
+                (1, 5, 1, 12),
+            ),
+            reject(
+                "\n      a {\n        @extend\n        %placeholder;\n      }\n    ",
+                None,
+                rejected_message("@extend"),
+                (3, 9, 3, 16),
+            ),
+            reject(
+                "\n      @keyframes name {\n        from { top: 10px; }\n        to { top: 20px; }\n      }\n    ",
+                None,
+                rejected_message("@keyframes"),
+                (2, 7, 2, 17),
+            ),
+            reject(
+                "\n      @Keyframes name {\n        from { top: 10px; }\n        to { top: 20px; }\n      }\n    ",
+                None,
+                rejected_message("@Keyframes"),
+                (2, 7, 2, 17),
+            ),
+            reject(
+                "\n      @-moz-keyframes name {\n        from { top: 10px; }\n        to { top: 20px; }\n      }\n    ",
+                None,
+                rejected_message("@-moz-keyframes"),
+                (2, 7, 2, 22),
+            ),
+            reject(
+                "\n      @-WEBKIT-KEYFRAMES name {\n        from { top: 10px; }\n        to { top: 20px; }\n      }\n    ",
+                None,
+                rejected_message("@-WEBKIT-KEYFRAMES"),
+                (2, 7, 2, 25),
+            ),
+        ];
+
+        Tester::new(
+            AtRuleDisallowedList::NAME,
+            json!(["extend", "supports", "/^(-webkit-|-moz-)?keyframes$/i"]),
+            &pass,
+            &fail,
+        )
+        .test();
+    }
+
+    #[test]
+    fn string_regex_config() {
+        let pass = vec!["a { color: pink; }", "@mixin name ($p) {}"];
+
+        let fail = vec![
+            reject(
+                "\n      @keyframes name {\n        from { top: 10px; }\n        to { top: 20px; }\n      }\n    ",
+                None,
+                rejected_message("@keyframes"),
+                (2, 7, 2, 17),
+            ),
+            reject(
+                "\n      @Keyframes name {\n        from { top: 10px; }\n        to { top: 20px; }\n      }\n    ",
+                None,
+                rejected_message("@Keyframes"),
+                (2, 7, 2, 17),
+            ),
+            reject(
+                "\n      @-moz-keyframes name {\n        from { top: 10px; }\n        to { top: 20px; }\n      }\n    ",
+                None,
+                rejected_message("@-moz-keyframes"),
+                (2, 7, 2, 22),
+            ),
+            reject(
+                "\n      @-WEBKIT-KEYFRAMES name {\n        from { top: 10px; }\n        to { top: 20px; }\n      }\n    ",
+                None,
+                rejected_message("@-WEBKIT-KEYFRAMES"),
+                (2, 7, 2, 25),
+            ),
+        ];
+
+        Tester::new(
+            AtRuleDisallowedList::NAME,
+            json!("/^(-webkit-|-moz-)?keyframes$/i"),
+            &pass,
+            &fail,
+        )
+        .test();
+    }
+
+    #[test]
+    fn less_syntax() {
+        let pass =
+            vec!["\n        .keyframes() { margin: 0; }\n        span { .keyframes(); }\n      "];
+        let fail = vec![];
+
+        Tester::new(
+            AtRuleDisallowedList::NAME,
+            json!(["keyframes"]),
+            &pass,
+            &fail,
+        )
+        .with_custom_syntax("postcss-less")
+        .test();
+    }
 }

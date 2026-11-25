@@ -1,7 +1,8 @@
 use crate::{
     context::LintContext,
     fix::Fix,
-    rules::{Rule, value_utils::declaration_value_span},
+    rules::Rule,
+    utils::{at_rule_prelude_span, declaration_value_span, secondary_has_flag},
 };
 use oxc_css_parser::{
     Span,
@@ -16,12 +17,30 @@ pub enum UrlQuoteMode {
 
 pub struct FunctionUrlQuotes {
     pub mode: UrlQuoteMode,
+    except_empty: bool,
+}
+
+impl FunctionUrlQuotes {
+    pub fn from_config(
+        primary: &serde_json::Value,
+        secondary: Option<&serde_json::Map<String, serde_json::Value>>,
+    ) -> Self {
+        Self {
+            mode: if primary.as_str() == Some("never") {
+                UrlQuoteMode::Never
+            } else {
+                UrlQuoteMode::Always
+            },
+            except_empty: secondary_has_flag(secondary, "except", "empty"),
+        }
+    }
 }
 
 impl Default for FunctionUrlQuotes {
     fn default() -> Self {
         Self {
             mode: UrlQuoteMode::Always,
+            except_empty: false,
         }
     }
 }
@@ -110,47 +129,64 @@ impl FunctionUrlQuotes {
     fn check_url_arg(&self, arg_open: usize, close_idx: usize, ctx: &mut LintContext<'_>) {
         let raw_arg = &ctx.source[arg_open..close_idx];
         let trimmed = raw_arg.trim();
-        if trimmed.is_empty() || trimmed.starts_with('$') || trimmed.starts_with('@') {
+        let is_quoted = (trimmed.starts_with('"') && trimmed.ends_with('"'))
+            || (trimmed.starts_with('\'') && trimmed.ends_with('\''));
+        if raw_arg.to_ascii_lowercase().contains("crossorigin(")
+            || (!is_quoted
+                && (raw_arg.contains('$') || raw_arg.contains('@') || raw_arg.contains("#{")))
+        {
             return;
         }
 
-        let trim_offset = raw_arg.find(trimmed).unwrap_or(0);
-        let arg_start = (arg_open + trim_offset) as u32;
-        let arg_end = arg_start + trimmed.len() as u32;
-        let arg_span = Span {
-            start: arg_start,
-            end: arg_end,
-        };
-
-        let is_quoted = (trimmed.starts_with('"') && trimmed.ends_with('"'))
-            || (trimmed.starts_with('\'') && trimmed.ends_with('\''));
-
-        match self.mode {
-            UrlQuoteMode::Always => {
-                if !is_quoted {
-                    ctx.report_with_fix(
-                        self.name(),
-                        arg_span,
-                        "Expected quotes around \"url\" function argument".to_string(),
-                        Some(Fix::single(arg_span, format!("\"{}\"", trimmed))),
-                    );
-                }
-            }
-            UrlQuoteMode::Never => {
-                if is_quoted && trimmed.len() >= 2 {
-                    let inner = &trimmed[1..trimmed.len() - 1];
-                    if !inner.contains(char::is_whitespace) && !inner.contains(')') {
-                        ctx.report_with_fix(
-                            self.name(),
-                            arg_span,
-                            "Unexpected quotes around \"url\" function argument".to_string(),
-                            Some(Fix::single(arg_span, inner.to_string())),
-                        );
-                    }
-                }
+        let is_empty_exception = self.except_empty && matches!(trimmed, "" | "''" | "\"\"");
+        let expect_quotes = matches!(self.mode, UrlQuoteMode::Always) != is_empty_exception;
+        if expect_quotes == is_quoted {
+            return;
+        }
+        if !expect_quotes && is_quoted && trimmed.len() >= 2 {
+            let inner = &trimmed[1..trimmed.len() - 1];
+            if requires_url_quotes(inner) {
+                return;
             }
         }
+
+        let trim_offset = raw_arg.find(trimmed).unwrap_or(raw_arg.len());
+        let arg_start = (arg_open + trim_offset) as u32;
+        let arg_span = Span {
+            start: arg_start,
+            end: close_idx as u32,
+        };
+        let trailing = &raw_arg[trim_offset + trimmed.len()..];
+        let replacement = if expect_quotes {
+            format!("\"{trimmed}\"{trailing}")
+        } else {
+            format!("{}{}", &trimmed[1..trimmed.len() - 1], trailing)
+        };
+        ctx.report_with_fix(
+            self.name(),
+            arg_span,
+            if expect_quotes {
+                "Expected quotes around \"url\" function argument"
+            } else {
+                "Expected no quotes around \"url\" function argument"
+            },
+            Some(Fix::single(arg_span, replacement)),
+        );
     }
+}
+
+fn requires_url_quotes(value: &str) -> bool {
+    let mut escaped = false;
+    for ch in value.chars() {
+        if escaped {
+            escaped = false;
+        } else if ch == '\\' {
+            escaped = true;
+        } else if ch.is_whitespace() || matches!(ch, '(' | ')' | '\'' | '"') {
+            return true;
+        }
+    }
+    false
 }
 
 fn is_ident_char(b: u8) -> bool {
@@ -167,16 +203,70 @@ impl Rule for FunctionUrlQuotes {
             return;
         };
         let imp_start = decl.important.as_ref().map(|i| i.span.start);
-        if let Some(val_span) =
+        if let Some(mut val_span) =
             declaration_value_span(ctx.source, ident.span.end, decl.span.end, imp_start)
         {
+            let bytes = ctx.source.as_bytes();
+            let mut close = val_span.end as usize;
+            while close < bytes.len() && bytes[close].is_ascii_whitespace() {
+                close += 1;
+            }
+            if bytes.get(close) == Some(&b')') {
+                while bytes.get(close) == Some(&b')') {
+                    close += 1;
+                }
+                val_span.end = close as u32;
+            }
             self.scan_span_for_urls(val_span, ctx);
         }
     }
 
     fn check_at_rule<'a>(&self, at_rule: &'a AtRule<'a>, ctx: &mut LintContext<'a>) {
-        if let Some(p_span) = crate::rules::value_utils::at_rule_prelude_span(ctx.source, at_rule) {
+        if let Some(p_span) = at_rule_prelude_span(ctx.source, at_rule) {
             self.scan_span_for_urls(p_span, ctx);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tester::{Tester, reject};
+    use serde_json::json;
+
+    #[test]
+    fn preserves_whitespace_and_ignores_url_modifiers_and_interpolation() {
+        let fail = [reject(
+            "a { background-image: url( foo.css ); }",
+            None,
+            "Expected quotes around \"url\" function argument",
+            (1, 28, 1, 36),
+        )];
+        Tester::new(
+            "function-url-quotes",
+            json!(["always"]),
+            [
+                "a { background: url('foo.svg' crossorigin(anonymous)); }",
+                "a { background: url(\"foo.ttf\" + $variable); }",
+            ],
+            &fail,
+        )
+        .test();
+    }
+
+    #[test]
+    fn supports_empty_exception() {
+        let fail = [reject(
+            "@import url('');",
+            None,
+            "Expected no quotes around \"url\" function argument",
+            (1, 13, 1, 15),
+        )];
+        Tester::new(
+            "function-url-quotes",
+            json!(["always", {"except": ["empty"]}]),
+            [],
+            &fail,
+        )
+        .test();
     }
 }

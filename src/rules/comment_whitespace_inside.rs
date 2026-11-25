@@ -150,3 +150,238 @@ impl Rule for CommentWhitespaceInside {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::tester::{Tester, reject, reject_start, reject_warnings};
+
+    const RULE_NAME: &str = "comment-whitespace-inside";
+    const EXPECTED_OPENING: &str = "Expected whitespace after \"/*\"";
+    const REJECTED_OPENING: &str = "Expected no whitespace after \"/*\"";
+    const EXPECTED_CLOSING: &str = "Expected whitespace before \"*/\"";
+    const REJECTED_CLOSING: &str = "Expected no whitespace before \"*/\"";
+
+    #[test]
+    fn always() {
+        let pass = [
+            "/* comment */",
+            "/* comment comment */",
+            "/* comment\ncomment */",
+            "/* comment\n\ncomment */",
+            "/** comment */",
+            "/**** comment ***/",
+            "/*\ncomment\n*/",
+            "/*\tcomment   */",
+            "/*! copyright */",
+            "/*# sourcemap */",
+            "/*!\ncopyright */",
+            "/*#\nsourcemap */",
+        ];
+        let fail = [
+            reject_start("/*comment */", "/* comment */", EXPECTED_OPENING, (1, 3))
+                .with_edit_info(0, (1, 2, "* ")),
+            reject_start(
+                "/**comment **/",
+                "/** comment **/",
+                EXPECTED_OPENING,
+                (1, 4),
+            )
+            .with_edit_info(0, (2, 3, "* ")),
+            reject_start("/* comment*/", "/* comment */", EXPECTED_CLOSING, (1, 10))
+                .with_edit_info(0, (9, 10, "t ")),
+            reject_start(
+                "/*comment comment */",
+                "/* comment comment */",
+                EXPECTED_OPENING,
+                (1, 3),
+            )
+            .with_edit_info(0, (1, 2, "* ")),
+            reject_start(
+                "/* comment comment*/",
+                "/* comment comment */",
+                EXPECTED_CLOSING,
+                (1, 18),
+            )
+            .with_edit_info(0, (17, 18, "t ")),
+            reject_start(
+                "/*comment\n\ncomment */",
+                "/* comment\n\ncomment */",
+                EXPECTED_OPENING,
+                (1, 3),
+            )
+            .with_edit_info(0, (1, 2, "* ")),
+            reject_start(
+                "/* comment\n\ncomment*/",
+                "/* comment\n\ncomment */",
+                EXPECTED_CLOSING,
+                (3, 7),
+            )
+            .with_edit_info(0, (18, 19, "t ")),
+            reject_start(
+                "/*!copyright */",
+                "/* !copyright */",
+                EXPECTED_OPENING,
+                (1, 3),
+            )
+            .with_edit_info(0, (1, 2, "* ")),
+            reject_start(
+                "/*comment\n *comment\n *comment\n */",
+                "/* comment\n *comment\n *comment\n */",
+                EXPECTED_OPENING,
+                (1, 3),
+            )
+            .with_edit_info(0, (1, 2, "* ")),
+        ];
+
+        Tester::new(RULE_NAME, json!(["always"]), pass, fail)
+            .with_fix(true)
+            .with_compute_edit_info(true)
+            .test();
+
+        let both = reject_warnings(
+            "/*comment*/",
+            "/* comment */",
+            vec![
+                (EXPECTED_OPENING.to_string(), (1, 3, 1, 4)),
+                (EXPECTED_CLOSING.to_string(), (1, 9, 1, 10)),
+            ],
+        );
+        Tester::new(RULE_NAME, json!(["always"]), [], [both])
+            .with_fix(true)
+            .test();
+    }
+
+    #[test]
+    #[ignore = "diverges from stylelint: EditInfo overlap check needs the fixed node's range"]
+    fn always_edit_info_one_fix_per_node() {
+        let both = reject_warnings(
+            "/*comment*/",
+            "/* comment */",
+            vec![
+                (EXPECTED_OPENING.to_string(), (1, 3, 1, 4)),
+                (EXPECTED_CLOSING.to_string(), (1, 9, 1, 10)),
+            ],
+        )
+        .with_edit_info(0, (1, 2, "* "));
+        Tester::new(RULE_NAME, json!(["always"]), [], [both])
+            .with_compute_edit_info(true)
+            .test();
+    }
+
+    #[test]
+    fn never() {
+        let pass = [
+            "/*comment*/",
+            "/*comment comment*/",
+            "/*comment\ncomment*/",
+            "/*comment\n\ncomment*/",
+            "/**comment*/",
+            "/****comment***/",
+            "/*! copyright */",
+            "/*# sourcemap */",
+        ];
+        let fail = [
+            reject_start("/* comment*/", "/*comment*/", REJECTED_OPENING, (1, 3))
+                .with_edit_info(0, (2, 3, "")),
+            reject_start("/** comment*/", "/**comment*/", REJECTED_OPENING, (1, 4))
+                .with_edit_info(0, (3, 4, "")),
+            reject_start("/*comment */", "/*comment*/", REJECTED_CLOSING, (1, 10))
+                .with_edit_info(0, (9, 10, "")),
+            reject(
+                "/*  comment*/",
+                "/*comment*/",
+                REJECTED_OPENING,
+                (1, 3, 1, 5),
+            )
+            .with_edit_info(0, (2, 4, "")),
+            reject(
+                "/*comment  */",
+                "/*comment*/",
+                REJECTED_CLOSING,
+                (1, 10, 1, 12),
+            )
+            .with_edit_info(0, (9, 11, "")),
+            reject_start("/*\ncomment*/", "/*comment*/", REJECTED_OPENING, (1, 3))
+                .with_edit_info(0, (2, 3, "")),
+            reject_start("/*comment\n*/", "/*comment*/", REJECTED_CLOSING, (1, 10))
+                .with_edit_info(0, (9, 10, "")),
+            reject_start(
+                "/* comment comment*/",
+                "/*comment comment*/",
+                REJECTED_OPENING,
+                (1, 3),
+            )
+            .with_edit_info(0, (2, 3, "")),
+            reject_start(
+                "/*comment comment */",
+                "/*comment comment*/",
+                REJECTED_CLOSING,
+                (1, 18),
+            )
+            .with_edit_info(0, (17, 18, "")),
+            reject_start(
+                "/* comment\n\ncomment*/",
+                "/*comment\n\ncomment*/",
+                REJECTED_OPENING,
+                (1, 3),
+            )
+            .with_edit_info(0, (2, 3, "")),
+            reject(
+                "/*comment\n\ncomment */",
+                "/*comment\n\ncomment*/",
+                REJECTED_CLOSING,
+                (3, 8, 3, 9),
+            )
+            .with_edit_info(0, (18, 19, "")),
+            reject(
+                "/*comment\n *comment\n *comment\n */",
+                "/*comment\n *comment\n *comment*/",
+                REJECTED_CLOSING,
+                (3, 10, 4, 2),
+            )
+            .with_edit_info(0, (29, 31, "")),
+            reject(
+                "/*comment\n \t*/",
+                "/*comment*/",
+                REJECTED_CLOSING,
+                (1, 10, 2, 3),
+            )
+            .with_edit_info(0, (9, 12, "")),
+        ];
+
+        Tester::new(RULE_NAME, json!(["never"]), pass, fail)
+            .with_fix(true)
+            .with_compute_edit_info(true)
+            .test();
+    }
+
+    #[test]
+    fn scss_always() {
+        Tester::new(RULE_NAME, json!(["always"]), ["//comment"], [])
+            .with_custom_syntax("postcss-scss")
+            .test();
+    }
+
+    #[test]
+    fn scss_never() {
+        Tester::new(RULE_NAME, json!(["never"]), ["// comment"], [])
+            .with_custom_syntax("postcss-scss")
+            .test();
+    }
+
+    #[test]
+    fn less_always() {
+        Tester::new(RULE_NAME, json!(["always"]), ["//comment"], [])
+            .with_custom_syntax("postcss-less")
+            .test();
+    }
+
+    #[test]
+    fn less_never() {
+        Tester::new(RULE_NAME, json!(["never"]), ["// comment"], [])
+            .with_custom_syntax("postcss-less")
+            .test();
+    }
+}

@@ -1,10 +1,8 @@
 use crate::{
     context::LintContext,
     fix::Fix,
-    rules::{
-        Rule,
-        value_utils::{ValueTokenKind, at_rule_prelude_span, tokenize_value},
-    },
+    rules::Rule,
+    utils::{ValueTokenKind, at_rule_prelude_span, tokenize_value},
 };
 use oxc_css_parser::{Span, ast::AtRule};
 
@@ -85,5 +83,163 @@ impl Rule for ImportNotation {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tester::{Tester, reject};
+    use serde_json::json;
+
+    const RULE_NAME: &str = "import-notation";
+
+    fn expected(unfixed: &str, fixed: &str) -> String {
+        format!("Expected \"{unfixed}\" to be \"{fixed}\"")
+    }
+
+    #[test]
+    fn url_config() {
+        let pass = [
+            "@import url(\"foo.css\");",
+            "@import uRl(\"foo.css\");",
+            "@import URL(\"foo.css\");",
+            "@import url( \"foo.css\" );",
+            "@import url('foo.css');",
+            "@import uRl('foo.css');",
+            "@import URL('foo.css');",
+            "@import url( 'foo.css' );",
+            "@import url('foo.css') print;",
+            "@import url('foo.css') print, screen;",
+            "@import url(\"foo.css\") supports(display: flex) screen and (max-width: 400px);",
+        ];
+        let fail = [
+            reject(
+                "@import \"foo.css\";",
+                "@import url(\"foo.css\");",
+                expected("\"foo.css\"", "url(\"foo.css\")"),
+                (1, 9, 1, 18),
+            )
+            .with_edit_info(0, (8, 17, "url(\"foo.css\")")),
+            reject(
+                "@import 'foo.css';",
+                "@import url('foo.css');",
+                expected("'foo.css'", "url('foo.css')"),
+                (1, 9, 1, 18),
+            )
+            .with_edit_info(0, (8, 17, "url('foo.css')")),
+            reject(
+                "@import 'foo.css' print;",
+                "@import url('foo.css') print;",
+                expected("'foo.css'", "url('foo.css')"),
+                (1, 9, 1, 18),
+            )
+            .with_edit_info(0, (8, 17, "url('foo.css')")),
+            reject(
+                "@import 'foo.css' supports(display: flex) screen and (max-width: 400px);",
+                "@import url('foo.css') supports(display: flex) screen and (max-width: 400px);",
+                expected("'foo.css'", "url('foo.css')"),
+                (1, 9, 1, 18),
+            )
+            .with_edit_info(0, (8, 17, "url('foo.css')")),
+            reject(
+                "@import 'foo.css' /* comment */ print;",
+                "@import url('foo.css') /* comment */ print;",
+                expected("'foo.css'", "url('foo.css')"),
+                (1, 9, 1, 18),
+            )
+            .with_edit_info(0, (8, 17, "url('foo.css')")),
+        ];
+
+        Tester::new(RULE_NAME, json!(["url"]), pass, fail)
+            .with_fix(true)
+            .with_compute_edit_info(true)
+            .test();
+    }
+
+    #[test]
+    fn string_config() {
+        let pass = [
+            "@import \"foo.css\";",
+            "@import 'foo.css';",
+            "@import 'foo.css' screen;",
+            "@import 'foo.css' supports(display: flex) screen and (max-width: 400px);",
+        ];
+        let fail = [
+            reject(
+                "@import url(\"foo.css\");",
+                "@import \"foo.css\";",
+                expected("url(\"foo.css\")", "\"foo.css\""),
+                (1, 9, 1, 23),
+            )
+            .with_edit_info(0, (8, 22, "\"foo.css\"")),
+            reject(
+                "@import uRl(\"foo.css\");",
+                "@import \"foo.css\";",
+                expected("uRl(\"foo.css\")", "\"foo.css\""),
+                (1, 9, 1, 23),
+            )
+            .with_edit_info(0, (8, 22, "\"foo.css\"")),
+            reject(
+                "@import URL(\"foo.css\");",
+                "@import \"foo.css\";",
+                expected("URL(\"foo.css\")", "\"foo.css\""),
+                (1, 9, 1, 23),
+            )
+            .with_edit_info(0, (8, 22, "\"foo.css\"")),
+            reject(
+                "@import url( \"foo.css\" );",
+                "@import \"foo.css\";",
+                expected("url( \"foo.css\" )", "\"foo.css\""),
+                (1, 9, 1, 25),
+            )
+            .with_edit_info(0, (8, 24, "\"foo.css\"")),
+            reject(
+                "@import url('foo.css');",
+                "@import 'foo.css';",
+                expected("url('foo.css')", "'foo.css'"),
+                (1, 9, 1, 23),
+            )
+            .with_edit_info(0, (8, 22, "'foo.css'")),
+            reject(
+                "@import url( 'foo.css' );",
+                "@import 'foo.css';",
+                expected("url( 'foo.css' )", "'foo.css'"),
+                (1, 9, 1, 25),
+            )
+            .with_edit_info(0, (8, 24, "'foo.css'")),
+            reject(
+                "@import url(foo.css);",
+                "@import \"foo.css\";",
+                expected("url(foo.css)", "\"foo.css\""),
+                (1, 9, 1, 21),
+            )
+            .with_edit_info(0, (8, 20, "\"foo.css\"")),
+            reject(
+                "@import url(foo.css) print;",
+                "@import \"foo.css\" print;",
+                expected("url(foo.css)", "\"foo.css\""),
+                (1, 9, 1, 21),
+            )
+            .with_edit_info(0, (8, 20, "\"foo.css\"")),
+            reject(
+                "@import url('foo.css') supports(display: flex) screen and (max-width: 400px);",
+                "@import 'foo.css' supports(display: flex) screen and (max-width: 400px);",
+                expected("url('foo.css')", "'foo.css'"),
+                (1, 9, 1, 23),
+            )
+            .with_edit_info(0, (8, 22, "'foo.css'")),
+            reject(
+                "@import url('foo.css' /* comment */) print;",
+                "@import 'foo.css' /* comment */ print;",
+                expected("url('foo.css' /* comment */)", "'foo.css' /* comment */"),
+                (1, 9, 1, 37),
+            )
+            .with_edit_info(0, (8, 36, "'foo.css' /* comment */")),
+        ];
+
+        Tester::new(RULE_NAME, json!(["string"]), pass, fail)
+            .with_fix(true)
+            .with_compute_edit_info(true)
+            .test();
     }
 }

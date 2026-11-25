@@ -39,3 +39,41 @@ impl Rule for CommentNoEmpty {
         ctx.report(self.name(), comment.span, REJECTED_MSG.to_string());
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::tester::{Tester, reject_start};
+
+    const RULE_NAME: &str = "comment-no-empty";
+    const REJECTED: &str = "Empty comment";
+
+    #[test]
+    fn default_config() {
+        let pass = [
+            "/* comment */",
+            "/*\n multi-line comment\n */\n",
+            "a { color: red; /* comment */ }",
+        ];
+        let fail = [
+            reject_start("/**/", None, REJECTED, (1, 1)),
+            reject_start(" /* */", None, REJECTED, (1, 2)),
+            reject_start("\n/*\n*/", None, REJECTED, (2, 1)),
+            reject_start("\n /*\r\n*/", None, REJECTED, (2, 2)),
+            reject_start("/*\t\t*/", None, REJECTED, (1, 1)),
+            reject_start("a {/*\r\n*/\n color: red;}", None, REJECTED, (1, 4)),
+        ];
+
+        Tester::new(RULE_NAME, json!([true]), pass, fail).test();
+    }
+
+    #[test]
+    fn scss_syntax() {
+        let pass = ["//", "a { color: red; } // "];
+
+        Tester::new(RULE_NAME, json!([true]), pass, [])
+            .with_custom_syntax("postcss-scss")
+            .test();
+    }
+}

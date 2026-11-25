@@ -1,8 +1,4 @@
-use crate::{
-    context::LintContext,
-    fix::Fix,
-    rules::{Rule, value_utils::at_rule_prelude_span},
-};
+use crate::{context::LintContext, fix::Fix, rules::Rule, utils::at_rule_prelude_span};
 use oxc_css_parser::{Span, ast::AtRule};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

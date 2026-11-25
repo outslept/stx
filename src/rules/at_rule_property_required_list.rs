@@ -3,88 +3,107 @@
 //!
 //! Reference: <https://stylelint.io/user-guide/rules/at-rule-property-required-list>
 
+use std::ops::Deref;
+
 use oxc_css_parser::{Span, ast::Stylesheet};
 use serde_json::{Map, Value};
 
 use crate::context::LintContext;
+use crate::declare_stx_lint;
 use crate::rules::Rule;
 use crate::utils::options::parse_string_set_map;
 
-/// [`at-rule-property-required-list`](https://stylelint.io/user-guide/rules/at-rule-property-required-list)
-///
-/// Specify a list of required properties or descriptors for an at-rule.
-///
-/// ### What it does
-///
-/// Ensures that every configured CSS at-rule block contains all of the required
-/// properties or descriptors listed for that at-rule in the configuration.
-///
-/// Both at-rule names and descriptor/property names are compared
-/// case-insensitively. At-rules not listed in the configuration object, or
-/// statement at-rules without a declaration block, are ignored.
-///
-/// ### Why is this bad?
-///
-/// Certain at-rules require specific descriptors to function properly or meet
-/// project performance and typography standards (for example, requiring both
-/// `font-family` and `font-display` inside every `@font-face` rule).
-///
-/// ### Primary Option
-///
-/// An object whose keys are at-rule names (without the leading `@`) and whose
-/// values are a required property/descriptor name or an array of required
-/// property/descriptor names:
-///
-/// ```json
-/// {
-///   "font-face": ["font-display", "font-family"],
-///   "page": "margin"
-/// }
-/// ```
-///
-/// ### Examples
-///
-/// Given:
-///
-/// ```json
-/// {
-///   "font-face": ["font-display", "font-family"]
-/// }
-/// ```
-///
-/// #### Incorrect
-///
-/// ```css
-/// @font-face {
-///   font-family: "Arvo";
-/// }
-/// ```
-///
-/// #### Correct
-///
-/// ```css
-/// @font-face {
-///   font-display: auto;
-///   font-family: "Arvo";
-/// }
-/// ```
-pub struct AtRulePropertyRequiredList {
+declare_stx_lint! {
+    /// [`at-rule-property-required-list`](https://stylelint.io/user-guide/rules/at-rule-property-required-list)
+    ///
+    /// Specify a list of required properties or descriptors for an at-rule.
+    ///
+    /// ### What it does
+    ///
+    /// Ensures that every configured CSS at-rule block contains all of the required
+    /// properties or descriptors listed for that at-rule in the configuration.
+    ///
+    /// Both at-rule names and descriptor/property names are compared
+    /// case-insensitively. At-rules not listed in the configuration object, or
+    /// statement at-rules without a declaration block, are ignored.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// Certain at-rules require specific descriptors to function properly or meet
+    /// project performance and typography standards (for example, requiring both
+    /// `font-family` and `font-display` inside every `@font-face` rule).
+    ///
+    /// ### Primary Option
+    ///
+    /// An object whose keys are at-rule names (without the leading `@`) and whose
+    /// values are a required property/descriptor name or an array of required
+    /// property/descriptor names:
+    ///
+    /// ```json
+    /// {
+    ///   "font-face": ["font-display", "font-family"],
+    ///   "page": "margin"
+    /// }
+    /// ```
+    ///
+    /// ### Examples
+    ///
+    /// Given:
+    ///
+    /// ```json
+    /// {
+    ///   "font-face": ["font-display", "font-family"]
+    /// }
+    /// ```
+    ///
+    /// #### Incorrect
+    ///
+    /// ```css
+    /// @font-face {
+    ///   font-family: "Arvo";
+    /// }
+    /// ```
+    ///
+    /// #### Correct
+    ///
+    /// ```css
+    /// @font-face {
+    ///   font-display: auto;
+    ///   font-family: "Arvo";
+    /// }
+    /// ```
+    AtRulePropertyRequiredList,
+    "at-rule-property-required-list",
+    restriction,
+    fix = none,
+    recommended = false,
+}
+
+/// Configuration for [`AtRulePropertyRequiredList`].
+#[derive(Default)]
+pub struct AtRulePropertyRequiredListConfig {
     /// Required lowercased property/descriptor names keyed by lowercased at-rule name.
     required_by_at_rule: Vec<(String, Vec<String>)>,
 }
 
-impl Default for AtRulePropertyRequiredList {
-    fn default() -> Self {
-        Self::new(&Value::Null, None)
+/// Rule struct for `at-rule-property-required-list`.
+#[derive(Default)]
+pub struct AtRulePropertyRequiredList(AtRulePropertyRequiredListConfig);
+
+impl Deref for AtRulePropertyRequiredList {
+    type Target = AtRulePropertyRequiredListConfig;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
 impl AtRulePropertyRequiredList {
     /// Creates a new `at-rule-property-required-list` rule instance from configuration options.
     pub fn new(primary: &Value, secondary: Option<&Map<String, Value>>) -> Self {
-        Self {
+        Self(AtRulePropertyRequiredListConfig {
             required_by_at_rule: parse_string_set_map(primary, secondary),
-        }
+        })
     }
 
     /// Formats the diagnostic message when a required property or descriptor is missing.
@@ -104,7 +123,7 @@ impl AtRulePropertyRequiredList {
 
 impl Rule for AtRulePropertyRequiredList {
     fn name(&self) -> &'static str {
-        "at-rule-property-required-list"
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, _ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {
@@ -114,7 +133,6 @@ impl Rule for AtRulePropertyRequiredList {
 
         let len = u32::try_from(ctx.source.len()).unwrap_or(u32::MAX);
         let mut i: u32 = 0;
-
         // Track whether the scanner is positioned where a statement / at-rule can start.
         let mut at_statement_start = true;
 
@@ -161,7 +179,6 @@ impl Rule for AtRulePropertyRequiredList {
             if b == b'@' && at_statement_start {
                 let at_start = i;
                 let name_start = i + 1;
-
                 if name_start < len && is_ident_start(byte_at(ctx, name_start)) {
                     let mut name_end = name_start + 1;
                     while name_end < len && is_ident_char(byte_at(ctx, name_end)) {
@@ -175,7 +192,6 @@ impl Rule for AtRulePropertyRequiredList {
                             || (next_non_ws == name_end && byte_at(ctx, next_non_ws) == b'('));
 
                     let header_end = find_at_rule_header_end(ctx, name_end, len);
-
                     if !is_less_construct
                         && header_end < len
                         && byte_at(ctx, header_end) == b'{'
@@ -197,7 +213,7 @@ impl Rule for AtRulePropertyRequiredList {
                                 let req_lower = req.to_ascii_lowercase();
                                 if !present_props.iter().any(|p| p == &req_lower) {
                                     ctx.report(
-                                        self.name(),
+                                        Self::NAME,
                                         span,
                                         Self::expected_message(at_name, req),
                                     );
@@ -349,10 +365,8 @@ fn extract_prop_name(ctx: &LintContext<'_>, mut start: u32, mut end: u32) -> Opt
 /// Finds the end of an at-rule header (the position of `{`, `;`, `}`, or EOF).
 fn find_at_rule_header_end(ctx: &LintContext<'_>, mut pos: u32, len: u32) -> u32 {
     let mut paren_depth: u32 = 0;
-
     while pos < len {
         let b = byte_at(ctx, pos);
-
         if b == b'/' && pos + 1 < len && byte_at(ctx, pos + 1) == b'*' {
             pos = skip_block_comment(ctx, pos, len);
             continue;
@@ -368,10 +382,8 @@ fn find_at_rule_header_end(ctx: &LintContext<'_>, mut pos: u32, len: u32) -> u32
         } else if paren_depth == 0 && matches!(b, b'{' | b';' | b'}') {
             return pos;
         }
-
         pos += 1;
     }
-
     len
 }
 
@@ -379,10 +391,8 @@ fn find_at_rule_header_end(ctx: &LintContext<'_>, mut pos: u32, len: u32) -> u32
 fn find_matching_brace(ctx: &LintContext<'_>, open_brace_pos: u32, len: u32) -> Option<u32> {
     let mut depth: u32 = 0;
     let mut pos = open_brace_pos;
-
     while pos < len {
         let b = byte_at(ctx, pos);
-
         if b == b'/' && pos + 1 < len && byte_at(ctx, pos + 1) == b'*' {
             pos = skip_block_comment(ctx, pos, len);
             continue;
@@ -407,10 +417,8 @@ fn find_matching_brace(ctx: &LintContext<'_>, open_brace_pos: u32, len: u32) -> 
                 return Some(pos);
             }
         }
-
         pos += 1;
     }
-
     None
 }
 
@@ -475,4 +483,61 @@ fn skip_spaces_and_tabs(ctx: &LintContext<'_>, mut idx: u32, len: u32) -> u32 {
         idx += 1;
     }
     idx
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tester::{Tester, reject};
+    use serde_json::json;
+
+    #[test]
+    fn font_face_and_page_required_props() {
+        let pass = vec![
+            "@font-face { font-display: auto; font-family: 'Arvo'; }",
+            "@font-face { font-display: auto; font-family: 'Arvo'; src: url('abc'); /* IE9 */ }",
+            "@FONT-FACE { FONT-DISPLAY: AUTO; FONT-FAMILY: 'ARVO'; }",
+            "@page { padding: 0.5cm; margin: 1cm; }",
+            "@counter-style counter { system: cyclic; }",
+            "@mixin invalid-at-rule { @content; }",
+        ];
+
+        let fail = vec![
+            reject(
+                "@font-face { font-display: auto; }",
+                None,
+                AtRulePropertyRequiredList::expected_message("@font-face", "font-family"),
+                (1, 1, 1, 11),
+            ),
+            reject(
+                "@FONT-FACE { FONT-DISPLAY: AUTO; }",
+                None,
+                AtRulePropertyRequiredList::expected_message("@FONT-FACE", "font-family"),
+                (1, 1, 1, 11),
+            ),
+            reject(
+                "@font-face { font-family: 'Arvo'; font-weight: normal }",
+                None,
+                AtRulePropertyRequiredList::expected_message("@font-face", "font-display"),
+                (1, 1, 1, 11),
+            ),
+            reject(
+                "@page { padding: 0.5cm }",
+                None,
+                AtRulePropertyRequiredList::expected_message("@page", "margin"),
+                (1, 1, 1, 6),
+            ),
+        ];
+
+        Tester::new(
+            AtRulePropertyRequiredList::NAME,
+            json!([{
+                "font-face": ["font-display", "font-family"],
+                "page": "margin"
+            }]),
+            &pass,
+            &fail,
+        )
+        .test();
+    }
 }

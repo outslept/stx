@@ -1,10 +1,8 @@
 use crate::{
     context::LintContext,
     fix::Fix,
-    rules::{
-        Rule,
-        value_utils::{ValueTokenKind, extract_function_name_and_args, tokenize_value},
-    },
+    rules::Rule,
+    utils::{ValueTokenKind, extract_function_name_and_args, tokenize_value},
 };
 use oxc_css_parser::ast::ComponentValue;
 
@@ -24,6 +22,23 @@ impl Default for HueDegreeNotation {
             mode: HueDegreeMode::Angle,
         }
     }
+}
+
+fn after_function(tokens: &[crate::utils::ValueToken<'_>], open: usize) -> usize {
+    let mut depth = 1usize;
+    let mut i = open + 1;
+    while i < tokens.len() {
+        if tokens[i].kind == ValueTokenKind::Function {
+            depth += 1;
+        } else if tokens[i].kind == ValueTokenKind::CloseParen {
+            depth -= 1;
+            if depth == 0 {
+                return i + 1;
+            }
+        }
+        i += 1;
+    }
+    tokens.len()
 }
 
 impl Rule for HueDegreeNotation {
@@ -48,16 +63,25 @@ impl Rule for HueDegreeNotation {
         };
 
         let tokens = tokenize_value(ctx.source, args_span);
-        if tokens
+        let relative = tokens
             .first()
-            .is_some_and(|t| t.kind == ValueTokenKind::Ident && t.raw.eq_ignore_ascii_case("from"))
-        {
-            return;
-        }
+            .is_some_and(|t| t.kind == ValueTokenKind::Ident && t.raw.eq_ignore_ascii_case("from"));
+        let start = if relative {
+            if tokens
+                .get(1)
+                .is_some_and(|t| t.kind == ValueTokenKind::Function)
+            {
+                after_function(&tokens, 1)
+            } else {
+                2
+            }
+        } else {
+            0
+        };
 
         let mut top_args = Vec::new();
         let mut depth = 0usize;
-        for tok in &tokens {
+        for tok in tokens.iter().skip(start) {
             match tok.kind {
                 ValueTokenKind::Function => depth += 1,
                 ValueTokenKind::CloseParen => depth = depth.saturating_sub(1),
@@ -98,5 +122,36 @@ impl Rule for HueDegreeNotation {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tester::{Tester, reject};
+    use serde_json::json;
+
+    #[test]
+    fn checks_hues_in_relative_color_functions() {
+        Tester::new(
+            "hue-degree-notation",
+            json!("angle"),
+            [],
+            [
+                reject(
+                    "a { color: hsl(from var(--base) 180 50% 50%); }",
+                    Some("a { color: hsl(from var(--base) 180deg 50% 50%); }"),
+                    "Expected \"180\" to be \"180deg\"",
+                    (1, 33, 1, 36),
+                ),
+                reject(
+                    "a { color: oklch(from red 50% .2 30); }",
+                    Some("a { color: oklch(from red 50% .2 30deg); }"),
+                    "Expected \"30\" to be \"30deg\"",
+                    (1, 34, 1, 36),
+                ),
+            ],
+        )
+        .with_fix(true)
+        .test();
     }
 }

@@ -58,9 +58,9 @@ impl Rule for StringNoNewline {
                             self.name(),
                             Span {
                                 start: start as u32,
-                                end: (i + 1) as u32,
+                                end: i as u32,
                             },
-                            "Unexpected newline in string".to_string(),
+                            "Newline in string".to_string(),
                         );
                         break;
                     }
@@ -71,5 +71,27 @@ impl Rule for StringNoNewline {
 
             i += 1;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tester::{Tester, reject};
+    use serde_json::json;
+
+    #[test]
+    fn newline_span() {
+        Tester::new(
+            "string-no-newline",
+            json!(true),
+            ["a { content: \"line\\Aline\"; }"],
+            [reject(
+                "a { content: \"broken\nvalue\"; }",
+                None,
+                "Newline in string",
+                (1, 14, 1, 21),
+            )],
+        )
+        .test();
     }
 }

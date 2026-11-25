@@ -392,3 +392,140 @@ impl Rule for ContainerNamePattern {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::tester::{Tester, reject, reject_warnings};
+
+    const RULE_NAME: &str = "container-name-pattern";
+
+    fn expected(container_name: &str, pattern: &str) -> String {
+        format!("Expected \"{container_name}\" to match pattern \"{pattern}\"")
+    }
+
+    #[test]
+    fn container_name_pattern_default() {
+        let pattern = "foo-.+";
+        let pass = [
+            "a { color: red; }",
+            "a { container-name: initial; }",
+            "a { container-name: REVERT; }",
+            "a { container: initial / inline-size; }",
+            "@container NONE {}",
+            "@container foo-bar {}",
+            " @CONTAINER foo-bar   {}",
+            " @container foo-bar {}",
+            "@container foo-bar {\n}",
+            "@container foo-bar (width > 400px) {}",
+            "@container foo-bar () {}",
+            "@container foo-bar style(--cards small) {}",
+            "@container foo-bar scroll-state(stuck: top) {}",
+            "@container foo-bar (inline-size > 30em), foo-baz style(--large: true) {}",
+            "@container foo-bar (inline-size > 30em) and foo-baz style(--large: true) {}",
+            "@container () {}",
+            "a { container-name: foo-bar; }",
+            "a { container: foo-bar / inline-size; }",
+            "a { container: foo-bar foo-baz / inline-size }",
+            "a { container: foo-bar foo-baz / size scroll-state }",
+        ];
+        let fail = [
+            reject(
+                "@container foo {}",
+                None,
+                expected("foo", pattern),
+                (1, 12, 1, 15),
+            ),
+            reject(
+                "@container bar {}",
+                None,
+                expected("bar", pattern),
+                (1, 12, 1, 15),
+            ),
+            reject(
+                "@container FOO-bar {}",
+                None,
+                expected("FOO-bar", pattern),
+                (1, 12, 1, 19),
+            ),
+            reject(
+                "@container foo-bar (), FOO-bar () {}",
+                None,
+                expected("FOO-bar", pattern),
+                (1, 24, 1, 31),
+            ),
+            reject(
+                "a { container-name: FOO-bar; }",
+                None,
+                expected("FOO-bar", pattern),
+                (1, 21, 1, 28),
+            ),
+            reject_warnings(
+                "@container bar (inline-size > 30em), baz style(--large: true) {}",
+                None,
+                vec![
+                    (expected("bar", pattern), (1, 12, 1, 15)),
+                    (expected("baz", pattern), (1, 38, 1, 41)),
+                ],
+            ),
+            reject_warnings(
+                "a { container-name: bar baz; }",
+                None,
+                vec![
+                    (expected("bar", pattern), (1, 21, 1, 24)),
+                    (expected("baz", pattern), (1, 25, 1, 28)),
+                ],
+            ),
+            reject_warnings(
+                "a { container: bar baz / inline-size; }",
+                None,
+                vec![
+                    (expected("bar", pattern), (1, 16, 1, 19)),
+                    (expected("baz", pattern), (1, 20, 1, 23)),
+                ],
+            ),
+        ];
+
+        Tester::new(RULE_NAME, json!([pattern]), pass, fail).test();
+    }
+
+    #[test]
+    fn container_name_pattern_regex() {
+        let pattern = "/^foo-bar$/";
+        let pass = ["@container foo-bar {}"];
+        let fail = [reject(
+            "@container foo-baz {}",
+            None,
+            expected("foo-baz", pattern),
+            (1, 12, 1, 19),
+        )];
+
+        Tester::new(RULE_NAME, json!([pattern]), pass, fail).test();
+    }
+
+    #[test]
+    fn container_name_pattern_language_options() {
+        let pattern = "foo-.+";
+        let fail = [reject(
+            "a { container-name: foo; }",
+            None,
+            expected("foo", pattern),
+            (1, 21, 1, 24),
+        )];
+
+        Tester::new(RULE_NAME, json!([pattern]), [], fail).test();
+    }
+
+    #[test]
+    #[ignore = "language options not supported"]
+    fn container_name_pattern_language_options_accept() {
+        Tester::new(
+            RULE_NAME,
+            json!(["foo-.+"]),
+            ["a { container-name: bar; }"],
+            [],
+        )
+        .test();
+    }
+}

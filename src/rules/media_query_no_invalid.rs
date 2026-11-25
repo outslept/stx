@@ -1,7 +1,4 @@
-use crate::{
-    context::LintContext,
-    rules::{Rule, value_utils::PatternMatcher},
-};
+use crate::{context::LintContext, rules::Rule, utils::PatternMatcher};
 use oxc_css_parser::{Span, ast::Stylesheet};
 
 const RULE_NAME: &str = "media-query-no-invalid";
@@ -721,4 +718,239 @@ fn is_valid_plain_value(feature_name: &str, val: &str) -> bool {
     }
 
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RULE_NAME;
+    use crate::tester::{Tester, reject, reject_warnings};
+    use serde_json::json;
+
+    fn rejected(query: &str) -> String {
+        format!("Invalid media query \"{query}\"")
+    }
+
+    fn rejected_with_reason(query: &str, reason: &str) -> String {
+        format!("Invalid media query \"{query}\", {reason}")
+    }
+
+    #[test]
+    fn default_config() {
+        let pass = [
+            "@media screen {}",
+            "@media print {}",
+            "@media all {}",
+            "@media {}",
+            "@media screen and (color) {}",
+            "@media only screen and (color) {}",
+            "@media speech and (device-aspect-ratio: 16/9) {}",
+            "@media (width >= 600px) {}",
+            "@media (width: 600px) {}",
+            "@media not (width <= -100px) {}",
+            "@media not (resolution: -300dpi) {}",
+            "@media (min-width: 320.01px) {}",
+            "@media not (color) {}",
+            "@media (width < 600px) and (height < 600px) {}",
+            "@media (width < 600px) and (height < 600px) {}",
+            "@media (not (color)) or (hover) {}",
+            "@media (not (color)) and (not (hover)) {}",
+            "@media (not (color)) and (not (hover)) {}",
+            "@media screen and (max-weight: 3kg) and (color), (color) {}",
+            "@media not unknown {}",
+        ];
+        let fail = [
+            reject("@media @foo {}", None, rejected("@foo"), (1, 8, 1, 12)),
+            reject(
+                "@media screen or (min-width > 500px) {}",
+                None,
+                rejected("screen or (min-width > 500px)"),
+                (1, 8, 1, 37),
+            ),
+            reject(
+                "@media ((min-width: 300px) and (hover: hover) or (aspect-ratio: 1 / 1)) {}",
+                None,
+                rejected("((min-width: 300px) and (hover: hover) or (aspect-ratio: 1 / 1))"),
+                (1, 8, 1, 72),
+            ),
+            reject(
+                "@media (min-width: var(--foo)) {}",
+                None,
+                rejected("(min-width: var(--foo))"),
+                (1, 8, 1, 31),
+            ),
+            reject(
+                "@media (min-width: 50%) {}",
+                None,
+                rejected("(min-width: 50%)"),
+                (1, 8, 1, 24),
+            ),
+            reject(
+                "@media ((color: 2) and (min-width: 50%)) {}",
+                None,
+                rejected("(min-width: 50%)"),
+                (1, 24, 1, 40),
+            ),
+            reject_warnings(
+                "@media ((color: foo(--bar)) and (min-width: 50%)) {}",
+                None,
+                vec![
+                    (rejected("(color: foo(--bar))"), (1, 9, 1, 28)),
+                    (rejected("(min-width: 50%)"), (1, 33, 1, 49)),
+                ],
+            ),
+            reject_warnings(
+                "@media (color: foo(--bar)), (min-width: 50%) {}",
+                None,
+                vec![
+                    (rejected("(color: foo(--bar))"), (1, 8, 1, 27)),
+                    (rejected("(min-width: 50%)"), (1, 29, 1, 45)),
+                ],
+            ),
+            reject(
+                "@media (--foo: 2) {}",
+                None,
+                rejected_with_reason(
+                    "(--foo: 2)",
+                    "custom media queries can only be used in boolean queries",
+                ),
+                (1, 8, 1, 18),
+            ),
+            reject(
+                "@media (min-width < 500px) {}",
+                None,
+                rejected_with_reason(
+                    "(min-width < 500px)",
+                    "\"min-\" and \"max-\" prefixes are not needed when using range queries",
+                ),
+                (1, 8, 1, 27),
+            ),
+            reject(
+                "@media (min-width) {}",
+                None,
+                rejected_with_reason(
+                    "(min-width)",
+                    "\"min-\" and \"max-\" prefixes are not needed in boolean queries",
+                ),
+                (1, 8, 1, 19),
+            ),
+            reject(
+                "@media (grid < 0) {}",
+                None,
+                rejected_with_reason(
+                    "(grid < 0)",
+                    "discrete features can only be used in plain and boolean queries",
+                ),
+                (1, 8, 1, 18),
+            ),
+            reject(
+                "@media (not (color) and (hover)) {}",
+                None,
+                rejected("(not (color) and (hover))"),
+                (1, 8, 1, 33),
+            ),
+            reject(
+                "@media (color) and (hover) or (width) {}",
+                None,
+                rejected("(color) and (hover) or (width)"),
+                (1, 8, 1, 38),
+            ),
+            reject(
+                "@media (width => 100px) {}",
+                None,
+                rejected("(width => 100px)"),
+                (1, 8, 1, 24),
+            ),
+            reject(
+                "@media (width == 100px) {}",
+                None,
+                rejected("(width == 100px)"),
+                (1, 8, 1, 24),
+            ),
+            reject(
+                "@media not(min-width: 100px) {}",
+                None,
+                rejected("not(min-width: 100px)"),
+                (1, 8, 1, 29),
+            ),
+            reject(
+                "@media foo screen {}",
+                None,
+                rejected("foo screen"),
+                (1, 8, 1, 18),
+            ),
+            reject(
+                "@media not screen foo (min-width: 300px) {}",
+                None,
+                rejected("not screen foo (min-width: 300px)"),
+                (1, 8, 1, 41),
+            ),
+            reject(
+                "@media (--foo: 300px) {}",
+                None,
+                rejected_with_reason(
+                    "(--foo: 300px)",
+                    "custom media queries can only be used in boolean queries",
+                ),
+                (1, 8, 1, 22),
+            ),
+            reject(
+                "@media (--foo < 300px) {}",
+                None,
+                rejected_with_reason(
+                    "(--foo < 300px)",
+                    "custom media queries can only be used in boolean queries",
+                ),
+                (1, 8, 1, 23),
+            ),
+        ];
+
+        Tester::new(RULE_NAME, json!([true]), pass, fail).test();
+    }
+
+    #[test]
+    fn ignore_functions() {
+        let pass = [
+            "@media (min-width: theme(screens.md)) {}",
+            "@media (min-width: theme(screens.md) and fooFunction(300px)) {}",
+            "@media (min-width: getDefaultWidth()) {}",
+            "@media (min-width: theme(screens.md) and var(300px)) {}",
+            "@media (min-width: var(300px) or theme(screens.md)) {}",
+            "@media theme(screens.md) {}",
+            "@media (min-width: fooFunction(300px)), (min-width: theme(screens.md)) {}",
+        ];
+        let fail = [
+            reject(
+                "@media (min-width: var(--foo)) {}",
+                None,
+                rejected("(min-width: var(--foo))"),
+                (1, 8, 1, 31),
+            ),
+            reject(
+                "@media (min-width: var(--foo)) {}",
+                None,
+                rejected("(min-width: var(--foo))"),
+                (1, 8, 1, 31),
+            ),
+            reject(
+                "@media var(--foo) {}",
+                None,
+                rejected("var(--foo)"),
+                (1, 8, 1, 18),
+            ),
+            reject(
+                "@media (min-width: var(300px)), (min-width: theme(screens.md)) {}",
+                None,
+                rejected("(min-width: var(300px))"),
+                (1, 8, 1, 31),
+            ),
+        ];
+
+        Tester::new(
+            RULE_NAME,
+            json!([true, { "ignoreFunctions": ["theme", "fooFunction", "/^get.*$/"] }]),
+            pass,
+            fail,
+        )
+        .test();
+    }
 }

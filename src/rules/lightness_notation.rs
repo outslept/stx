@@ -1,12 +1,8 @@
 use crate::{
     context::LintContext,
     fix::Fix,
-    rules::{
-        Rule,
-        value_utils::{
-            ValueTokenKind, extract_function_name_and_args, format_clean_float, tokenize_value,
-        },
-    },
+    rules::Rule,
+    utils::{ValueTokenKind, extract_function_name_and_args, format_clean_float, tokenize_value},
 };
 use oxc_css_parser::ast::ComponentValue;
 
@@ -26,6 +22,23 @@ impl Default for LightnessNotation {
             mode: LightnessMode::Percentage,
         }
     }
+}
+
+fn after_function(tokens: &[crate::utils::ValueToken<'_>], open: usize) -> usize {
+    let mut depth = 1usize;
+    let mut i = open + 1;
+    while i < tokens.len() {
+        if tokens[i].kind == ValueTokenKind::Function {
+            depth += 1;
+        } else if tokens[i].kind == ValueTokenKind::CloseParen {
+            depth -= 1;
+            if depth == 0 {
+                return i + 1;
+            }
+        }
+        i += 1;
+    }
+    tokens.len()
 }
 
 impl Rule for LightnessNotation {
@@ -49,12 +62,24 @@ impl Rule for LightnessNotation {
         };
 
         let tokens = tokenize_value(ctx.source, args_span);
-        let Some(first) = tokens.first() else {
+        let relative = tokens
+            .first()
+            .is_some_and(|t| t.kind == ValueTokenKind::Ident && t.raw.eq_ignore_ascii_case("from"));
+        let first_index = if relative {
+            if tokens
+                .get(1)
+                .is_some_and(|t| t.kind == ValueTokenKind::Function)
+            {
+                after_function(&tokens, 1)
+            } else {
+                2
+            }
+        } else {
+            0
+        };
+        let Some(first) = tokens.get(first_index) else {
             return;
         };
-        if first.kind == ValueTokenKind::Ident && first.raw.eq_ignore_ascii_case("from") {
-            return;
-        }
 
         match self.mode {
             LightnessMode::Percentage => {
@@ -87,5 +112,41 @@ impl Rule for LightnessNotation {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tester::{Tester, reject};
+    use serde_json::json;
+
+    #[test]
+    fn checks_lightness_in_relative_color_functions() {
+        Tester::new(
+            "lightness-notation",
+            json!("percentage"),
+            [],
+            [reject(
+                "a { color: lab(from var(--base) 50 0 0); }",
+                Some("a { color: lab(from var(--base) 50% 0 0); }"),
+                "Expected \"50\" to be \"50%\"",
+                (1, 33, 1, 35),
+            )],
+        )
+        .with_fix(true)
+        .test();
+        Tester::new(
+            "lightness-notation",
+            json!("number"),
+            [],
+            [reject(
+                "a { color: oklab(from red 50% 0 0); }",
+                Some("a { color: oklab(from red 0.5 0 0); }"),
+                "Expected \"50%\" to be \"0.5\"",
+                (1, 27, 1, 30),
+            )],
+        )
+        .with_fix(true)
+        .test();
     }
 }

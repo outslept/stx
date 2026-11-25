@@ -1,17 +1,33 @@
 use crate::{
     context::LintContext,
     fix::Fix,
-    rules::{
-        Rule,
-        value_utils::{ValueTokenKind, declaration_value_span, tokenize_value},
+    rules::Rule,
+    utils::{
+        OptionMatcher, ValueTokenKind, at_rule_prelude_span, declaration_value_span,
+        options_matches, parse_option_matchers, secondary_has_flag, tokenize_value,
     },
 };
 use oxc_css_parser::{
     Span,
-    ast::{Declaration, InterpolableIdent},
+    ast::{AtRule, Declaration, InterpolableIdent},
 };
+use serde_json::{Map, Value};
 
-pub struct LengthZeroNoUnit;
+pub struct LengthZeroNoUnit {
+    ignore_custom_properties: bool,
+    ignore_functions: Vec<OptionMatcher>,
+    ignore_at_rules: Vec<OptionMatcher>,
+}
+
+impl LengthZeroNoUnit {
+    pub fn from_config(secondary: Option<&Map<String, Value>>) -> Self {
+        Self {
+            ignore_custom_properties: secondary_has_flag(secondary, "ignore", "custom-properties"),
+            ignore_functions: parse_option_matchers(secondary, "ignoreFunctions"),
+            ignore_at_rules: parse_option_matchers(secondary, "ignorePreludeOfAtRules"),
+        }
+    }
+}
 
 const LENGTH_UNITS: &[&str] = &[
     "px", "em", "rem", "ex", "ch", "cap", "ic", "lh", "rlh", "vw", "vh", "vi", "vb", "vmin",
@@ -19,6 +35,92 @@ const LENGTH_UNITS: &[&str] = &[
     "lvmax", "dvw", "dvh", "dvi", "dvb", "dvmin", "dvmax", "cqw", "cqh", "cqi", "cqb", "cqmin",
     "cqmax", "cm", "mm", "q", "in", "pc", "pt",
 ];
+
+impl LengthZeroNoUnit {
+    fn check_span(&self, span: Span, is_font: bool, ctx: &mut LintContext<'_>) {
+        let mut ignored_functions = Vec::new();
+        let mut skip_font_line_height = false;
+        for tok in tokenize_value(ctx.source, span) {
+            match tok.kind {
+                ValueTokenKind::Function => {
+                    let name = tok.raw[..tok.raw.len() - 1]
+                        .trim_start_matches(['$', '@'])
+                        .to_ascii_lowercase();
+                    ignored_functions.push(
+                        ignored_functions.last().copied().unwrap_or(false)
+                            || matches!(
+                                name.as_str(),
+                                "calc"
+                                    | "calc-size"
+                                    | "min"
+                                    | "max"
+                                    | "clamp"
+                                    | "round"
+                                    | "mod"
+                                    | "rem"
+                                    | "abs"
+                                    | "sign"
+                                    | "sin"
+                                    | "cos"
+                                    | "tan"
+                                    | "asin"
+                                    | "acos"
+                                    | "atan"
+                                    | "atan2"
+                                    | "pow"
+                                    | "sqrt"
+                                    | "hypot"
+                                    | "log"
+                                    | "exp"
+                            )
+                            || options_matches(&self.ignore_functions, &name),
+                    );
+                    continue;
+                }
+                ValueTokenKind::CloseParen => {
+                    ignored_functions.pop();
+                    continue;
+                }
+                ValueTokenKind::Slash if is_font => {
+                    skip_font_line_height = true;
+                    continue;
+                }
+                _ => {}
+            }
+            if skip_font_line_height {
+                skip_font_line_height = false;
+                if matches!(tok.kind, ValueTokenKind::Dimension { .. }) {
+                    continue;
+                }
+            }
+            if ignored_functions.last().copied().unwrap_or(false) {
+                continue;
+            }
+            if let ValueTokenKind::Dimension { num_len } = tok.kind {
+                let num_str = &tok.raw[..num_len];
+                let unit_str = &tok.raw[num_len..];
+                if !LENGTH_UNITS
+                    .iter()
+                    .any(|u| u.eq_ignore_ascii_case(unit_str))
+                {
+                    continue;
+                }
+                if num_str.parse::<f64>().is_ok_and(|value| value == 0.0) {
+                    let unit_span = Span {
+                        start: tok.span.start + num_len as u32,
+                        end: tok.span.end,
+                    };
+                    ctx.report_with_fix(
+                        self.name(),
+                        unit_span,
+                        "Disallowed unit".to_string(),
+                        Some(Fix::single(tok.span, "0".to_string())),
+                    );
+                }
+            }
+        }
+    }
+}
 
 impl Rule for LengthZeroNoUnit {
     fn name(&self) -> &'static str {
@@ -30,7 +132,10 @@ impl Rule for LengthZeroNoUnit {
             return;
         };
         let prop: &str = ident.name;
-        if prop.starts_with("--") {
+        if prop.starts_with("--") && self.ignore_custom_properties
+            || prop.eq_ignore_ascii_case("line-height")
+            || prop.eq_ignore_ascii_case("flex")
+        {
             return;
         }
 
@@ -41,32 +146,48 @@ impl Rule for LengthZeroNoUnit {
             return;
         };
 
-        let tokens = tokenize_value(ctx.source, val_span);
-        for tok in tokens {
-            if let ValueTokenKind::Dimension { num_len } = tok.kind {
-                let num_str = &tok.raw[..num_len];
-                let unit_str = &tok.raw[num_len..];
-                if !LENGTH_UNITS
-                    .iter()
-                    .any(|u| u.eq_ignore_ascii_case(unit_str))
-                {
-                    continue;
-                }
-                if let Ok(val) = num_str.parse::<f64>() {
-                    if val == 0.0 {
-                        let unit_span = Span {
-                            start: tok.span.start + num_len as u32,
-                            end: tok.span.end,
-                        };
-                        ctx.report_with_fix(
-                            self.name(),
-                            unit_span,
-                            "Unexpected unit".to_string(),
-                            Some(Fix::single(tok.span, "0".to_string())),
-                        );
-                    }
-                }
-            }
+        self.check_span(val_span, prop.eq_ignore_ascii_case("font"), ctx);
+    }
+
+    fn check_at_rule<'a>(&self, at_rule: &'a AtRule<'a>, ctx: &mut LintContext<'a>) {
+        if options_matches(&self.ignore_at_rules, at_rule.name.name) {
+            return;
         }
+        if let Some(span) = at_rule_prelude_span(ctx.source, at_rule) {
+            self.check_span(span, false, ctx);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tester::{Tester, reject};
+    use serde_json::json;
+
+    #[test]
+    fn ignores_computed_and_non_length_zero_values() {
+        let accept = [
+            "a { padding: calc(0px + 0px); }",
+            "a { padding: max(0px, 1px); }",
+            "a { padding: calc(var(--space, 0px) + 1px); }",
+            "a { line-height: 0px; }",
+            "a { flex: 0px; }",
+            "a { font: normal 16px/0px Arial; }",
+        ];
+        let fail = [
+            reject(
+                "a { font: normal 0px/0px Arial; }",
+                None,
+                "Disallowed unit",
+                (1, 19, 1, 21),
+            ),
+            reject(
+                "a { padding: var(--space, 0px); }",
+                None,
+                "Disallowed unit",
+                (1, 28, 1, 30),
+            ),
+        ];
+        Tester::new("length-zero-no-unit", json!(true), &accept, &fail).test();
     }
 }

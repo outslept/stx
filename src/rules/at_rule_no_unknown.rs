@@ -2,112 +2,79 @@
 //!
 //! Reference: <https://stylelint.io/user-guide/rules/at-rule-no-unknown>
 
+use std::ops::Deref;
+
 use oxc_css_parser::{Span, ast::Stylesheet};
 use serde_json::{Map, Value};
 
 use crate::context::LintContext;
+use crate::declare_stx_lint;
 use crate::rules::Rule;
 use crate::utils::options::{OptionMatcher, options_matches, parse_option_matchers};
 use crate::utils::reference::{AT_KEYWORDS, in_set_ignore_case};
 
-/// [`at-rule-no-unknown`](https://stylelint.io/user-guide/rules/at-rule-no-unknown)
-///
-/// Disallow unknown at-rules.
-///
-/// ### What it does
-///
-/// Reports standard CSS at-rules that are not defined in the W3C / CSSWG
-/// specifications (as cataloged in [`AT_KEYWORDS`]).
-///
-/// This rule ignores:
-/// - Vendor-prefixed at-rules (such as `@-webkit-keyframes` or `@-moz-document`).
-/// - Non-standard preprocessor constructs such as Less variables (`@my-var: 10px;`)
-///   and Less mixins (`.mixin()`).
-///
-/// ### Why is this bad?
-///
-/// Unknown at-rules are typically typos, leftover preprocessor directives in plain
-/// CSS files, or invented syntax that browsers will ignore at parse time.
-///
-/// ### Primary Option
-///
-/// - `true`: enable the rule.
-///
-/// ### Secondary Options
-///
-/// ```json
-/// {
-///   "ignoreAtRules": ["unknown", "/^my-/", "/^YOUR-/i"]
-/// }
-/// ```
-///
-/// - `ignoreAtRules`: an array of strings or regular expressions (wrapped in
-///   `/.../` or `/.../i`) matching at-rule names (without the leading `@`) that
-///   should not be reported.
-///
-/// ### Examples
-///
-/// #### Incorrect
-///
-/// ```css
-/// @unknown-at-rule {}
-/// ```
-///
-/// #### Correct
-///
-/// ```css
-/// @charset "UTF-8";
-/// @media (max-width: 960px) {}
-/// @-webkit-keyframes slide {}
-/// ```
-pub struct AtRuleNoUnknown {
+declare_stx_lint! {
+    /// Disallow unknown at-rules.
+    AtRuleNoUnknown,
+    "at-rule-no-unknown",
+    correctness,
+    fix = none,
+    recommended = true,
+}
+
+#[derive(Default)]
+pub struct AtRuleNoUnknownConfig {
     /// Compiled matchers for the `ignoreAtRules` secondary option.
     ignore_at_rules: Vec<OptionMatcher>,
 }
 
-impl Default for AtRuleNoUnknown {
-    fn default() -> Self {
-        Self::new(None)
+/// [`at-rule-no-unknown`](https://stylelint.io/user-guide/rules/at-rule-no-unknown)
+///
+/// Disallow unknown at-rules.
+#[derive(Default)]
+pub struct AtRuleNoUnknown(AtRuleNoUnknownConfig);
+
+impl Deref for AtRuleNoUnknown {
+    type Target = AtRuleNoUnknownConfig;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
 impl AtRuleNoUnknown {
     /// Creates a new `at-rule-no-unknown` rule instance from secondary options.
     pub fn new(secondary: Option<&Map<String, Value>>) -> Self {
-        Self {
+        Self(AtRuleNoUnknownConfig {
             ignore_at_rules: parse_option_matchers(secondary, "ignoreAtRules"),
-        }
+        })
     }
+}
 
-    /// Formats the diagnostic message when an unknown at-rule is found.
-    #[inline]
-    fn rejected_message(at_rule: &str) -> String {
-        format!("Unknown at-rule \"{at_rule}\"")
-    }
+/// Formats the diagnostic message when an unknown at-rule is found.
+#[inline]
+fn rejected_message(at_rule: &str) -> String {
+    format!("Unknown at-rule \"{at_rule}\"")
 }
 
 impl Rule for AtRuleNoUnknown {
     fn name(&self) -> &'static str {
-        "at-rule-no-unknown"
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, _ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {
         let len = u32::try_from(ctx.source.len()).unwrap_or(u32::MAX);
         let mut i: u32 = 0;
-
         // Track whether the scanner is at the beginning of a statement where an
         // at-rule can appear (file start, or after `{`, `}`, `;`).
         let mut at_statement_start = true;
-
         while i < len {
             let b = byte_at(ctx, i);
-
             // Whitespace preserves `at_statement_start`.
             if b.is_ascii_whitespace() {
                 i += 1;
                 continue;
             }
-
             // Skip block comments `/* ... */` (preserving `at_statement_start`).
             if b == b'/' && i + 1 < len && byte_at(ctx, i + 1) == b'*' {
                 i += 2;
@@ -117,7 +84,6 @@ impl Rule for AtRuleNoUnknown {
                 i = if i + 1 < len { i + 2 } else { len };
                 continue;
             }
-
             // Skip single-line comments `// ...` when not part of a URL scheme (`://`).
             if b == b'/'
                 && i + 1 < len
@@ -130,7 +96,6 @@ impl Rule for AtRuleNoUnknown {
                 }
                 continue;
             }
-
             // Skip quoted string literals.
             if b == b'"' || b == b'\'' {
                 at_statement_start = false;
@@ -150,56 +115,51 @@ impl Rule for AtRuleNoUnknown {
                 }
                 continue;
             }
-
             // Statement delimiters allow an at-rule to start next.
             if matches!(b, b'{' | b'}' | b';') {
                 at_statement_start = true;
                 i += 1;
                 continue;
             }
-
             // Check for an at-rule at the start of a statement.
             if b == b'@' && at_statement_start {
                 let at_start = i;
                 let name_start = i + 1;
-
                 if name_start < len && is_ident_start(byte_at(ctx, name_start)) {
                     let mut name_end = name_start + 1;
                     while name_end < len && is_ident_char(byte_at(ctx, name_end)) {
                         name_end += 1;
                     }
-
                     // Ignore Less variable declarations (`@var: ...`) and Less mixin calls (`@mixin(...)`).
                     let next_non_ws = skip_spaces_and_tabs(ctx, name_end, len);
                     let is_less_construct = next_non_ws < len
                         && (byte_at(ctx, next_non_ws) == b':'
                             || (next_non_ws == name_end && byte_at(ctx, next_non_ws) == b'('));
-
+                    let blockless_empty = next_non_ws >= len || byte_at(ctx, next_non_ws) == b';';
                     if !is_less_construct {
                         let name = ctx.slice_range(name_start, name_end);
-
                         if !options_matches(&self.ignore_at_rules, name)
                             && !has_vendor_prefix(name)
+                            && !name.eq_ignore_ascii_case("charset")
+                            && !blockless_empty
                             && !in_set_ignore_case(AT_KEYWORDS, name)
                         {
                             let at_name = ctx.slice_range(at_start, name_end);
                             ctx.report(
-                                self.name(),
+                                Self::NAME,
                                 Span {
                                     start: at_start,
                                     end: name_end,
                                 },
-                                Self::rejected_message(at_name),
+                                rejected_message(at_name),
                             );
                         }
                     }
-
                     at_statement_start = false;
                     i = name_end;
                     continue;
                 }
             }
-
             at_statement_start = false;
             i += 1;
         }
@@ -246,4 +206,146 @@ fn has_vendor_prefix(s: &str) -> bool {
         idx += 1;
     }
     idx > 1 && idx < bytes.len() && bytes[idx] == b'-'
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tester::{Tester, reject};
+    use serde_json::json;
+
+    #[test]
+    fn default_options() {
+        let pass = vec![
+            "@charset 'UTF-8';",
+            "@CHARSET 'UTF-8';",
+            "@position-try --foo {}",
+            "@starting-style { opacity: 0; }",
+            "@container (min-width: 700px)",
+            "@CONTAINER (min-width: 500px)",
+            "@import url(\"fineprint.css\") print;",
+            "@import 'custom.css'",
+            "@import url('landscape.css') screen and (orientation:landscape);",
+            "@namespace url(http://www.w3.org/1999/xhtml);",
+            "@namespace prefix url(XML-namespace-URL);",
+            "@media print { body { font-size: 10pt } }",
+            "@media (max-width: 960px) { body { font-size: 13px } }",
+            "@media screen, print { body { line-height: 1.2 } }",
+            "@supports (--foo: green) { body { color: green; } }",
+            "@supports ( (perspective: 10px) or (-webkit-perspective: 10px) ) { font-size: 10pt }",
+            "@counter-style win-list { system: fixed; symbols: url(gold-medal.svg); suffix: ' ';}",
+            "@document url(http://www.w3.org/), url-prefix(http://www.w3.org/Style/), domain(mozilla.org), regexp('https:.*')",
+            "@page :left { margin-left: 4cm; }",
+            "@page { @top-center { content: none } }",
+            "@font-face { font-family: MyHelvetica; src: local(\"Helvetica\"), url(MgOpenModern.ttf); }",
+            "@keyframes identifier { 0% { top: 0; left: 0; } 30% { top: 50px; } 68%, 100% { top: 100px; left: 100%; } }",
+            "@-webkit-keyframes identifier { 0% { top: 0; left: 0; } 30% { top: 50px; } 68%, 100% { top: 100px; left: 100%; } }",
+            "@viewport { min-width: 640px; max-width: 800px; }",
+            "@viewport { orientation: landscape; }",
+            "@counter-style winners-list { system: fixed; symbols: url(gold-medal.svg); suffix: \" \"; }",
+            "@font-feature-values Font One { @styleset { nice-style: 12; } }",
+            ".foo { color: red; @nest .parent & { color: blue; } }",
+            "@layer framework { h1 { background: white; } }",
+            "@scroll-timeline foo {}",
+            "@function --foo {}",
+        ];
+
+        let fail = vec![reject(
+            "@unknown-at-rule { }",
+            None,
+            rejected_message("@unknown-at-rule"),
+            (1, 1, 1, 17),
+        )];
+
+        Tester::new(AtRuleNoUnknown::NAME, json!(true), &pass, &fail).test();
+    }
+
+    #[test]
+    fn ignore_at_rules_list() {
+        let pass = vec![
+            "@unknown { }",
+            "@my-at-rule { }",
+            "@your-at-rule { }",
+            "@YOUR-at-rule { }",
+        ];
+
+        let fail = vec![
+            reject(
+                "@uNkNoWn { }",
+                None,
+                rejected_message("@uNkNoWn"),
+                (1, 1, 1, 9),
+            ),
+            reject(
+                "@UNKNOWN { }",
+                None,
+                rejected_message("@UNKNOWN"),
+                (1, 1, 1, 9),
+            ),
+            reject(
+                "@unknown-at-rule { }",
+                None,
+                rejected_message("@unknown-at-rule"),
+                (1, 1, 1, 17),
+            ),
+            reject(
+                "@unknown { @unknown-at-rule { font-size: 14px; } }",
+                None,
+                rejected_message("@unknown-at-rule"),
+                (1, 12, 1, 28),
+            ),
+            reject(
+                "@MY-other-at-rule { }",
+                None,
+                rejected_message("@MY-other-at-rule"),
+                (1, 1, 1, 18),
+            ),
+            reject(
+                "@not-my-at-rule {}",
+                None,
+                rejected_message("@not-my-at-rule"),
+                (1, 1, 1, 16),
+            ),
+        ];
+
+        Tester::new(
+            AtRuleNoUnknown::NAME,
+            json!([true, { "ignoreAtRules": ["unknown", "/^my-/", "/^YOUR-/i"] }]),
+            &pass,
+            &fail,
+        )
+        .test();
+    }
+
+    #[test]
+    fn ignore_at_rules_regex() {
+        let pass = vec!["@my-at-rule { }"];
+
+        let fail = vec![reject(
+            "@unknown-at-rule { }",
+            None,
+            rejected_message("@unknown-at-rule"),
+            (1, 1, 1, 17),
+        )];
+
+        Tester::new(
+            AtRuleNoUnknown::NAME,
+            json!([true, { "ignoreAtRules": ["/^my-/"] }]),
+            &pass,
+            &fail,
+        )
+        .test();
+    }
+
+    #[test]
+    fn less_syntax() {
+        let pass = vec![
+            "\n        .some-mixin() { margin: 0; }\n        span { .some-mixin(); }\n      ",
+            "\n        @my-variable: #f7f8f9;\n        span { background-color: @my-variable; }\n      ",
+        ];
+
+        Tester::new(AtRuleNoUnknown::NAME, json!(true), &pass, &[])
+            .with_custom_syntax("postcss-less")
+            .test();
+    }
 }

@@ -113,7 +113,7 @@ impl Rule for SelectorAnbNoUnmatchable {
                                     start: pseudo_start as u32,
                                     end: i as u32,
                                 },
-                                format!("Unexpected unmatchable An+B selector \"{full_pseudo}\""),
+                                format!("Unmatchable An+B selector \"{full_pseudo}\""),
                             );
                         }
                     }

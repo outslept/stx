@@ -2,118 +2,82 @@
 //!
 //! Reference: <https://stylelint.io/user-guide/rules/at-rule-no-vendor-prefix>
 
+use std::ops::Deref;
+
+use oxc_css_parser::{Span, ast::Stylesheet};
+use serde_json::{Map, Value};
+
 use crate::context::LintContext;
+use crate::declare_stx_lint;
 use crate::fix::Fix;
 use crate::rules::Rule;
 use crate::utils::options::{OptionMatcher, options_matches, parse_option_matchers};
 use crate::utils::reference::{PREFIXES, in_set_ignore_case};
-use oxc_css_parser::{Span, ast::Stylesheet};
-use serde_json::{Map, Value};
 
 /// Standard at-rule names that Autoprefixer / Stylelint considers vendor-prefixable.
 const AUTOPREFIXABLE_AT_KEYWORDS: &[&str] = &["keyframes", "viewport", "document"];
 
-/// [`at-rule-no-vendor-prefix`](https://stylelint.io/user-guide/rules/at-rule-no-vendor-prefix)
-///
-/// Disallow vendor prefixes for at-rules.
-///
-/// ### What it does
-///
-/// Reports standard CSS at-rules that use a vendor prefix (such as
-/// `@-webkit-keyframes`, `@-moz-keyframes`, `@-ms-viewport`, or
-/// `@-moz-document`).
-///
-/// ### Why is this bad?
-///
-/// Vendor prefixes for standard at-rules like `@keyframes` are no longer needed
-/// in modern browsers or should be managed automatically by a build tool such
-/// as Autoprefixer rather than maintained by hand in source stylesheets.
-///
-/// ### Autofix
-///
-/// This rule automatically removes the vendor prefix from the at-rule name
-/// while preserving the original casing of the unprefixed at-rule identifier.
-///
-/// ### Primary Option
-///
-/// - `true`: enable the rule.
-///
-/// ### Secondary Options
-///
-/// ```json
-/// {
-///   "ignoreAtRules": ["-webkit-keyframes", "/-viewport/i"]
-/// }
-/// ```
-///
-/// - `ignoreAtRules`: an array of strings or regular expressions (wrapped in
-///   `/.../` or `/.../i`) matching vendor-prefixed at-rule names (without the
-///   leading `@`) that should be ignored.
-///
-/// ### Examples
-///
-/// #### Incorrect
-///
-/// ```css
-/// @-webkit-keyframes slide { 0% { top: 0; } }
-/// @-ms-viewport { orientation: landscape; }
-/// @-moz-document url("https://example.com/") {}
-/// ```
-///
-/// #### Correct
-///
-/// ```css
-/// @keyframes slide { 0% { top: 0; } }
-/// @viewport { orientation: landscape; }
-/// @document url("https://example.com/") {}
-/// ```
-pub struct AtRuleNoVendorPrefix {
+declare_stx_lint! {
+    /// Disallow vendor prefixes for at-rules.
+    AtRuleNoVendorPrefix,
+    "at-rule-no-vendor-prefix",
+    restriction,
+    fix = fix,
+    recommended = false,
+}
+
+#[derive(Default)]
+pub struct AtRuleNoVendorPrefixConfig {
     /// Compiled matchers for the `ignoreAtRules` secondary option.
     ignore_at_rules: Vec<OptionMatcher>,
 }
 
-impl Default for AtRuleNoVendorPrefix {
-    fn default() -> Self {
-        Self::new(None)
+/// [`at-rule-no-vendor-prefix`](https://stylelint.io/user-guide/rules/at-rule-no-vendor-prefix)
+///
+/// Disallow vendor prefixes for at-rules.
+#[derive(Default)]
+pub struct AtRuleNoVendorPrefix(AtRuleNoVendorPrefixConfig);
+
+impl Deref for AtRuleNoVendorPrefix {
+    type Target = AtRuleNoVendorPrefixConfig;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
 impl AtRuleNoVendorPrefix {
     /// Creates a new `at-rule-no-vendor-prefix` rule instance from secondary options.
     pub fn new(secondary: Option<&Map<String, Value>>) -> Self {
-        Self {
+        Self(AtRuleNoVendorPrefixConfig {
             ignore_at_rules: parse_option_matchers(secondary, "ignoreAtRules"),
-        }
+        })
     }
+}
 
-    /// Formats the diagnostic message when a vendor-prefixed at-rule is found.
-    #[inline]
-    fn rejected_message(at_rule: &str) -> String {
-        format!("Vendor-prefixed at-rule \"{at_rule}\"")
-    }
+/// Formats the diagnostic message when a vendor-prefixed at-rule is found.
+#[inline]
+fn rejected_message(at_rule: &str) -> String {
+    format!("Vendor-prefixed at-rule \"{at_rule}\"")
 }
 
 impl Rule for AtRuleNoVendorPrefix {
     fn name(&self) -> &'static str {
-        "at-rule-no-vendor-prefix"
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, _ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {
         let len = u32::try_from(ctx.source.len()).unwrap_or(u32::MAX);
         let mut i: u32 = 0;
-
         // Track whether the scanner is at a position where a statement / at-rule can start.
         let mut at_statement_start = true;
-
         while i < len {
             let b = byte_at(ctx, i);
-
             // Whitespace preserves `at_statement_start`.
             if b.is_ascii_whitespace() {
                 i += 1;
                 continue;
             }
-
             // Skip block comments `/* ... */` (preserving `at_statement_start`).
             if b == b'/' && i + 1 < len && byte_at(ctx, i + 1) == b'*' {
                 i += 2;
@@ -123,7 +87,6 @@ impl Rule for AtRuleNoVendorPrefix {
                 i = if i + 1 < len { i + 2 } else { len };
                 continue;
             }
-
             // Skip single-line comments `// ...` when not part of a URL scheme (`://`).
             if b == b'/'
                 && i + 1 < len
@@ -136,7 +99,6 @@ impl Rule for AtRuleNoVendorPrefix {
                 }
                 continue;
             }
-
             // Skip quoted string literals.
             if b == b'"' || b == b'\'' {
                 at_statement_start = false;
@@ -156,34 +118,28 @@ impl Rule for AtRuleNoVendorPrefix {
                 }
                 continue;
             }
-
             // Statement delimiters allow an at-rule to follow.
             if matches!(b, b'{' | b'}' | b';') {
                 at_statement_start = true;
                 i += 1;
                 continue;
             }
-
             // Check for an at-rule at the start of a statement.
             if b == b'@' && at_statement_start {
                 let at_start = i;
                 let name_start = i + 1;
-
                 if name_start < len && is_ident_start(byte_at(ctx, name_start)) {
                     let mut name_end = name_start + 1;
                     while name_end < len && is_ident_char(byte_at(ctx, name_end)) {
                         name_end += 1;
                     }
-
                     // Ignore Less variable declarations (`@var: ...`) and Less mixin calls (`@mixin(...)`).
                     let next_non_ws = skip_spaces_and_tabs(ctx, name_end, len);
                     let is_less_construct = next_non_ws < len
                         && (byte_at(ctx, next_non_ws) == b':'
                             || (next_non_ws == name_end && byte_at(ctx, next_non_ws) == b'('));
-
                     if !is_less_construct {
                         let name = ctx.slice_range(name_start, name_end);
-
                         if name.starts_with('-')
                             && !options_matches(&self.ignore_at_rules, name)
                             && let Some(prefix_len) = autoprefixable_vendor_prefix_len(name)
@@ -200,22 +156,14 @@ impl Rule for AtRuleNoVendorPrefix {
                                 },
                                 String::new(),
                             ));
-
-                            ctx.report_with_fix(
-                                self.name(),
-                                span,
-                                Self::rejected_message(at_name),
-                                fix,
-                            );
+                            ctx.report_with_fix(Self::NAME, span, rejected_message(at_name), fix);
                         }
                     }
-
                     at_statement_start = false;
                     i = name_end;
                     continue;
                 }
             }
-
             at_statement_start = false;
             i += 1;
         }
@@ -262,4 +210,127 @@ fn skip_spaces_and_tabs(ctx: &LintContext<'_>, mut idx: u32, len: u32) -> u32 {
         idx += 1;
     }
     idx
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tester::{Tester, reject, reject_edit};
+    use serde_json::json;
+
+    #[test]
+    fn default_options() {
+        let pass = vec![
+            "@keyframes { 0% { top: 0; } }",
+            "@viewport { orientation: landscape; }",
+        ];
+
+        let fail = vec![
+            reject(
+                "@-webkit-keyframes { 0% { top: 0; } }",
+                "@keyframes { 0% { top: 0; } }",
+                rejected_message("@-webkit-keyframes"),
+                (1, 1, 1, 19),
+            ),
+            reject(
+                "@-wEbKiT-kEyFrAmEs { 0% { top: 0; } }",
+                "@kEyFrAmEs { 0% { top: 0; } }",
+                rejected_message("@-wEbKiT-kEyFrAmEs"),
+                (1, 1, 1, 19),
+            ),
+            reject(
+                "@-WEBKIT-KEYFRAMES { 0% { top: 0; } }",
+                "@KEYFRAMES { 0% { top: 0; } }",
+                rejected_message("@-WEBKIT-KEYFRAMES"),
+                (1, 1, 1, 19),
+            ),
+            reject(
+                "@-moz-keyframes { 0% { top: 0; } }",
+                "@keyframes { 0% { top: 0; } }",
+                rejected_message("@-moz-keyframes"),
+                (1, 1, 1, 16),
+            ),
+            reject(
+                "@-ms-viewport { orientation: landscape; }",
+                "@viewport { orientation: landscape; }",
+                rejected_message("@-ms-viewport"),
+                (1, 1, 1, 14),
+            ),
+        ];
+
+        Tester::new(AtRuleNoVendorPrefix::NAME, json!(true), &pass, &fail)
+            .with_fix(true)
+            .test();
+
+        let fail_edits = vec![
+            reject_edit(
+                "@-webkit-keyframes { 0% { top: 0; } }",
+                rejected_message("@-webkit-keyframes"),
+                (1, 1, 1, 19),
+                (1, 9, ""),
+            ),
+            reject_edit(
+                "@-wEbKiT-kEyFrAmEs { 0% { top: 0; } }",
+                rejected_message("@-wEbKiT-kEyFrAmEs"),
+                (1, 1, 1, 19),
+                (1, 9, ""),
+            ),
+            reject_edit(
+                "@-WEBKIT-KEYFRAMES { 0% { top: 0; } }",
+                rejected_message("@-WEBKIT-KEYFRAMES"),
+                (1, 1, 1, 19),
+                (1, 9, ""),
+            ),
+            reject_edit(
+                "@-moz-keyframes { 0% { top: 0; } }",
+                rejected_message("@-moz-keyframes"),
+                (1, 1, 1, 16),
+                (1, 6, ""),
+            ),
+            reject_edit(
+                "@-ms-viewport { orientation: landscape; }",
+                rejected_message("@-ms-viewport"),
+                (1, 1, 1, 14),
+                (1, 5, ""),
+            ),
+        ];
+
+        Tester::new(AtRuleNoVendorPrefix::NAME, json!(true), &[], &fail_edits)
+            .with_compute_edit_info(true)
+            .test();
+    }
+
+    #[test]
+    fn ignore_at_rules() {
+        let pass = vec![
+            "@keyframes {}",
+            "@-webkit-keyframes {}",
+            "@viewport {}",
+            "@-MS-VIEWPORT {}",
+        ];
+
+        let config = json!([true, { "ignoreAtRules": ["-webkit-keyframes", "/-viewport/i"] }]);
+
+        let fail = vec![reject(
+            "@-MOZ-DOCUMENT url(\"https://example.com/\") {}",
+            "@DOCUMENT url(\"https://example.com/\") {}",
+            rejected_message("@-MOZ-DOCUMENT"),
+            (1, 1, 1, 15),
+        )];
+
+        Tester::new(AtRuleNoVendorPrefix::NAME, config.clone(), &pass, &fail)
+            .with_fix(true)
+            .test();
+
+        let fail_edits = vec![reject_edit(
+            "@-MOZ-DOCUMENT url(\"https://example.com/\") {}",
+            rejected_message("@-MOZ-DOCUMENT"),
+            (1, 1, 1, 15),
+            (1, 6, ""),
+        )];
+
+        Tester::new(AtRuleNoVendorPrefix::NAME, config, &[], &fail_edits)
+            .with_compute_edit_info(true)
+            .test();
+    }
 }

@@ -497,3 +497,170 @@ impl Rule for CustomPropertyNoMissingVarFunction {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::tester::{Tester, reject, reject_warnings};
+
+    const NAME: &str = "custom-property-no-missing-var-function";
+
+    fn rejected(custom_property: &str) -> String {
+        format!("Missing var function for \"{custom_property}\"")
+    }
+
+    #[test]
+    fn custom_property_no_missing_var_function_default() {
+        let pass = [
+            "a { color: --foo; }",
+            "a { color: var(--foo); }",
+            "a { color: env(--foo); }",
+            "a { color: color(--foo 0% 0% 0% 0%); }",
+            "a { color: calc(var(--foo) + var(--bar)); }",
+            "a { color: var(--foo, red); }",
+            "a { color: var(--foo, var(--bar)); }",
+            "a { --foo: var(--bar); }",
+            ":root { --foo: red; } a { color: var(--foo); }",
+            "@property --foo {} a { color: var(--foo); }",
+            ":--foo {}",
+            "@media(--foo) {}",
+            "@property --foo {} a { transition: --foo; }",
+            "@property --foo {} a { position: running(--foo); }",
+            "@property --foo {} a { view-transition-name: --foo; }",
+            "@property --qux {} a { container-name: --qux; }",
+            "@property --foo {} a { scroll-timeline-name: --foo; }",
+            "@property --foo {} a { SCROLL-TIMELINE-NAME: --foo; }",
+            "a { color: calc(var(--foo) + 100px); }",
+            "a { color: var(--foo, calc(var(--bar) + 20px)); }",
+            "a { color: calc(100px + var(--foo)); }",
+            "a { color: var(--foo, var(--bar, var(--foobar, #000))); }",
+            "button { --state: normal; background-color: if(style(--state: hover): gray; else: white;); }",
+            "@property --state {} button { background-color: if(style(--state: hover): gray; else: white;); }",
+            ":root { --theme: dark; } a { color: if(style(--theme: light): black; else: white;); }",
+            "a { --foo: 1; --bar: 2; color: if(style(--foo: 1): if(style(--bar: 2): red; else: blue;); else: green;); }",
+            "a { --foo: 1; --bar: 2; color: if(style(--foo: var(--bar)): red; else: green;); }",
+            "a { --foo: 1; --color: red; color: if(style(--foo: 1): var(--color); else: green;); }",
+            "a { animation-timeline: --foo; }",
+            "a { timeline-scope: --foo; }",
+            "@property --foo {} a { position-try: most-width --foo; }",
+            "@property --foo {} a { top: anchor(--foo bottom); }",
+        ];
+        let fail = [
+            reject(
+                "a { --foo: red; color: --foo; }",
+                None,
+                rejected("--foo"),
+                (1, 24, 1, 29),
+            ),
+            reject(
+                "@property --foo {} a { color: --foo; }",
+                None,
+                rejected("--foo"),
+                (1, 31, 1, 36),
+            ),
+            reject(
+                "@property --foo, --bar {} a { color: --bar; }",
+                None,
+                rejected("--bar"),
+                (1, 38, 1, 43),
+            ),
+            reject(
+                ":root { --bar: 0; } a { --foo: --bar; }",
+                None,
+                rejected("--bar"),
+                (1, 32, 1, 37),
+            ),
+            reject(
+                ":root { --bar: 0px; } a { color: calc(var(--foo) + --bar); }",
+                None,
+                rejected("--bar"),
+                (1, 52, 1, 57),
+            ),
+            reject(
+                ":root { --foo: pink; }  a { color: --foo, red; }",
+                None,
+                rejected("--foo"),
+                (1, 36, 1, 41),
+            ),
+            reject(
+                ":root { --bar: 0; } a { color: --foo(--bar); }",
+                None,
+                rejected("--bar"),
+                (1, 38, 1, 43),
+            ),
+            reject_warnings(
+                ":root {\n\t--bar: 0;\n\t--baz: 0;\n}\na {\n\t--foo: --bar;\n\tcolor: --baz;\n}",
+                None,
+                vec![
+                    (rejected("--bar"), (6, 9, 6, 14)),
+                    (rejected("--baz"), (7, 9, 7, 14)),
+                ],
+            ),
+            reject_warnings(
+                "@property --bar {}\n@property --baz {}\na {\n\t--foo: --bar;\n\tcolor: --baz;\n}",
+                None,
+                vec![
+                    (rejected("--bar"), (4, 9, 4, 14)),
+                    (rejected("--baz"), (5, 9, 5, 14)),
+                ],
+            ),
+            reject(
+                "a {\n\t--foo: red;\n\t--bar: blue;\n\tcolor: var(--foo, --bar);\n}",
+                None,
+                rejected("--bar"),
+                (4, 20, 4, 25),
+            ),
+            reject(
+                "a {\n\t--foo: qux;\n\t--bar: baz;\n\tposition: running(var(--foo, --bar));\n}",
+                None,
+                rejected("--bar"),
+                (4, 31, 4, 36),
+            ),
+            reject(
+                "a {\n\t--foo: red;\n\t--bar: blue;\n\t--baz: green;\n\tcolor: var(--foo, var(--bar, --baz));\n}",
+                None,
+                rejected("--baz"),
+                (5, 31, 5, 36),
+            ),
+            reject(
+                "a { --foo: 1; --bar: 2; color: if(style(--foo: --bar): red; else: green;); }",
+                None,
+                rejected("--bar"),
+                (1, 48, 1, 53),
+            ),
+            reject(
+                "a { --foo: 1; --color: red; color: if(style(--foo: 1): --color; else: green;); }",
+                None,
+                rejected("--color"),
+                (1, 56, 1, 63),
+            ),
+            reject(
+                "a { --foo: 10px; --bar: 0; top: anchor(--bar bottom, --foo); }",
+                None,
+                rejected("--foo"),
+                (1, 54, 1, 59),
+            ),
+            reject(
+                "a { --foo: 10px; --bar: 0; width: anchor-size(--bar width, --foo); }",
+                None,
+                rejected("--foo"),
+                (1, 60, 1, 65),
+            ),
+            reject(
+                "a { --foo: 10px; --bar: 0; top: anchor(--bar calc(50% + --foo)); }",
+                None,
+                rejected("--foo"),
+                (1, 57, 1, 62),
+            ),
+        ];
+        Tester::new(NAME, json!([true]), pass, fail).test();
+    }
+
+    #[test]
+    #[ignore = "no effective language options in the legacy fixture"]
+    fn custom_property_no_missing_var_function_language_options() {
+        let pass = [":root { --foo: red; } a { color: --foo; }"];
+        Tester::new(NAME, json!([true]), pass, []).test();
+    }
+}

@@ -951,3 +951,633 @@ impl Rule for DeclarationBlockNoDuplicateProperties {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tester::{
+        Tester, reject, reject_edit, reject_edit_warnings, reject_message, reject_warnings,
+    };
+    use serde_json::json;
+
+    const RULE_NAME: &str = "declaration-block-no-duplicate-properties";
+
+    fn rejected(property: &str) -> String {
+        format!("Duplicate property \"{property}\"")
+    }
+
+    #[test]
+    fn declaration_block_no_duplicate_properties_default() {
+        let pass = [
+            "a { color: pink; }",
+            "a { color: pink; background: orange; }",
+            "a { color: pink; { &:hover { color: orange; } } }",
+            "a { color: pink; @media { color: orange; } }",
+            "a { color: pink; @media { color: orange; &::before { color: black; } } }",
+            "a { $scss: 0; $scss: $scss + 1; }",
+            "a { @less: 0; @less: @less + 1; }",
+            "a { --custom-property: 0; --custom-property: 1; }",
+            "@fontface { src: url(font.eof); src: url(font.woff) }",
+            "@fontface { sRc: url(font.eof); sRc: url(font.woff) }",
+            "@fontface { SRC: url(font.eof); SRC: url(font.woff) }",
+        ];
+        let fail = [
+            reject(
+                "a { color: pink; color: orange }",
+                "a { color: orange }",
+                rejected("color"),
+                (1, 5, 1, 10),
+            ),
+            reject(
+                "a { cOlOr: pink; color: orange }",
+                "a { color: orange }",
+                rejected("cOlOr"),
+                (1, 5, 1, 10),
+            ),
+            reject(
+                "a { color: pink; cOlOr: orange }",
+                "a { cOlOr: orange }",
+                rejected("color"),
+                (1, 5, 1, 10),
+            ),
+            reject(
+                "a { cOlOr: pink; cOlOr: orange }",
+                "a { cOlOr: orange }",
+                rejected("cOlOr"),
+                (1, 5, 1, 10),
+            ),
+            reject(
+                "a { COLOR: pink; color: orange }",
+                "a { color: orange }",
+                rejected("COLOR"),
+                (1, 5, 1, 10),
+            ),
+            reject(
+                "a { color: pink; COLOR: orange }",
+                "a { COLOR: orange }",
+                rejected("color"),
+                (1, 5, 1, 10),
+            ),
+            reject_warnings(
+                "a { COlOr: pink; coLOR: pink; color: pink }",
+                "a { color: pink }",
+                vec![
+                    (rejected("COlOr"), (1, 5, 1, 10)),
+                    (rejected("coLOR"), (1, 18, 1, 23)),
+                ],
+            ),
+            reject_warnings(
+                "a { color: pink; color: pink; color: orange }",
+                "a { color: orange }",
+                vec![
+                    (rejected("color"), (1, 5, 1, 10)),
+                    (rejected("color"), (1, 18, 1, 23)),
+                ],
+            ),
+            reject(
+                "a { color: pink; background: orange; color: orange }",
+                "a { background: orange; color: orange }",
+                rejected("color"),
+                (1, 5, 1, 10),
+            ),
+            reject(
+                "a { color: pink; background: orange; background: pink; }",
+                "a { color: pink; background: pink; }",
+                rejected("background"),
+                (1, 18, 1, 28),
+            ),
+            reject(
+                "a { color: pink; { &:hover { color: orange; color: black; } } }",
+                "a { color: pink; { &:hover { color: black; } } }",
+                rejected("color"),
+                (1, 30, 1, 35),
+            ),
+            reject(
+                "a { color: pink; @media { color: orange; color: black; } }",
+                "a { color: pink; @media { color: black; } }",
+                rejected("color"),
+                (1, 27, 1, 32),
+            ),
+            reject(
+                "@media { color: orange; .foo { color: black; color: white; } }",
+                "@media { color: orange; .foo { color: white; } }",
+                rejected("color"),
+                (1, 32, 1, 37),
+            ),
+            reject(
+                "a { color: pink; @media { color: orange; &::before { color: black; color: white; } } }",
+                "a { color: pink; @media { color: orange; &::before { color: white; } } }",
+                rejected("color"),
+                (1, 54, 1, 59),
+            ),
+            reject(
+                "a { color: pink; @media { color: orange; .foo { color: black; color: white; } } }",
+                "a { color: pink; @media { color: orange; .foo { color: white; } } }",
+                rejected("color"),
+                (1, 49, 1, 54),
+            ),
+            reject(
+                "a { -webkit-border-radius: 12px; -webkit-border-radius: 10px; }",
+                "a { -webkit-border-radius: 10px; }",
+                rejected("-webkit-border-radius"),
+                (1, 5, 1, 26),
+            ),
+            reject(
+                "a { -WEBKIT-border-radius: 12px; -webkit-BORDER-radius: 10px; }",
+                "a { -webkit-BORDER-radius: 10px; }",
+                rejected("-WEBKIT-border-radius"),
+                (1, 5, 1, 26),
+            ),
+            reject(
+                "a { color: red !important; color: blue; }",
+                "a { color: red !important; }",
+                rejected("color"),
+                (1, 28, 1, 33),
+            ),
+            reject(
+                "a { color: red !important; color: blue !important; }",
+                "a { color: blue !important; }",
+                rejected("color"),
+                (1, 5, 1, 10),
+            ),
+            reject(
+                "a { scrollbar-color: rebeccapurple green; scrollbar-color: rebeccapurple transparent; }",
+                "a { scrollbar-color: rebeccapurple transparent; }",
+                rejected("scrollbar-color"),
+                (1, 5, 1, 20),
+            ),
+            reject(
+                "p { border-color: yellow green #000 red; border-color: black; }",
+                "p { border-color: black; }",
+                rejected("border-color"),
+                (1, 5, 1, 17),
+            ),
+            reject(
+                "p { animation-name: red; animation-name: black; }",
+                "p { animation-name: black; }",
+                rejected("animation-name"),
+                (1, 5, 1, 19),
+            ),
+            reject(
+                "a { border-color: red yellow; border-color: green; }",
+                "a { border-color: green; }",
+                rejected("border-color"),
+                (1, 5, 1, 17),
+            ),
+            reject(
+                "a { scrollbar-color: red #000; scrollbar-color: blue; }",
+                "a { scrollbar-color: blue; }",
+                rejected("scrollbar-color"),
+                (1, 5, 1, 20),
+            ),
+            reject(
+                "a { border-color: red #000; border-color: blue green; }",
+                "a { border-color: blue green; }",
+                rejected("border-color"),
+                (1, 5, 1, 17),
+            ),
+        ];
+
+        Tester::new(RULE_NAME, json!([true]), pass, fail)
+            .with_fix(true)
+            .test();
+    }
+
+    #[test]
+    fn declaration_block_no_duplicate_properties_edit_info() {
+        let fail = [
+            reject_edit(
+                "a { color: pink; color: orange }",
+                rejected("color"),
+                (1, 5, 1, 10),
+                (11, 24, ""),
+            ),
+            reject_edit_warnings(
+                "a { COlOr: pink; coLOR: pink; color: pink }",
+                vec![
+                    (rejected("COlOr"), (1, 5, 1, 10), Some((4, 17, ""))),
+                    (rejected("coLOR"), (1, 18, 1, 23), Some((19, 32, ""))),
+                ],
+            ),
+            reject_edit(
+                "a { color: pink; background: orange; color: orange }",
+                rejected("color"),
+                (1, 5, 1, 10),
+                (4, 17, ""),
+            ),
+            reject_edit(
+                "a { color: pink; background: orange; background: pink; }",
+                rejected("background"),
+                (1, 18, 1, 28),
+                (29, 49, ""),
+            ),
+        ];
+
+        Tester::new(RULE_NAME, json!([true]), [], fail)
+            .with_compute_edit_info(true)
+            .test();
+    }
+
+    #[test]
+    fn declaration_block_no_duplicate_properties_ignore_consecutive() {
+        let pass = [
+            "p { font-size: 16px; font-size: 1rem; }",
+            "p { display: inline-block; font-size: 16px; font-size: 1rem; }",
+            "p { font-size: 16px; font-size: 1rem; color: red; }",
+            "p { display: inline-block; font-size: 16px; font-size: 1rem; color: red; }",
+        ];
+        let fail = [
+            reject_message(
+                "p { font-size: 16px; font-weight: 400; font-size: 1rem; }",
+                "p { font-weight: 400; font-size: 1rem; }",
+                rejected("font-size"),
+            ),
+            reject_message(
+                "p { display: inline-block; font-size: 16px; font-weight: 400; font-size: 1rem; }",
+                "p { display: inline-block; font-weight: 400; font-size: 1rem; }",
+                rejected("font-size"),
+            ),
+            reject_message(
+                "p { font-size: 16px; font-weight: 400; font-size: 1rem; color: red; }",
+                "p { font-weight: 400; font-size: 1rem; color: red; }",
+                rejected("font-size"),
+            ),
+            reject_message(
+                "p { display: inline-block; font-size: 16px; font-weight: 400; font-size: 1rem; color: red; }",
+                "p { display: inline-block; font-weight: 400; font-size: 1rem; color: red; }",
+                rejected("font-size"),
+            ),
+            reject_message(
+                "p { font-size: 16px !important; font-weight: 400; font-size: 1rem; }",
+                "p { font-size: 16px !important; font-weight: 400; }",
+                rejected("font-size"),
+            ),
+            reject_warnings(
+                "a { font-size: 16px; color: red; font-size: 1rem; color: blue; }",
+                "a { font-size: 1rem; color: blue; }",
+                vec![
+                    (rejected("font-size"), (1, 5, 1, 14)),
+                    (rejected("color"), (1, 22, 1, 27)),
+                ],
+            ),
+        ];
+
+        Tester::new(
+            RULE_NAME,
+            json!([true, { "ignore": ["consecutive-duplicates"] }]),
+            pass,
+            fail,
+        )
+        .with_fix(true)
+        .test();
+    }
+
+    #[test]
+    fn declaration_block_no_duplicate_properties_ignore_consecutive_edit_info() {
+        let fail = [
+            reject_message(
+                "p { font-size: 16px; font-weight: 400; font-size: 1rem; }",
+                None,
+                rejected("font-size"),
+            )
+            .with_edit_info(0, (9, 26, "")),
+            reject_message(
+                "p { font-size: 16px !important; font-weight: 400; font-size: 1rem; }",
+                None,
+                rejected("font-size"),
+            )
+            .with_edit_info(0, (50, 67, "")),
+        ];
+
+        Tester::new(
+            RULE_NAME,
+            json!([true, { "ignore": ["consecutive-duplicates"] }]),
+            [],
+            fail,
+        )
+        .with_compute_edit_info(true)
+        .test();
+    }
+
+    #[test]
+    fn declaration_block_no_duplicate_properties_ignore_diff_values() {
+        let pass = [
+            "p { font-size: 16px; font-size: 1rem; font-weight: 400; }",
+            "p { font-size: 16px; font-size: 18px; font-weight: 400; }",
+        ];
+        let fail = [
+            reject_message(
+                "p { font-size: 16px; font-weight: 400; font-size: 1rem; }",
+                "p { font-weight: 400; font-size: 1rem; }",
+                rejected("font-size"),
+            ),
+            reject_message(
+                "p { font-size: 16px; font-size: 16px; font-weight: 400; }",
+                "p { font-size: 16px; font-weight: 400; }",
+                rejected("font-size"),
+            ),
+            reject(
+                "p { font-size: 16px !important; font-weight: 400; font-size: 1rem; }",
+                "p { font-size: 16px !important; font-weight: 400; }",
+                rejected("font-size"),
+                (1, 51, 1, 60),
+            ),
+            reject(
+                "p { font-size: 16px; font-size: 16px !important; font-weight: 400; }",
+                "p { font-size: 16px !important; font-weight: 400; }",
+                rejected("font-size"),
+                (1, 5, 1, 14),
+            ),
+        ];
+
+        Tester::new(
+            RULE_NAME,
+            json!([true, { "ignore": ["consecutive-duplicates-with-different-values"] }]),
+            pass,
+            fail,
+        )
+        .with_fix(true)
+        .test();
+    }
+
+    #[test]
+    fn declaration_block_no_duplicate_properties_ignore_diff_syntaxes() {
+        let pass = [
+            "p { width: 100vw; height: 100vh; }",
+            "p { width: 100vw; width: 100dvw; height: 100vh; }",
+            "p { margin: 10dvw 10dvw; margin: 10vw 10vw; padding: 0; }",
+            "p { margin: 10dvh 10dvw 10dvh; margin: 10vw 10vw; padding: 0; }",
+            "p { width: 100%; width: fit-content; }",
+            "p { width: min-content; width: max-content; }",
+            "p { width: calc(10px + 2px); width: calc(10px + 2rem); }",
+            "p { width: calc(10px + 2px); width: calc(10rem + 2rem); }",
+            "p { width: min(10px, 11px); width: max(10px, 11px); }",
+            "p { width: calc((10px + 2px)); width: calc((10rem + 2rem)); }",
+            "p { width: calc((10px + 2px) + 10px); width: calc((10rem + 2rem) + 10px); }",
+            "p { width: $a; width: calc(1 + $a); }",
+            "p { width: _$a; width: _$a2; }",
+            "p { width: env(foo); width: env(--bar); }",
+            "p { width: env(--foo); width: env(bar); }",
+        ];
+        let fail = [
+            reject_message(
+                "p { width: 100vw ; width: 100vw; }",
+                "p { width: 100vw; }",
+                rejected("width"),
+            ),
+            reject_message(
+                "p { width: calc(100vw /* a comment */  + 10vw); width: calc(100vw + 10vw); }",
+                "p { width: calc(100vw + 10vw); }",
+                rejected("width"),
+            ),
+            reject_message(
+                "p { width: 100vw; height: 100vh; width: 100dvw; }",
+                "p { height: 100vh; width: 100dvw; }",
+                rejected("width"),
+            ),
+            reject_message(
+                "p { width: 100vw; width: 100vw; height: 100vh; }",
+                "p { width: 100vw; height: 100vh; }",
+                rejected("width"),
+            ),
+            reject_message(
+                "p { margin: 10vw 10vw; margin: 10vw 10vw; padding: 0; }",
+                "p { margin: 10vw 10vw; padding: 0; }",
+                rejected("margin"),
+            ),
+            reject_message(
+                "p { width: 100vw; width: 50vw; height: 100vh; }",
+                "p { width: 50vw; height: 100vh; }",
+                rejected("width"),
+            ),
+            reject_message(
+                "p { width: 100vw !important; height: 100vh; width: 100dvw; }",
+                "p { width: 100vw !important; height: 100vh; }",
+                rejected("width"),
+            ),
+            reject_message(
+                "p { width: 100vw; height: 100vh; width: 100dvw !important; }",
+                "p { height: 100vh; width: 100dvw !important; }",
+                rejected("width"),
+            ),
+            reject_message(
+                "p { width: calc(10px + 4rem); width: calc(10px + 2rem); }",
+                "p { width: calc(10px + 2rem); }",
+                rejected("width"),
+            ),
+            reject_message(
+                "p { width: CaLC(10px + 4rem); width: calc(10px + 2rem); }",
+                "p { width: calc(10px + 2rem); }",
+                rejected("width"),
+            ),
+            reject_message(
+                "p { width: var(--foo); width: var(--bar); }",
+                "p { width: var(--bar); }",
+                rejected("width"),
+            ),
+            reject_message(
+                "p { content: \"foo\"; content: \"bar\"; }",
+                "p { content: \"bar\"; }",
+                rejected("content"),
+            ),
+            reject_message(
+                "p { image: url(#foo); image: url(#bar); }",
+                "p { image: url(#bar); }",
+                rejected("image"),
+            ),
+            reject_message(
+                "p { color: red; color: blue; }",
+                "p { color: blue; }",
+                rejected("color"),
+            ),
+            reject_message(
+                "p { color: red; color: green; }",
+                "p { color: green; }",
+                rejected("color"),
+            ),
+            reject_message(
+                "p { background-color: red; background-color: blue; }",
+                "p { background-color: blue; }",
+                rejected("background-color"),
+            ),
+            reject_message(
+                "p { color: red; background: orange; color: blue; }",
+                "p { background: orange; color: blue; }",
+                rejected("color"),
+            ),
+            reject_message(
+                "a { scrollbar-color: red blue; scrollbar-color: green yellow; }",
+                "a { scrollbar-color: green yellow; }",
+                rejected("scrollbar-color"),
+            ),
+            reject_message(
+                "a { border-color: red green blue yellow; border-color: black white gray silver; }",
+                "a { border-color: black white gray silver; }",
+                rejected("border-color"),
+            ),
+        ];
+
+        Tester::new(
+            RULE_NAME,
+            json!([true, { "ignore": ["consecutive-duplicates-with-different-syntaxes"] }]),
+            pass,
+            fail,
+        )
+        .with_fix(true)
+        .test();
+    }
+
+    #[test]
+    fn declaration_block_no_duplicate_properties_ignore_prefixless() {
+        let pass = [
+            "p { width: -moz-fit-content; width: fit-content; }",
+            "p { width: fit-content; width: -moz-fit-content; }",
+            "p { width: -MOZ-fit-content; width: fit-content; }",
+            "p { width: -webkit-fit-content; width: -moz-fit-content; width: fit-content; }",
+        ];
+        let fail = [
+            reject_message(
+                "p { width: fit-content; height: 32px; width: -moz-fit-content; }",
+                "p { height: 32px; width: -moz-fit-content; }",
+                rejected("width"),
+            ),
+            reject_message(
+                "p { width: 100%; width: -moz-fit-content; height: 32px; }",
+                "p { width: -moz-fit-content; height: 32px; }",
+                rejected("width"),
+            ),
+            reject_message(
+                "p { width: -moz-fit-content; width: -moz-fit-content; }",
+                "p { width: -moz-fit-content; }",
+                rejected("width"),
+            ),
+            reject(
+                "p { width: -moz-fit-content; width: -moz-fit-content !important; }",
+                "p { width: -moz-fit-content !important; }",
+                rejected("width"),
+                (1, 5, 1, 10),
+            ),
+            reject(
+                "p { width: 100% !important; width: -moz-fit-content; }",
+                "p { width: 100% !important; }",
+                rejected("width"),
+                (1, 29, 1, 34),
+            ),
+        ];
+
+        Tester::new(
+            RULE_NAME,
+            json!([true, { "ignore": ["consecutive-duplicates-with-same-prefixless-values"] }]),
+            pass,
+            fail,
+        )
+        .with_fix(true)
+        .test();
+    }
+
+    #[test]
+    fn declaration_block_no_duplicate_properties_ignore_diff_values_edit_info() {
+        let fail = [reject_edit(
+            "p { font-size: 16px; font-size: 16px !important; font-weight: 400; }",
+            rejected("font-size"),
+            (1, 5, 1, 14),
+            (19, 36, ""),
+        )];
+
+        Tester::new(
+            RULE_NAME,
+            json!([true, { "ignore": ["consecutive-duplicates-with-different-values"] }]),
+            [],
+            fail,
+        )
+        .with_compute_edit_info(true)
+        .test();
+    }
+
+    #[test]
+    fn declaration_block_no_duplicate_properties_ignore_properties_string() {
+        let pass = [
+            "p { color: pink; color: orange; }",
+            "p { COLOR: pink; color: orange; }",
+            "p { color: pink; background: orange; color: orange }",
+            "p { color: pink; color: orange !important; }",
+        ];
+        let fail = [
+            reject_message(
+                "p { color: pink; background: orange; background: white; }",
+                "p { color: pink; background: white; }",
+                rejected("background"),
+            ),
+            reject_message(
+                "p { background: orange; color: pink; background: white; }",
+                "p { color: pink; background: white; }",
+                rejected("background"),
+            ),
+            reject_message(
+                "p { background: orange; color: pink; background: white !important; }",
+                "p { color: pink; background: white !important; }",
+                rejected("background"),
+            ),
+        ];
+
+        Tester::new(
+            RULE_NAME,
+            json!([true, { "ignoreProperties": ["color"] }]),
+            pass,
+            fail,
+        )
+        .with_fix(true)
+        .test();
+    }
+
+    #[test]
+    fn declaration_block_no_duplicate_properties_ignore_properties_regex() {
+        let pass = [
+            "p { background-color: pink; background-color: orange; }",
+            "p { background-color: pink; color: orange; background-color: orange }",
+            "p { padding-left: auto; padding-left: 1rem; }",
+        ];
+        let fail = [
+            reject_message(
+                "p { color: pink; background: orange; background: white; }",
+                "p { color: pink; background: white; }",
+                rejected("background"),
+            ),
+            reject_message(
+                "p { background: orange; color: pink; background: white; }",
+                "p { color: pink; background: white; }",
+                rejected("background"),
+            ),
+        ];
+
+        Tester::new(
+            RULE_NAME,
+            json!([true, { "ignoreProperties": ["/background-/", "/padding-/"] }]),
+            pass,
+            fail,
+        )
+        .with_fix(true)
+        .test();
+    }
+
+    #[test]
+    #[ignore = "postcss-html not supported"]
+    fn declaration_block_no_duplicate_properties_html() {
+        Tester::new(
+            RULE_NAME,
+            json!([true]),
+            ["<style>a { color: pink; }</style>"],
+            [],
+        )
+        .with_custom_syntax("postcss-html")
+        .with_fix(true)
+        .test();
+    }
+
+    #[test]
+    #[ignore = "naive-css-in-js not supported"]
+    fn declaration_block_no_duplicate_properties_css_in_js() {
+        Tester::new(RULE_NAME, json!([true]), ["css` color: pink; `;"], [])
+            .with_custom_syntax("naive-css-in-js")
+            .test();
+    }
+}

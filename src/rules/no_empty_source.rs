@@ -68,3 +68,57 @@ impl Rule for NoEmptySource {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tester::{Tester, reject};
+    use serde_json::json;
+
+    const RULE_NAME: &str = "no-empty-source";
+    const REJECTED: &str = "Empty source";
+
+    #[test]
+    fn default_config() {
+        let pass = [
+            ".class {}",
+            "   .class {}   ",
+            "/* comment */",
+            "\n.class {}",
+            "\r\n.class {}",
+            "/* stylelint-disable */",
+            "/* stylelint-disable no-empty-source */",
+        ];
+        let fail = [
+            reject("", None, REJECTED, (1, 1, 1, 2)),
+            reject("   ", None, REJECTED, (1, 1, 1, 5)),
+            reject("\t", None, REJECTED, (1, 1, 1, 3)),
+            reject("\n", None, REJECTED, (1, 1, 2, 2)),
+            reject("\r\n", None, REJECTED, (1, 1, 2, 2)),
+            reject("\n\n\n", None, REJECTED, (1, 1, 4, 2)),
+            reject("\r\n\r\n\r\n", None, REJECTED, (1, 1, 4, 2)),
+            reject("  \n  ", None, REJECTED, (1, 1, 2, 4)),
+            reject("  \r\n  ", None, REJECTED, (1, 1, 2, 4)),
+            reject("/* stylelint-disable foo */", None, REJECTED, (1, 1, 1, 29)),
+        ];
+
+        Tester::new(RULE_NAME, json!([true]), pass, fail).test();
+    }
+
+    #[test]
+    #[ignore = "postcss-html not supported"]
+    fn html_syntax() {
+        let fail = [reject("<style>\n</style>", None, REJECTED, (2, 1, 2, 2))];
+
+        Tester::new(RULE_NAME, json!([true]), ["<html></html>"], fail)
+            .with_custom_syntax("postcss-html")
+            .test();
+    }
+
+    #[test]
+    #[ignore = "naiveCssInJs not supported"]
+    fn css_in_js_syntax() {
+        Tester::new(RULE_NAME, json!([true]), ["css` $var `;"], [])
+            .with_custom_syntax("naiveCssInJs")
+            .test();
+    }
+}

@@ -1109,3 +1109,404 @@ fn is_named_color(lower: &str) -> bool {
             | "yellowgreen"
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::tester::{Tester, reject};
+
+    const NAME: &str = "color-named";
+
+    fn expected(actual: &str, expected: &str) -> String {
+        format!("Expected \"{actual}\" to be \"{expected}\"")
+    }
+
+    fn rejected(keyword: &str) -> String {
+        format!("Disallowed named color \"{keyword}\"")
+    }
+
+    #[test]
+    fn never() {
+        let pass = &[
+            "a { color: #000; }",
+            "a { color: #ababab; }",
+            "a { color: #AbAbAb; }",
+            "a { color: #ABABAB; }",
+            "a { color: rgba(0, 0, 0, 0); }",
+            "a { background: #000, #fff, #333; }",
+            "/** color: black; */",
+            "a::before { content: \"orange\" }",
+            "a::before { content: 'orange' }",
+            "a { background-image: url(./black.png); }",
+            "a { padding: 000; }",
+            "a::before { content: \"#ababa\"; }",
+            "a { color: $black; }",
+            "a { color: var(--some-color-blue); }",
+            "a { animation: spin-blue 2s linear; }",
+            "a { animation: blue 2s linear; }",
+            "a { font-family: blue; }",
+            "a { font: 10px/14px Brown, sans-serif; }",
+            "$colors: (white: #fff, blue: #00f);",
+            "a { color: transparent; }",
+        ];
+
+        let fail = &[
+            reject("a { color: red; }", None, rejected("red"), (1, 12, 1, 15)),
+            reject("a { color: rEd; }", None, rejected("rEd"), (1, 12, 1, 15)),
+            reject("a { color: RED; }", None, rejected("RED"), (1, 12, 1, 15)),
+            reject(
+                "a { color: rebeccapurple; }",
+                None,
+                rejected("rebeccapurple"),
+                (1, 12, 1, 25),
+            ),
+            reject(
+                "a { background: #00c, red, #fff; }",
+                None,
+                rejected("red"),
+                (1, 23, 1, 26),
+            ),
+            reject(
+                "a { background: #fff1a1, rgb(250, 250, 0), black; }",
+                None,
+                rejected("black"),
+                (1, 44, 1, 49),
+            ),
+            reject(
+                "a { background:#cccccc,white,#12345a; }",
+                None,
+                rejected("white"),
+                (1, 24, 1, 29),
+            ),
+            reject(
+                "a { background: color(green); }",
+                None,
+                rejected("green"),
+                (1, 23, 1, 28),
+            ),
+        ];
+
+        Tester::new(NAME, json!(["never"]), pass, fail).test();
+    }
+
+    #[test]
+    fn always_where_possible() {
+        let pass = &[
+            "a { color: black; }",
+            "a { color: bLaCk; }",
+            "a { color: BLACK; }",
+            "a { color: rgb(0,0,1); }",
+            "a { color: rgba(0,0,0,0.5); }",
+            "a { color: rgb(0,0,0,50%); }",
+            "a { color: color(black, a(50%)) }",
+            "a { color: rgb(0, calc(0 + 0), 0, 0) }",
+            "/** color: #000; */",
+            "a::before { content: \"#000\" }",
+            "a::before { content: '#000' }",
+            "a { background-image: url(./thing.png#000); }",
+            ".a { color: #fff0ffff; };",
+            "a { color: rgba(0, 0, 0, 0); }",
+        ];
+
+        let fail = &[
+            reject(
+                "a { color: #000 }",
+                None,
+                expected("#000", "black"),
+                (1, 12, 1, 16),
+            ),
+            reject(
+                "a { color: #fFfFfF }",
+                None,
+                expected("#fFfFfF", "white"),
+                (1, 12, 1, 19),
+            ),
+            reject(
+                "a { color: #FFFFFF }",
+                None,
+                expected("#FFFFFF", "white"),
+                (1, 12, 1, 19),
+            ),
+            reject(
+                "a { background: #000f }",
+                None,
+                expected("#000f", "black"),
+                (1, 17, 1, 22),
+            ),
+            reject(
+                "a { color: #000000ff }",
+                None,
+                expected("#000000ff", "black"),
+                (1, 12, 1, 21),
+            ),
+            reject(
+                "a { color: rgb(0, 0, 0) }",
+                None,
+                expected("rgb(0,0,0)", "black"),
+                (1, 12, 1, 24),
+            ),
+            reject(
+                "a { color: rGb(0, 0, 0) }",
+                None,
+                expected("rGb(0,0,0)", "black"),
+                (1, 12, 1, 24),
+            ),
+            reject(
+                "a { color: RGB(0, 0, 0) }",
+                None,
+                expected("RGB(0,0,0)", "black"),
+                (1, 12, 1, 24),
+            ),
+            reject(
+                "a { color: rgba(0, 0, 0, 1) }",
+                None,
+                expected("rgba(0,0,0,1)", "black"),
+                (1, 12, 1, 28),
+            ),
+            reject(
+                "a { color: rgba(0 0 0 / 1) }",
+                None,
+                expected("rgba(0 0 0/1)", "black"),
+                (1, 12, 1, 27),
+            ),
+            reject(
+                "a { color: rgba(0, 0, 0, 100%) }",
+                None,
+                expected("rgba(0,0,0,100%)", "black"),
+                (1, 12, 1, 31),
+            ),
+            reject(
+                "a { color: rgb(0%,0%, 0%) }",
+                None,
+                expected("rgb(0%,0%,0%)", "black"),
+                (1, 12, 1, 26),
+            ),
+            reject(
+                "a { color: rgba(0%,0%, 0%  ,1) }",
+                None,
+                expected("rgba(0%,0%,0%,1)", "black"),
+                (1, 12, 1, 31),
+            ),
+            reject(
+                "a { color: rgba(0%,0%, 0%\n,100%) }",
+                None,
+                expected("rgba(0%,0%,0%,100%)", "black"),
+                (1, 12, 2, 7),
+            ),
+            reject(
+                "a { color: hsl(0,0%, 0%) }",
+                None,
+                expected("hsl(0,0%,0%)", "black"),
+                (1, 12, 1, 25),
+            ),
+            reject(
+                "a { color: hsla(0,0%, 0%  ,1) }",
+                None,
+                expected("hsla(0,0%,0%,1)", "black"),
+                (1, 12, 1, 30),
+            ),
+            reject(
+                "a { color: hsla(0,0%, 0%\n,100%) }",
+                None,
+                expected("hsla(0,0%,0%,100%)", "black"),
+                (1, 12, 2, 7),
+            ),
+            reject(
+                "a { color: hwb(0,0%, 0%) }",
+                None,
+                expected("hwb(0,0%,0%)", "red"),
+                (1, 12, 1, 25),
+            ),
+            reject(
+                "a { color: hwb(0,0%, 0%  ,1) }",
+                None,
+                expected("hwb(0,0%,0%,1)", "red"),
+                (1, 12, 1, 29),
+            ),
+            reject(
+                "a { color: hwb(0,0%, 0%\n,100%) }",
+                None,
+                expected("hwb(0,0%,0%,100%)", "red"),
+                (1, 12, 2, 7),
+            ),
+            reject(
+                "a { color: gray(0) }",
+                None,
+                expected("gray(0)", "black"),
+                (1, 12, 1, 19),
+            ),
+            reject(
+                "a { color: gray(0%) }",
+                None,
+                expected("gray(0%)", "black"),
+                (1, 12, 1, 20),
+            ),
+            reject(
+                "a { color: gray(0, 1) }",
+                None,
+                expected("gray(0,1)", "black"),
+                (1, 12, 1, 22),
+            ),
+            reject(
+                "a { color: gray(0, 100%) }",
+                None,
+                expected("gray(0,100%)", "black"),
+                (1, 12, 1, 25),
+            ),
+            reject(
+                "a { color: rgb(\n0 ,\n 0 ,\r\n 0) }",
+                None,
+                expected("rgb(0,0,0)", "black"),
+                (1, 12, 4, 4),
+            ),
+            reject(
+                "a { background: #302, rgb(\n0 ,\n 0 ,\r\n 0) }",
+                None,
+                expected("rgb(0,0,0)", "black"),
+                (1, 23, 4, 4),
+            ),
+            reject(
+                "a { color: color(#000 a(50%)) }",
+                None,
+                expected("#000", "black"),
+                (1, 18, 1, 22),
+            ),
+        ];
+
+        Tester::new(NAME, json!(["always-where-possible"]), pass, fail).test();
+    }
+
+    #[test]
+    fn never_ignore_properties() {
+        let pass = &[
+            "a { composes: blue from 'lib/index.css'; }",
+            "a { composes: grey blue from 'lib/index.css'; }",
+            "a { my-property: red; }",
+            "a { my-other-property: blue; }",
+        ];
+
+        let fail = &[
+            reject(
+                "a { color: rebeccapurple; }",
+                None,
+                rejected("rebeccapurple"),
+                (1, 12, 1, 25),
+            ),
+            reject(
+                "a { not-my-property: red; }",
+                None,
+                rejected("red"),
+                (1, 22, 1, 25),
+            ),
+        ];
+
+        Tester::new(
+            NAME,
+            json!(["never", { "ignoreProperties": ["composes", "/^my-/"] }]),
+            pass,
+            fail,
+        )
+        .test();
+    }
+
+    #[test]
+    fn never_ignore_properties_regex() {
+        let pass = &["a { my-property: red; }"];
+        let fail = &[reject(
+            "a { color: rebeccapurple; }",
+            None,
+            rejected("rebeccapurple"),
+            (1, 12, 1, 25),
+        )];
+
+        Tester::new(
+            NAME,
+            json!(["never", { "ignoreProperties": ["/^my-/"] }]),
+            pass,
+            fail,
+        )
+        .test();
+    }
+
+    #[test]
+    fn never_ignore_inside_function() {
+        let pass = &[
+            "a { color: #000; }",
+            "a { color: gray(70%); }",
+            "a { background-image: url(red); }",
+            "a { color: map-get($color, blue(60%)); }",
+            "a { color: map-get($color, blue); }",
+            "a { background: color(blue); }",
+        ];
+
+        let fail = &[
+            reject(
+                "a { background: url(red) no-repeat rebeccapurple; }",
+                None,
+                rejected("rebeccapurple"),
+                (1, 36, 1, 49),
+            ),
+            reject("a { color: red; }", None, rejected("red"), (1, 12, 1, 15)),
+        ];
+
+        Tester::new(
+            NAME,
+            json!(["never", { "ignore": ["inside-function"] }]),
+            pass,
+            fail,
+        )
+        .test();
+    }
+
+    #[test]
+    fn never_ignore_functions() {
+        let pass = &[
+            "a { color: #000; }",
+            "a { color: var(--foo, red); }",
+            "a { color: --foo(red); }",
+        ];
+
+        let fail = &[
+            reject("a { color: red; }", None, rejected("red"), (1, 12, 1, 15)),
+            reject(
+                "a { color: red var(--foo, blue); }",
+                None,
+                rejected("red"),
+                (1, 12, 1, 15),
+            ),
+        ];
+
+        Tester::new(
+            NAME,
+            json!(["never", { "ignoreFunctions": ["var", "/^--/"] }]),
+            pass,
+            fail,
+        )
+        .test();
+    }
+
+    #[test]
+    fn always_where_possible_ignore_functions() {
+        let pass = &[
+            "a { color: black; }",
+            "a { color: var(--foo, #000); }",
+            "a { color: --foo(#000); }",
+        ];
+
+        let fail = &[reject(
+            "a { color: #000; }",
+            None,
+            expected("#000", "black"),
+            (1, 12, 1, 16),
+        )];
+
+        Tester::new(
+            NAME,
+            json!(["always-where-possible", { "ignoreFunctions": ["var", "/^--/"] }]),
+            pass,
+            fail,
+        )
+        .test();
+    }
+}

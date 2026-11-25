@@ -1,7 +1,4 @@
-use crate::{
-    context::LintContext,
-    rules::{Rule, value_utils::scan_direct_declarations},
-};
+use crate::{context::LintContext, rules::Rule, utils::scan_direct_declarations};
 use oxc_css_parser::ast::SimpleBlock;
 
 pub struct DeclarationBlockSingleLineMaxDeclarations {

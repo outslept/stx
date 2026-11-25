@@ -245,3 +245,119 @@ impl Rule for DeclarationBlockNoDuplicateCustomProperties {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::tester::{Tester, reject, reject_message};
+
+    const NAME: &str = "declaration-block-no-duplicate-custom-properties";
+
+    fn rejected(property: &str) -> String {
+        format!("Duplicate custom property \"{property}\"")
+    }
+
+    #[test]
+    fn declaration_block_no_duplicate_custom_properties_default() {
+        let pass = [
+            "a { --custom-property: 1 }",
+            "a { --custom-property: 1; --cUstOm-prOpErtY: 1 }",
+            "a { --custom-property: 1; color: pink; --cUstOm-prOpErtY: 1 }",
+            "a { color: var(--custom-property, --custom-property) }",
+            "a { --custom-property: pink; @media { --custom-property: orange; } }",
+            "a { --custom-property: pink; @media { --custom-property: orange; &::before { --custom-property: black; } } }",
+            "a { --custom-property: pink; { &:hover { --custom-property: orange; --cUstOm-prOpErtY: black; } } }",
+            "a { --cUstOm-prOpErtY: pink; { &:hover { --custom-property: orange; --cUstOm-prOpErtY: black; } } }",
+        ];
+        let fail = [
+            reject(
+                "a { --custom-property: 1; --custom-property: 2; }",
+                None,
+                rejected("--custom-property"),
+                (1, 27, 1, 44),
+            ),
+            reject(
+                "a { --custom-property: 1; color: pink; --custom-property: 1; }",
+                None,
+                rejected("--custom-property"),
+                (1, 40, 1, 57),
+            ),
+            reject(
+                "a { --custom-property: 1; --cUstOm-prOpErtY: 1; color: pink; --cUstOm-prOpErtY: 1; }",
+                None,
+                rejected("--cUstOm-prOpErtY"),
+                (1, 62, 1, 79),
+            ),
+            reject(
+                "a { --custom-property: pink; { &:hover { --custom-property: orange; --custom-property: black; } } }",
+                None,
+                rejected("--custom-property"),
+                (1, 69, 1, 86),
+            ),
+            reject(
+                "a { --custom-property: pink; @media { --custom-property: orange; --custom-property: black; } }",
+                None,
+                rejected("--custom-property"),
+                (1, 66, 1, 83),
+            ),
+            reject(
+                "@media { --custom-property: orange; .foo { --custom-property: black; --custom-property: white; } }",
+                None,
+                rejected("--custom-property"),
+                (1, 70, 1, 87),
+            ),
+            reject(
+                "a { --custom-property: pink; @media { --custom-property: orange; &::before { --custom-property: black; --custom-property: white; } } }",
+                None,
+                rejected("--custom-property"),
+                (1, 104, 1, 121),
+            ),
+            reject(
+                "a { --custom-property: pink; @media { --custom-property: orange; .foo { --custom-property: black; --custom-property: white; } } }",
+                None,
+                rejected("--custom-property"),
+                (1, 99, 1, 116),
+            ),
+        ];
+        Tester::new(NAME, json!([true]), pass, fail).test();
+    }
+
+    #[test]
+    #[ignore = "postcss-html syntax is not supported"]
+    fn declaration_block_no_duplicate_custom_properties_html() {
+        let pass = ["<style>a { --custom-property: pink; }</style>"];
+        Tester::new(NAME, json!([true]), pass, [])
+            .with_custom_syntax("postcss-html")
+            .test();
+    }
+
+    #[test]
+    #[ignore = "naive-css-in-js syntax is not supported"]
+    fn declaration_block_no_duplicate_custom_properties_css_in_js() {
+        let pass = ["css` --custom-property: pink; `;"];
+        Tester::new(NAME, json!([true]), pass, [])
+            .with_custom_syntax("naive-css-in-js")
+            .test();
+    }
+
+    #[test]
+    fn declaration_block_no_duplicate_custom_properties_ignore_properties() {
+        let pass = [
+            "a { --custom-property: 1; --custom-property: 1; }",
+            "a { --custom-ignored-property: 1; --custom-ignored-property: 1; }",
+        ];
+        let fail = [reject_message(
+            "a { --another-custom-property: 1; --another-custom-property: 1; }",
+            None,
+            rejected("--another-custom-property"),
+        )];
+        Tester::new(
+            NAME,
+            json!([true, { "ignoreProperties": ["--custom-property", "/ignored/"] }]),
+            pass,
+            fail,
+        )
+        .test();
+    }
+}

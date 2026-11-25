@@ -1,11 +1,10 @@
+use super::keyframe_block_no_duplicate_selectors::is_keyframes;
 use crate::{
     context::LintContext,
-    rules::{
-        Rule,
-        value_utils::{PatternMatcher, ValueTokenKind, at_rule_prelude_span, tokenize_value},
-    },
+    rules::Rule,
+    utils::{PatternMatcher, at_rule_prelude_span, ident_span, is_standard_syntax_keyframes_name},
 };
-use oxc_css_parser::ast::AtRule;
+use oxc_css_parser::ast::{AtRule, AtRulePrelude, InterpolableStr, KeyframesName};
 
 #[derive(Default)]
 pub struct KeyframesNamePattern {
@@ -18,35 +17,84 @@ impl Rule for KeyframesNamePattern {
     }
 
     fn check_at_rule<'a>(&self, at_rule: &'a AtRule<'a>, ctx: &mut LintContext<'a>) {
-        let name: &str = at_rule.name.name;
-        if !name.eq_ignore_ascii_case("keyframes")
-            && !name.eq_ignore_ascii_case("-webkit-keyframes")
-            && !name.eq_ignore_ascii_case("-moz-keyframes")
-        {
+        if !is_keyframes(at_rule) {
             return;
         }
-        let Some(p_span) = at_rule_prelude_span(ctx.source, at_rule) else {
-            return;
-        };
-        let tokens = tokenize_value(ctx.source, p_span);
-        if let Some(first) = tokens.first() {
-            let kf_name = match first.kind {
-                ValueTokenKind::Ident => first.raw,
-                ValueTokenKind::String if first.raw.len() >= 2 => {
-                    &first.raw[1..first.raw.len() - 1]
-                }
-                _ => return,
-            };
-            if !self.matcher.is_match(kf_name) {
-                ctx.report(
-                    self.name(),
-                    first.span,
-                    format!(
-                        "Expected keyframe name \"{}\" to match pattern \"{}\"",
-                        kf_name, self.matcher.raw_pattern
-                    ),
-                );
+        let span = match &at_rule.prelude {
+            Some(AtRulePrelude::Keyframes(KeyframesName::Ident(name))) => ident_span(name),
+            Some(AtRulePrelude::Keyframes(KeyframesName::Str(InterpolableStr::Literal(name)))) => {
+                name.span
             }
+            _ => {
+                let Some(span) = at_rule_prelude_span(ctx.source, at_rule) else {
+                    return;
+                };
+                span
+            }
+        };
+        let name = ctx.slice(span);
+        if is_standard_syntax_keyframes_name(name) && !self.matcher.is_match(name) {
+            ctx.report(
+                self.name(),
+                span,
+                format!(
+                    "Expected \"{name}\" to match pattern \"{}\"",
+                    self.matcher.raw_pattern
+                ),
+            );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tester::{Tester, reject};
+    use serde_json::json;
+
+    const RULE_NAME: &str = "keyframes-name-pattern";
+    const PATTERN: &str = "/^foo-bar$/";
+
+    fn expected(name: &str) -> String {
+        format!("Expected \"{name}\" to match pattern \"{PATTERN}\"")
+    }
+
+    #[test]
+    fn matches_the_original_name() {
+        let pass = [" @KeyFrames   foo-bar   {}", "@-moz-keyframes foo-bar {}"];
+        let fail = [
+            reject(
+                "@-webkit-keyframes FOO-bar {}",
+                None,
+                expected("FOO-bar"),
+                (1, 20, 1, 27),
+            ),
+            reject(
+                "@keyframes /* before */\n  \"foo-bar\" /* after */ {}",
+                None,
+                expected("\"foo-bar\""),
+                (2, 3, 2, 12),
+            ),
+            reject(
+                "@keyframes foo-bar extra {}",
+                None,
+                expected("foo-bar extra"),
+                (1, 12, 1, 25),
+            ),
+        ];
+        Tester::new(RULE_NAME, json!(PATTERN), pass, fail).test();
+    }
+
+    #[test]
+    fn scss_interpolated_names() {
+        let pass = ["@keyframes foo-#{$bar} {}"];
+        let fail = [reject(
+            "@keyframes Foo-bar {}",
+            None,
+            expected("Foo-bar"),
+            (1, 12, 1, 19),
+        )];
+        Tester::new(RULE_NAME, json!(PATTERN), pass, fail)
+            .with_custom_syntax("postcss-scss")
+            .test();
     }
 }

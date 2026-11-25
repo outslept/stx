@@ -1,17 +1,59 @@
-use crate::{context::LintContext, rules::Rule};
+use crate::{
+    context::LintContext,
+    rules::Rule,
+    utils::{
+        OptionMatcher, at_rule_prelude_span, media_feature_groups, options_matches,
+        parse_option_matchers,
+    },
+};
 use oxc_css_parser::{
     Span,
-    ast::{Declaration, InterpolableIdent},
+    ast::{AtRule, Declaration, InterpolableIdent},
 };
+use serde_json::{Map, Value};
 
-pub struct UnitNoUnknown;
+pub struct UnitNoUnknown {
+    ignore_units: Vec<OptionMatcher>,
+    ignore_functions: Vec<OptionMatcher>,
+}
+
+impl UnitNoUnknown {
+    pub fn from_config(secondary: Option<&Map<String, Value>>) -> Self {
+        Self {
+            ignore_units: parse_option_matchers(secondary, "ignoreUnits"),
+            ignore_functions: parse_option_matchers(secondary, "ignoreFunctions"),
+        }
+    }
+}
+
+fn in_function(source: &str, offset: usize, name: &str) -> bool {
+    let lower = source.to_ascii_lowercase();
+    let before = &lower[..offset.min(lower.len())];
+    let Some(open) = before.rfind(&format!("{name}(")) else {
+        return false;
+    };
+    let mut depth = 1usize;
+    for byte in lower.as_bytes()[open + name.len() + 1..offset.min(lower.len())].iter() {
+        match byte {
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+    }
+    depth > 0
+}
 
 const KNOWN_UNITS: &[&str] = &[
     "%", "cap", "ch", "cm", "cqb", "cqh", "cqi", "cqmax", "cqmin", "cqw", "deg", "dpcm", "dpi",
     "dppx", "dvb", "dvh", "dvi", "dvmax", "dvmin", "dvw", "em", "ex", "fr", "grad", "hz", "ic",
     "in", "khz", "lh", "lvb", "lvh", "lvi", "lvmax", "lvmin", "lvw", "mm", "ms", "pc", "pt", "px",
     "q", "rad", "rcap", "rch", "rem", "rex", "ric", "rlh", "s", "svb", "svh", "svi", "svmax",
-    "svmin", "svw", "turn", "vb", "vh", "vi", "vmax", "vmin", "vw", "x",
+    "svmin", "svw", "turn", "vb", "vh", "vi", "vmax", "vmin", "vw",
 ];
 
 impl Rule for UnitNoUnknown {
@@ -20,15 +62,25 @@ impl Rule for UnitNoUnknown {
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {
-        let prop_end = if let InterpolableIdent::Literal(ident) = &decl.name {
-            ident.span.end as usize
-        } else {
+        let InterpolableIdent::Literal(ident) = &decl.name else {
             return;
         };
-
+        let prop: &str = ident.name;
+        if prop.eq_ignore_ascii_case("unicode-range") {
+            return;
+        }
+        let prop_end = ident.span.end as usize;
         let end = decl.span.end as usize;
         let src = ctx.source;
         if prop_end >= end || end > src.len() {
+            return;
+        }
+        let value = &src[prop_end..end];
+        if value.contains('$')
+            || value.contains('@')
+            || value.contains("#{")
+            || value.contains("@{")
+        {
             return;
         }
 
@@ -43,6 +95,15 @@ impl Rule for UnitNoUnknown {
         }
 
         while i < end {
+            if bytes[i] == b'/' && bytes.get(i + 1) == Some(&b'*') {
+                i += 2;
+                while i + 1 < end && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                    i += 1;
+                }
+                i = (i + 2).min(end);
+                continue;
+            }
+
             if bytes[i] == b'"' || bytes[i] == b'\'' {
                 let quote = bytes[i];
                 i += 1;
@@ -83,10 +144,40 @@ impl Rule for UnitNoUnknown {
             }
 
             if bytes[i].is_ascii_alphabetic() || bytes[i] == b'_' || bytes[i] == b'-' {
+                let start = i;
                 while i < end
                     && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_' || bytes[i] == b'-')
                 {
                     i += 1;
+                }
+                if i < end && bytes[i] == b'(' {
+                    let name = &src[start..i];
+                    if name.eq_ignore_ascii_case("url")
+                        || options_matches(&self.ignore_functions, name)
+                    {
+                        i += 1;
+                        let mut depth = 1usize;
+                        let mut quote = 0u8;
+                        while i < end && depth > 0 {
+                            if quote != 0 {
+                                if bytes[i] == b'\\' {
+                                    i += 2;
+                                    continue;
+                                }
+                                if bytes[i] == quote {
+                                    quote = 0;
+                                }
+                            } else if bytes[i] == b'\'' || bytes[i] == b'"' {
+                                quote = bytes[i];
+                            } else if bytes[i] == b'(' {
+                                depth += 1;
+                            } else if bytes[i] == b')' {
+                                depth -= 1;
+                            }
+                            i += 1;
+                        }
+                        continue;
+                    }
                 }
                 continue;
             }
@@ -130,14 +221,21 @@ impl Rule for UnitNoUnknown {
                     }
                     let unit_raw = &src[unit_start..i];
                     let unit_lower = unit_raw.to_ascii_lowercase();
-                    if !KNOWN_UNITS.contains(&unit_lower.as_str()) {
+                    if options_matches(&self.ignore_units, unit_raw) {
+                        continue;
+                    }
+                    if !KNOWN_UNITS.contains(&unit_lower.as_str())
+                        && !(unit_lower == "x"
+                            && (prop.eq_ignore_ascii_case("image-resolution")
+                                || in_function(src, unit_start, "image-set")))
+                    {
                         ctx.report(
                             self.name(),
                             Span {
                                 start: unit_start as u32,
                                 end: i as u32,
                             },
-                            format!("Unexpected unknown unit \"{unit_raw}\""),
+                            format!("Unknown unit \"{unit_raw}\""),
                         );
                     }
                 }
@@ -146,5 +244,65 @@ impl Rule for UnitNoUnknown {
 
             i += 1;
         }
+    }
+
+    fn check_at_rule<'a>(&self, at_rule: &'a AtRule<'a>, ctx: &mut LintContext<'a>) {
+        if !at_rule.name.name.eq_ignore_ascii_case("media") {
+            return;
+        }
+        let Some(span) = at_rule_prelude_span(ctx.source, at_rule) else {
+            return;
+        };
+        let params = ctx.slice(span);
+        for group in media_feature_groups(params) {
+            let name = &params[group.name_start..group.name_end];
+            for (_, end, unit_start) in group.dimensions {
+                let unit = &params[unit_start..end];
+                let lower = unit.to_ascii_lowercase();
+                if options_matches(&self.ignore_units, unit)
+                    || KNOWN_UNITS.contains(&lower.as_str())
+                    || (lower == "x"
+                        && (name.to_ascii_lowercase().contains("resolution")
+                            || name.to_ascii_lowercase().contains("pixel-ratio")))
+                {
+                    continue;
+                }
+                ctx.report(
+                    self.name(),
+                    Span {
+                        start: span.start + unit_start as u32,
+                        end: span.start + end as u32,
+                    },
+                    format!("Unknown unit \"{unit}\""),
+                );
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tester::{Tester, reject};
+    use serde_json::json;
+
+    #[test]
+    fn checks_media_units_and_skips_comments_and_unicode_ranges() {
+        let fail = [reject(
+            "@media (min-width: 13pix) {}",
+            None,
+            "Unknown unit \"pix\"",
+            (1, 22, 1, 25),
+        )];
+        Tester::new(
+            "unit-no-unknown",
+            json!(true),
+            [
+                "a { width: /* 100pix */ 1em; }",
+                "a { unicode-range: U+0100-024F; }",
+                "@media (resolution: 2x) {}",
+            ],
+            &fail,
+        )
+        .test();
     }
 }

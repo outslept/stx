@@ -1,85 +1,92 @@
-//! Rule `at-rule-descriptor-no-unknown`: disallow unknown descriptors for at-rules.
+//! Rule: `at-rule-descriptor-no-unknown`
 //!
-//! Reference: <https://stylelint.io/user-guide/rules/at-rule-descriptor-no-unknown>
+//! Disallow unknown descriptors for at-rules.
 
-use crate::config::RuleSetting;
-use crate::context::LintContext;
-use crate::rules::Rule;
-use crate::utils::{
-    FONT_FEATURE_VALUE_TYPES, MARGIN_CONTEXT_PROPERTIES, NESTING_SUPPORTED_AT_KEYWORDS,
-    PAGE_CONTEXT_PROPERTIES, PAGE_MARGIN_AT_KEYWORDS, at_rule_descriptors, has_interpolation,
-    in_set, in_set_ignore_case,
+use oxc_css_parser::{Span, ast::Stylesheet};
+
+use crate::{
+    config::RuleSetting,
+    context::LintContext,
+    declare_stx_lint,
+    rules::Rule,
+    utils::{
+        FONT_FEATURE_VALUE_TYPES, MARGIN_CONTEXT_PROPERTIES, NESTING_SUPPORTED_AT_KEYWORDS,
+        PAGE_CONTEXT_PROPERTIES, PAGE_MARGIN_AT_KEYWORDS, at_rule_descriptors, has_interpolation,
+        in_set, in_set_ignore_case,
+    },
 };
-use oxc_css_parser::Span;
-use oxc_css_parser::ast::Stylesheet;
 
-/// Enforces that descriptors within declaration-containing at-rules (such as
-/// `@font-face`, `@property`, `@counter-style`, `@page`, `@position-try`, etc.)
-/// are known standard descriptors defined in CSS specifications.
-///
-/// # What it does
-///
-/// Checks standard-syntax declarations inside at-rules that do not support
-/// general selector nesting and validates each descriptor name against the
-/// specification grammar for that at-rule. It also accounts for:
-/// - Page context properties directly inside `@page`.
-/// - Margin context properties inside page-margin at-rules (e.g. `@top-center`)
-///   nested within `@page`.
-/// - Custom feature value names inside font-feature-value type blocks (e.g.
-///   `@styleset`, `@swash`) nested within `@font-feature-values`.
-///
-/// # Why is this bad?
-///
-/// Unknown descriptors inside at-rules such as `@font-face`, `@property`, or
-/// `@counter-style` are ignored by browsers and usually indicate typos or
-/// confusion between descriptors of different at-rules.
-///
-/// # Options
-///
-/// ## Primary Option
-///
-/// - `true`: enable the rule.
-///
-/// ```json
-/// {
-///   "at-rule-descriptor-no-unknown": true
-/// }
-/// ```
-///
-/// # Examples
-///
-/// ## Incorrect
-///
-/// ```css
-/// @property --foo { bar: 0; }
-/// @counter-style foo { bar: 0; }
-/// @page { bar: 0; }
-/// ```
-///
-/// ## Correct
-///
-/// ```css
-/// @property --foo { syntax: "<integer>"; inherits: false; initial-value: 0; }
-/// @counter-style foo { system: cyclic; symbols: url(bar.svg); suffix: " "; }
-/// @page { size: landscape; }
-/// ```
-///
-/// # References
-///
-/// - [Stylelint: `at-rule-descriptor-no-unknown`](https://stylelint.io/user-guide/rules/at-rule-descriptor-no-unknown)
+fn unknown_at_rule_descriptor_diagnostic(at_rule: &str, descriptor: &str) -> String {
+    format!("Unknown descriptor \"{descriptor}\" for at-rule \"@{at_rule}\"")
+}
+
+#[derive(Debug, Default, Clone, Copy)]
 pub struct AtRuleDescriptorNoUnknown;
+
+declare_stx_lint! {
+    /// Disallow unknown descriptors within declaration-containing at-rules.
+    ///
+    /// ### What it does
+    ///
+    /// Checks standard-syntax declarations inside at-rules that do not support
+    /// general selector nesting (such as `@font-face`, `@property`, `@counter-style`,
+    /// `@page`, `@position-try`, etc.) and validates each descriptor name against the
+    /// specification grammar for that at-rule. It also accounts for:
+    /// - Page context properties directly inside `@page`.
+    /// - Margin context properties inside page-margin at-rules (e.g. `@top-center`)
+    ///   nested within `@page`.
+    /// - Custom feature value names inside font-feature-value type blocks (e.g.
+    ///   `@styleset`, `@swash`) nested within `@font-feature-values`.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// Unknown descriptors inside at-rules such as `@font-face`, `@property`, or
+    /// `@counter-style` are ignored by browsers and usually indicate typos or
+    /// confusion between descriptors of different at-rules.
+    ///
+    /// ### Options
+    ///
+    /// #### Primary
+    ///
+    /// - `true`: Enable the rule.
+    ///
+    /// ```json
+    /// {
+    ///   "at-rule-descriptor-no-unknown": true
+    /// }
+    /// ```
+    ///
+    /// ### Examples
+    ///
+    /// **Incorrect:**
+    /// ```css
+    /// @property --foo { bar: 0; }
+    /// @counter-style foo { bar: 0; }
+    /// @page { bar: 0; }
+    /// ```
+    ///
+    /// **Correct:**
+    /// ```css
+    /// @property --foo { syntax: "<integer>"; inherits: false; initial-value: 0; }
+    /// @counter-style foo { system: cyclic; symbols: url(bar.svg); suffix: " "; }
+    /// @page { size: landscape; }
+    /// ```
+    ///
+    /// ### References
+    ///
+    /// - [Stylelint Documentation: `at-rule-descriptor-no-unknown`](https://stylelint.io/user-guide/rules/at-rule-descriptor-no-unknown)
+    AtRuleDescriptorNoUnknown,
+    "at-rule-descriptor-no-unknown",
+    correctness,
+    fix = none,
+    recommended = true,
+}
 
 impl AtRuleDescriptorNoUnknown {
     /// Creates a new [`AtRuleDescriptorNoUnknown`] rule instance from the given
     /// [`RuleSetting`].
     pub fn from_setting(_setting: &RuleSetting) -> Option<Self> {
         Some(Self)
-    }
-
-    /// Formats the diagnostic message when an unknown `descriptor` is found inside
-    /// `at_rule`.
-    fn rejected_message(at_rule: &str, descriptor: &str) -> String {
-        format!("Unknown descriptor \"{descriptor}\" for at-rule \"@{at_rule}\"")
     }
 }
 
@@ -95,149 +102,137 @@ enum BlockKind<'a> {
 
 impl Rule for AtRuleDescriptorNoUnknown {
     fn name(&self) -> &'static str {
-        "at-rule-descriptor-no-unknown"
+        Self::NAME
     }
 
     fn check_stylesheet<'a>(&self, _ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {
-        let len = u32::try_from(ctx.source.len()).unwrap_or(u32::MAX);
+        if !ctx.source.contains('@') {
+            return;
+        }
         let mut ancestors = Vec::new();
-        self.scan_block(ctx, 0, len, &mut ancestors);
+        scan_block(ctx, 0, ctx.source.len(), &mut ancestors);
     }
 }
 
-impl AtRuleDescriptorNoUnknown {
-    /// Recursively scans a block or top-level stylesheet range `[start, end)` for
-    /// nested blocks and declarations.
-    fn scan_block<'a>(
-        &self,
-        ctx: &mut LintContext<'a>,
-        start: u32,
-        end: u32,
-        ancestors: &mut Vec<BlockKind<'a>>,
-    ) {
-        let mut pos = start;
+/// Recursively scans a block or top-level stylesheet range `[start, end)` for
+/// nested blocks and declarations.
+fn scan_block<'a>(
+    ctx: &mut LintContext<'a>,
+    start: usize,
+    end: usize,
+    ancestors: &mut Vec<BlockKind<'a>>,
+) {
+    let bytes = ctx.source.as_bytes();
+    let mut pos = start;
 
-        while pos < end {
-            pos = skip_ws_and_comments(ctx, pos, end);
-            if pos >= end {
-                break;
+    while pos < end {
+        pos = skip_ws_and_comments(bytes, pos, end);
+        if pos >= end {
+            break;
+        }
+
+        let stmt_start = pos;
+        let (stmt_end, terminator, first_colon) = scan_statement(bytes, stmt_start, end);
+
+        match terminator {
+            StmtTerminator::OpenBrace(open_brace) => {
+                let close_brace = find_matching_brace(bytes, open_brace + 1, end);
+                let header = ctx.source[stmt_start..open_brace].trim();
+                let block_kind = match parse_standard_at_rule_name(header) {
+                    Some(at_name) => BlockKind::AtRule { name: at_name },
+                    None => BlockKind::QualifiedRule,
+                };
+                ancestors.push(block_kind);
+                scan_block(ctx, open_brace + 1, close_brace, ancestors);
+                ancestors.pop();
+                pos = (close_brace + 1).min(end);
             }
-
-            let stmt_start = pos;
-            let (stmt_end, terminator, first_colon) = scan_statement(ctx, stmt_start, end);
-
-            match terminator {
-                StmtTerminator::OpenBrace(open_brace) => {
-                    let close_brace = find_matching_brace(ctx, open_brace + 1, end);
-                    let header = ctx.slice_range(stmt_start, open_brace).trim();
-
-                    let block_kind = if let Some(at_name) = parse_standard_at_rule_name(header) {
-                        BlockKind::AtRule { name: at_name }
-                    } else {
-                        BlockKind::QualifiedRule
-                    };
-
-                    ancestors.push(block_kind);
-                    self.scan_block(ctx, open_brace + 1, close_brace, ancestors);
-                    ancestors.pop();
-
-                    pos = if close_brace < end {
-                        close_brace + 1
-                    } else {
-                        end
-                    };
-                }
-                StmtTerminator::Semicolon(semi_pos) => {
-                    self.check_statement_decl(ctx, stmt_start, semi_pos, first_colon, ancestors);
-                    pos = semi_pos + 1;
-                }
-                StmtTerminator::End => {
-                    self.check_statement_decl(ctx, stmt_start, stmt_end, first_colon, ancestors);
-                    pos = stmt_end;
-                }
+            StmtTerminator::Semicolon(semi_pos) => {
+                check_statement_decl(ctx, stmt_start, semi_pos, first_colon, ancestors);
+                pos = semi_pos + 1;
+            }
+            StmtTerminator::End => {
+                check_statement_decl(ctx, stmt_start, stmt_end, first_colon, ancestors);
+                pos = stmt_end;
             }
         }
     }
+}
 
-    /// Checks whether the statement spanning `[stmt_start, stmt_end)` is a
-    /// standard-syntax declaration and validates it against all enclosing
-    /// descriptor-bearing at-rules.
-    fn check_statement_decl<'a>(
-        &self,
-        ctx: &mut LintContext<'a>,
-        stmt_start: u32,
-        stmt_end: u32,
-        first_colon: Option<u32>,
-        ancestors: &[BlockKind<'a>],
-    ) {
-        if ancestors.is_empty() {
-            return;
-        }
+/// Checks whether the statement spanning `[stmt_start, stmt_end)` is a
+/// standard-syntax declaration and validates it against all enclosing
+/// descriptor-bearing at-rules.
+fn check_statement_decl<'a>(
+    ctx: &mut LintContext<'a>,
+    stmt_start: usize,
+    stmt_end: usize,
+    first_colon: Option<usize>,
+    ancestors: &[BlockKind<'a>],
+) {
+    if ancestors.is_empty() {
+        return;
+    }
 
-        let Some(colon_pos) = first_colon else {
-            return;
+    let Some(colon_pos) = first_colon else {
+        return;
+    };
+
+    // Ignore statement-level at-rules (e.g. `@import url("foo:bar");`).
+    if ctx.source.as_bytes().get(stmt_start) == Some(&b'@') {
+        return;
+    }
+
+    let prop = ctx.source[stmt_start..colon_pos].trim_end();
+    if !is_standard_decl_prop(prop) {
+        return;
+    }
+
+    let value = ctx.source[colon_pos + 1..stmt_end].trim();
+    if value.is_empty() {
+        return;
+    }
+
+    let prop_span = Span {
+        start: stmt_start as u32,
+        end: (stmt_start + prop.len()) as u32,
+    };
+
+    let immediate_parent = ancestors.last().copied();
+
+    for ancestor in ancestors {
+        let BlockKind::AtRule { name: at_rule_name } = *ancestor else {
+            continue;
         };
 
-        // Ignore statement-level at-rules (e.g. `@import url("foo:bar");`).
-        if byte_at(ctx, stmt_start) == Some(b'@') {
-            return;
+        if in_set_ignore_case(NESTING_SUPPORTED_AT_KEYWORDS, at_rule_name) {
+            continue;
         }
 
-        let raw_prop = ctx.slice_range(stmt_start, colon_pos);
-        let prop = raw_prop.trim_end();
-        if !is_standard_decl_prop(prop) {
-            return;
-        }
-
-        let value = ctx.slice_range(colon_pos + 1, stmt_end).trim();
-        if value.is_empty() {
-            return;
-        }
-
-        let prop_len = u32::try_from(prop.len()).unwrap_or(0);
-        let prop_span = Span {
-            start: stmt_start,
-            end: stmt_start + prop_len,
+        let Some(descriptors) = at_rule_descriptors(at_rule_name) else {
+            continue;
         };
 
-        let immediate_parent = ancestors.last().copied();
-
-        for ancestor in ancestors {
-            let BlockKind::AtRule { name: at_rule_name } = *ancestor else {
-                continue;
-            };
-
-            if in_set_ignore_case(NESTING_SUPPORTED_AT_KEYWORDS, at_rule_name) {
-                continue;
-            }
-
-            let Some(descriptors) = at_rule_descriptors(at_rule_name) else {
-                continue;
-            };
-
-            if is_page_context_property_in_page_at_rule(at_rule_name, prop) {
-                continue;
-            }
-
-            if let Some(BlockKind::AtRule { name: parent_name }) = immediate_parent {
-                if is_margin_context_property_in_margin_at_rule(at_rule_name, prop, parent_name) {
-                    continue;
-                }
-                if is_font_feature_value_type(at_rule_name, parent_name) {
-                    continue;
-                }
-            }
-
-            if in_set_ignore_case(descriptors, prop) {
-                continue;
-            }
-
-            ctx.report(
-                self.name(),
-                prop_span,
-                Self::rejected_message(at_rule_name, prop),
-            );
+        if is_page_context_property_in_page_at_rule(at_rule_name, prop) {
+            continue;
         }
+
+        if let Some(BlockKind::AtRule { name: parent_name }) = immediate_parent {
+            if is_margin_context_property_in_margin_at_rule(at_rule_name, prop, parent_name)
+                || is_font_feature_value_type(at_rule_name, parent_name)
+            {
+                continue;
+            }
+        }
+
+        if in_set_ignore_case(descriptors, prop) {
+            continue;
+        }
+
+        ctx.report(
+            AtRuleDescriptorNoUnknown::NAME,
+            prop_span,
+            unknown_at_rule_descriptor_diagnostic(at_rule_name, prop),
+        );
     }
 }
 
@@ -303,33 +298,29 @@ fn is_standard_decl_prop(prop: &str) -> bool {
 
 /// How a statement inside a block was terminated.
 enum StmtTerminator {
-    OpenBrace(u32),
-    Semicolon(u32),
+    OpenBrace(usize),
+    Semicolon(usize),
     End,
 }
 
 /// Scans from `start` up to `end` to find the end of the current statement (`{`,
 /// `;`, or `end`) and records the position of the first top-level `:`.
 fn scan_statement(
-    ctx: &LintContext<'_>,
-    start: u32,
-    end: u32,
-) -> (u32, StmtTerminator, Option<u32>) {
+    bytes: &[u8],
+    start: usize,
+    end: usize,
+) -> (usize, StmtTerminator, Option<usize>) {
     let mut pos = start;
-    let mut paren_depth: u32 = 0;
-    let mut first_colon: Option<u32> = None;
+    let mut paren_depth: usize = 0;
+    let mut first_colon: Option<usize> = None;
 
     while pos < end {
-        let Some(b) = byte_at(ctx, pos) else {
-            break;
-        };
-
-        match b {
-            b'/' if byte_at(ctx, pos + 1) == Some(b'*') => {
-                pos = skip_block_comment(ctx, pos + 2, end);
+        match bytes[pos] {
+            b'/' if pos + 1 < end && bytes[pos + 1] == b'*' => {
+                pos = skip_block_comment(bytes, pos + 2, end);
             }
             b'"' | b'\'' => {
-                pos = skip_quoted_string(ctx, pos + 1, end, b);
+                pos = skip_quoted_string(bytes, pos + 1, end, bytes[pos]);
             }
             b'(' => {
                 paren_depth += 1;
@@ -359,21 +350,17 @@ fn scan_statement(
 }
 
 /// Finds the matching `}` for a block body starting at `start` (immediately after `{`).
-fn find_matching_brace(ctx: &LintContext<'_>, start: u32, end: u32) -> u32 {
+fn find_matching_brace(bytes: &[u8], start: usize, end: usize) -> usize {
     let mut pos = start;
-    let mut depth: u32 = 1;
+    let mut depth: usize = 1;
 
     while pos < end {
-        let Some(b) = byte_at(ctx, pos) else {
-            break;
-        };
-
-        match b {
-            b'/' if byte_at(ctx, pos + 1) == Some(b'*') => {
-                pos = skip_block_comment(ctx, pos + 2, end);
+        match bytes[pos] {
+            b'/' if pos + 1 < end && bytes[pos + 1] == b'*' => {
+                pos = skip_block_comment(bytes, pos + 2, end);
             }
             b'"' | b'\'' => {
-                pos = skip_quoted_string(ctx, pos + 1, end, b);
+                pos = skip_quoted_string(bytes, pos + 1, end, bytes[pos]);
             }
             b'{' => {
                 depth += 1;
@@ -396,16 +383,12 @@ fn find_matching_brace(ctx: &LintContext<'_>, start: u32, end: u32) -> u32 {
 }
 
 /// Skips whitespace and `/* ... */` comments starting from `start` up to `end`.
-fn skip_ws_and_comments(ctx: &LintContext<'_>, start: u32, end: u32) -> u32 {
-    let mut pos = start;
+fn skip_ws_and_comments(bytes: &[u8], mut pos: usize, end: usize) -> usize {
     while pos < end {
-        let Some(b) = byte_at(ctx, pos) else {
-            break;
-        };
-        if b.is_ascii_whitespace() {
+        if bytes[pos].is_ascii_whitespace() {
             pos += 1;
-        } else if b == b'/' && byte_at(ctx, pos + 1) == Some(b'*') {
-            pos = skip_block_comment(ctx, pos + 2, end);
+        } else if bytes[pos] == b'/' && pos + 1 < end && bytes[pos + 1] == b'*' {
+            pos = skip_block_comment(bytes, pos + 2, end);
         } else {
             break;
         }
@@ -414,10 +397,9 @@ fn skip_ws_and_comments(ctx: &LintContext<'_>, start: u32, end: u32) -> u32 {
 }
 
 /// Skips past the closing `*/` of a block comment.
-fn skip_block_comment(ctx: &LintContext<'_>, start: u32, end: u32) -> u32 {
-    let mut pos = start;
-    while pos < end {
-        if byte_at(ctx, pos) == Some(b'*') && byte_at(ctx, pos + 1) == Some(b'/') {
+fn skip_block_comment(bytes: &[u8], mut pos: usize, end: usize) -> usize {
+    while pos + 1 < end {
+        if bytes[pos] == b'*' && bytes[pos + 1] == b'/' {
             return pos + 2;
         }
         pos += 1;
@@ -426,28 +408,133 @@ fn skip_block_comment(ctx: &LintContext<'_>, start: u32, end: u32) -> u32 {
 }
 
 /// Skips past the closing `quote` character of a string literal, respecting `\` escapes.
-fn skip_quoted_string(ctx: &LintContext<'_>, start: u32, end: u32, quote: u8) -> u32 {
-    let mut pos = start;
+fn skip_quoted_string(bytes: &[u8], mut pos: usize, end: usize, quote: u8) -> usize {
     while pos < end {
-        let Some(b) = byte_at(ctx, pos) else {
-            break;
-        };
-        if b == b'\\' {
-            pos = (pos + 2).min(end);
-        } else if b == quote {
-            return pos + 1;
-        } else {
-            pos += 1;
+        match bytes[pos] {
+            b'\\' => pos = (pos + 2).min(end),
+            b if b == quote => return pos + 1,
+            _ => pos += 1,
         }
     }
     end
 }
 
-/// Returns the byte at `offset` in `ctx.source` using `u32` span indexing.
-#[inline]
-fn byte_at(ctx: &LintContext<'_>, offset: u32) -> Option<u8> {
-    ctx.slice_range(offset, offset.saturating_add(1))
-        .as_bytes()
-        .first()
-        .copied()
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{AtRuleDescriptorNoUnknown, unknown_at_rule_descriptor_diagnostic};
+    use crate::tester::{Tester, reject, reject_warnings};
+
+    fn rejected(at_rule: &str, descriptor: &str) -> String {
+        unknown_at_rule_descriptor_diagnostic(
+            at_rule.strip_prefix('@').unwrap_or(at_rule),
+            descriptor,
+        )
+    }
+
+    #[test]
+    fn default_config() {
+        let pass = &[
+            "a { unknown: 0; }",
+            "@counter-style foo { system: cyclic; symbols: url(bar.svg); suffix: \" \"; }",
+            "@property --foo { syntax: \"<integer>\"; inherits: false; initial-value: 0; }",
+            "@view-transition { navigation: auto; }",
+            "@foo { bar: 0 }",
+            "@media (width > 400px) { a { color: red; } }",
+            "a { @media (width > 400px) { color: red; } }",
+            "@page { size: landscape; }",
+            "@page { color: red; }",
+            "@page { @top-center { content: \"foo\"; } }",
+            "@font-feature-values foo { @styleset { bar: 1; } }",
+        ];
+
+        let fail = &[
+            reject(
+                "@counter-style foo { bar: 0; }",
+                None,
+                rejected("@counter-style", "bar"),
+                (1, 22, 1, 25),
+            ),
+            reject(
+                "@property --foo { bar: 0; }",
+                None,
+                rejected("@property", "bar"),
+                (1, 19, 1, 22),
+            ),
+            reject_warnings(
+                "@property --foo { bar: 0; baz: 0; }",
+                None,
+                vec![
+                    (rejected("@property", "bar"), (1, 19, 1, 22)),
+                    (rejected("@property", "baz"), (1, 27, 1, 30)),
+                ],
+            ),
+            reject(
+                "@property --foo { system: cyclic; }",
+                None,
+                rejected("@property", "system"),
+                (1, 19, 1, 25),
+            ),
+            reject(
+                "@position-try --foo { @supports (bar: 0) { bar: 0 } }",
+                None,
+                rejected("@position-try", "bar"),
+                (1, 44, 1, 47),
+            ),
+            reject(
+                "@page { bar: 0; }",
+                None,
+                rejected("@page", "bar"),
+                (1, 9, 1, 12),
+            ),
+            reject(
+                "@page { margin-block: 2px 1px; }",
+                None,
+                rejected("@page", "margin-block"),
+                (1, 9, 1, 21),
+            ),
+            reject(
+                "@page { content: \"foo\"; }",
+                None,
+                rejected("@page", "content"),
+                (1, 9, 1, 16),
+            ),
+            reject(
+                "@page { @top-center { bar: 0; } }",
+                None,
+                rejected("@page", "bar"),
+                (1, 23, 1, 26),
+            ),
+            reject_warnings(
+                "@page { foo: 0; @top-center { bar: 0; } }",
+                None,
+                vec![
+                    (rejected("@page", "foo"), (1, 9, 1, 12)),
+                    (rejected("@page", "bar"), (1, 31, 1, 34)),
+                ],
+            ),
+            reject(
+                "@mixin --qux-baz(@contents) {\n\t@supports (overflow-anchor: auto) {\n\t\t@contents;\n\t}\n}\n\nbody {\n\t@apply --qux-baz {\n\t\t@font-face {\n\t\t  foo: normal;\n\t\t}\n\t}\n}",
+                None,
+                rejected("@font-face", "foo"),
+                (10, 5, 10, 8),
+            ),
+        ];
+
+        Tester::new(AtRuleDescriptorNoUnknown::NAME, json!(true), pass, fail).test();
+    }
+
+    #[test]
+    #[ignore = "indirection via @mixin/@apply not supported"]
+    fn with_indirection() {
+        let fail = &[reject(
+            "@mixin --qux-baz(@contents) {\n\t@supports (overflow-anchor: auto) {\n\t\t@font-face {\n\t\t\t@contents;\n\t\t}\n\t}\n}\n\nbody {\n\t@apply --qux-baz {\n\t\tfoo: normal;\n\t}\n}",
+            None,
+            rejected("@font-face", "foo"),
+            (11, 3, 11, 6),
+        )];
+
+        Tester::new(AtRuleDescriptorNoUnknown::NAME, json!(true), &[], fail).test();
+    }
 }

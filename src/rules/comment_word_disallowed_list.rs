@@ -160,3 +160,140 @@ fn extract_comment_text_with_offset(raw: &str) -> (&str, usize) {
         (text, lead)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::tester::{Tester, reject};
+
+    const RULE_NAME: &str = "comment-word-disallowed-list";
+    const BAD_WORD_MSG: &str = "Disallowed word matching pattern \"bad-word\"";
+    const TODO_MSG: &str = "Disallowed word matching pattern \"/^TODO:/\"";
+
+    #[test]
+    fn single_string() {
+        let pass = ["/* comment */", "/*# bad-word */"];
+        let fail = [
+            reject(
+                "/* Comment with bad-word  */",
+                None,
+                BAD_WORD_MSG,
+                (1, 17, 1, 25),
+            ),
+            reject("/* bad-word */", None, BAD_WORD_MSG, (1, 4, 1, 12)),
+            reject("/*** bad-word ***/", None, BAD_WORD_MSG, (1, 6, 1, 14)),
+            reject("/*! bad-word */", None, BAD_WORD_MSG, (1, 5, 1, 13)),
+            reject("/** bad-word **/", None, BAD_WORD_MSG, (1, 5, 1, 13)),
+        ];
+
+        Tester::new(RULE_NAME, json!("bad-word"), pass, fail).test();
+    }
+
+    #[test]
+    fn array_patterns() {
+        let pass = [
+            "/* comment */",
+            "/* comment comment */",
+            "/* comment\ncomment */",
+            "/* comment\n\ncomment */",
+            "/** comment */",
+            "/**** comment ***/",
+            "/*\ncomment\n*/",
+            "/*\tcomment   */",
+            "/*! copyright */",
+            "/*# sourcemap */",
+            "/*# sourcemap bad-word */",
+            "a { color: pink; /* comment */\ntop: 0; }",
+            "a {} /* comment */",
+            "/* todo */",
+            "/* todo: */",
+            "/* todo: comment */",
+            "/* tOdO: comment */",
+            "/* Todo: comment */",
+            "/*! Todo: comment */",
+            "/*# Todo: comment */",
+            "/** TODO: comment **/",
+            "/*** TODO: comment ***/",
+        ];
+        let fail = [
+            reject("/* TODO: */", None, TODO_MSG, (1, 4, 1, 9)),
+            reject("/* TODO: comment */", None, TODO_MSG, (1, 4, 1, 9)),
+            reject(
+                "/* TODO: comment\n next line */",
+                None,
+                TODO_MSG,
+                (1, 4, 1, 9),
+            ),
+            reject(
+                "/* TODO: comment\r\n next line */",
+                None,
+                TODO_MSG,
+                (1, 4, 1, 9),
+            ),
+            reject(
+                "/* TODO: comment\n\n next line */",
+                None,
+                TODO_MSG,
+                (1, 4, 1, 9),
+            ),
+            reject("/*\n TODO: comment */", None, TODO_MSG, (2, 2, 2, 7)),
+            reject("/*\r\n TODO: comment */", None, TODO_MSG, (2, 2, 2, 7)),
+            reject("/*\n\n TODO: comment */", None, TODO_MSG, (3, 2, 3, 7)),
+            reject("/*\r\n\r\n TODO: comment */", None, TODO_MSG, (3, 2, 3, 7)),
+            reject("/* bad-word */", None, BAD_WORD_MSG, (1, 4, 1, 12)),
+            reject(
+                "/* Comment with bad-word */",
+                None,
+                BAD_WORD_MSG,
+                (1, 17, 1, 25),
+            ),
+            reject(
+                "/*! copyright bad-word */",
+                None,
+                BAD_WORD_MSG,
+                (1, 15, 1, 23),
+            ),
+            reject("/** bad-word **/", None, BAD_WORD_MSG, (1, 5, 1, 13)),
+            reject("/*** bad-word ***/", None, BAD_WORD_MSG, (1, 6, 1, 14)),
+        ];
+
+        Tester::new(RULE_NAME, json!(["/^TODO:/", "bad-word"]), pass, fail).test();
+    }
+
+    #[test]
+    fn scss() {
+        let pass = ["// comment", "// todo", "// todo:", "// Todo:", "// tOdO:"];
+        let fail = [
+            reject("// TODO:", None, TODO_MSG, (1, 4, 1, 9)),
+            reject("// TODO: comment", None, TODO_MSG, (1, 4, 1, 9)),
+            reject("// bad-word", None, BAD_WORD_MSG, (1, 4, 1, 12)),
+        ];
+
+        Tester::new(RULE_NAME, json!(["/^TODO:/", "bad-word"]), pass, fail)
+            .with_custom_syntax("postcss-scss")
+            .test();
+    }
+
+    #[test]
+    fn less() {
+        let pass = ["// comment", "// todo:", "// Todo:", "// tOdO:"];
+        let fail = [
+            reject("// TODO:", None, TODO_MSG, (1, 4, 1, 9)),
+            reject("// TODO: comment", None, TODO_MSG, (1, 4, 1, 9)),
+            reject("// bad-word", None, BAD_WORD_MSG, (1, 4, 1, 12)),
+        ];
+
+        Tester::new(RULE_NAME, json!(["/^TODO:/", "bad-word"]), pass, fail)
+            .with_custom_syntax("postcss-less")
+            .test();
+    }
+
+    #[test]
+    fn regex_literal_array() {
+        let pass = ["/* comment */"];
+        let fail = [reject("/* TODO: */", None, TODO_MSG, (1, 4, 1, 9))];
+
+        Tester::new(RULE_NAME, json!(["/^TODO:/", "bad-word"]), pass, fail).test();
+    }
+}

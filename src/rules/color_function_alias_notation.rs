@@ -321,3 +321,96 @@ fn is_ident_start(b: u8) -> bool {
 fn is_ident_char(b: u8) -> bool {
     is_ident_start(b) || b.is_ascii_digit()
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::tester::{Tester, reject};
+
+    const NAME: &str = "color-function-alias-notation";
+
+    fn expected(unfixed: &str, fixed: &str) -> String {
+        format!("Expected \"{unfixed}\" to be \"{fixed}\"")
+    }
+
+    #[test]
+    fn with_alpha() {
+        let pass = &[
+            "a { color: rgba(0 0 0) }",
+            "a { color: hsla(4.71239rad 60% 70%) }",
+            "a { color: HSLA(270 60% 70%) }",
+            "a { color: RGBA(240 0 0 / 50%) }",
+            "a {\n\tcolor: hsla(\n\t\t270 /* comment */\n\t\t60%\n\t\t50%\n\t\t/* comment */ / 15%\n\t)\n}",
+        ];
+
+        let fail = &[
+            reject(
+                "a { color: rgb(0 0 0) }",
+                "a { color: rgba(0 0 0) }",
+                expected("rgb", "rgba"),
+                (1, 12, 1, 15),
+            )
+            .with_edit_info(0, (13, 14, "ba")),
+            reject(
+                "a { color: hsl(270 60% 70%) }",
+                "a { color: hsla(270 60% 70%) }",
+                expected("hsl", "hsla"),
+                (1, 12, 1, 15),
+            )
+            .with_edit_info(0, (13, 14, "la")),
+            reject(
+                "a {\n\tcolor: HSL(\n\t\tcalc(var(--hue) + 30)\n\t\t28% 50% /\n\t\t0.2\n\t);\n}",
+                "a {\n\tcolor: HSLa(\n\t\tcalc(var(--hue) + 30)\n\t\t28% 50% /\n\t\t0.2\n\t);\n}",
+                expected("HSL", "HSLa"),
+                (2, 9, 2, 12),
+            )
+            .with_edit_info(0, (14, 15, "La")),
+        ];
+
+        Tester::new(NAME, json!(["with-alpha"]), pass, fail)
+            .with_fix(true)
+            .with_compute_edit_info(true)
+            .test();
+    }
+
+    #[test]
+    fn without_alpha() {
+        let pass = &[
+            "a { color: rgb(0 0 0) }",
+            "a { color: hsl(4.71239rad 60% 70%) }",
+            "a { color: HSL(270 60% 70%) }",
+            "a { color: RGB(240 0 0 / 50%) }",
+            "a {\n\tcolor: hsl(\n\t\t270 /* comment */\n\t\t60%\n\t\t50%\n\t\t/* comment */ / 15%\n\t)\n}",
+        ];
+
+        let fail = &[
+            reject(
+                "a { color: rgba(0 0 0) }",
+                "a { color: rgb(0 0 0) }",
+                expected("rgba", "rgb"),
+                (1, 12, 1, 16),
+            )
+            .with_edit_info(0, (14, 15, "")),
+            reject(
+                "a { color: hsla(270 60% 70%) }",
+                "a { color: hsl(270 60% 70%) }",
+                expected("hsla", "hsl"),
+                (1, 12, 1, 16),
+            )
+            .with_edit_info(0, (14, 15, "")),
+            reject(
+                "a {\n\tcolor: HSLA(\n\t\tcalc(var(--hue) + 30)\n\t\t28% 50% /\n\t\t0.2\n\t);\n}",
+                "a {\n\tcolor: HSL(\n\t\tcalc(var(--hue) + 30)\n\t\t28% 50% /\n\t\t0.2\n\t);\n}",
+                expected("HSLA", "HSL"),
+                (2, 9, 2, 13),
+            )
+            .with_edit_info(0, (15, 16, "")),
+        ];
+
+        Tester::new(NAME, json!(["without-alpha"]), pass, fail)
+            .with_fix(true)
+            .with_compute_edit_info(true)
+            .test();
+    }
+}

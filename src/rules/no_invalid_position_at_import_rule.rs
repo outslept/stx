@@ -20,7 +20,7 @@ impl Rule for NoInvalidPositionAtImportRule {
                             ctx.report(
                                 self.name(),
                                 at_rule.span,
-                                "Unexpected invalid position @import rule".to_string(),
+                                "Invalid position for @import rule".to_string(),
                             );
                         }
                     } else if name.eq_ignore_ascii_case("charset")

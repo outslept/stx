@@ -41,7 +41,7 @@ impl Rule for NoDuplicateAtImportRules {
                         ctx.report(
                             self.name(),
                             at_rule.span,
-                            format!("Unexpected duplicate @import rule {uri}"),
+                            format!("Duplicate @import rule {uri}"),
                         );
                     }
                 } else {
@@ -57,7 +57,7 @@ impl Rule for NoDuplicateAtImportRules {
                             ctx.report(
                                 self.name(),
                                 at_rule.span,
-                                format!("Unexpected duplicate @import rule {uri}"),
+                                format!("Duplicate @import rule {uri}"),
                             );
                         }
                     }
@@ -93,4 +93,22 @@ fn parse_import_prelude(prelude: &str) -> Option<(String, &str)> {
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tester::{Tester, reject};
+    use serde_json::json;
+
+    #[test]
+    fn duplicate_import_message_matches_stylelint_18() {
+        let pass = ["@import 'a.css'; @import 'b.css';"];
+        let fail = [reject(
+            "@import 'a.css'; @import 'a.css';",
+            None,
+            "Duplicate @import rule a.css",
+            (1, 18, 1, 33),
+        )];
+        Tester::new("no-duplicate-at-import-rules", json!(true), &pass, &fail).test();
+    }
 }

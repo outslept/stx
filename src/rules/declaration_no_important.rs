@@ -18,3 +18,38 @@ impl Rule for DeclarationNoImportant {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tester::{Tester, reject};
+    use serde_json::json;
+
+    const REJECTED: &str = "Disallowed !important";
+
+    #[test]
+    fn default_config() {
+        let pass = ["a { color: pink; }"];
+        let fail = [
+            reject(
+                "a { color: pink !important; }",
+                None,
+                REJECTED,
+                (1, 17, 1, 27),
+            ),
+            reject(
+                "a { color: pink ! important; }",
+                None,
+                REJECTED,
+                (1, 17, 1, 28),
+            ),
+            reject(
+                "a { color: pink!important; }",
+                None,
+                REJECTED,
+                (1, 16, 1, 26),
+            ),
+        ];
+
+        Tester::new("declaration-no-important", json!([true]), pass, fail).test();
+    }
+}

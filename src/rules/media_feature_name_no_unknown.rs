@@ -126,7 +126,7 @@ impl Rule for MediaFeatureNameNoUnknown {
                                     start: ident_start as u32,
                                     end: ident_end as u32,
                                 },
-                                format!("Unexpected unknown media feature name \"{ident}\""),
+                                format!("Unknown media feature name \"{ident}\""),
                             );
                         }
                     }

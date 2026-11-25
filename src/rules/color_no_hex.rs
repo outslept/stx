@@ -321,3 +321,132 @@ fn skip_url_args(bytes: &[u8], mut i: usize, limit: usize) -> usize {
         i
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::tester::{Tester, reject, reject_message, reject_messages};
+
+    const NAME: &str = "color-no-hex";
+
+    fn rejected(hex: &str) -> String {
+        format!("Disallowed hex color \"{hex}\"")
+    }
+
+    #[test]
+    fn default() {
+        let pass = &[
+            "a { color: pink; }",
+            "a { color: rgba(0, 0, 0, 0); }",
+            "a { something: black, white, gray; }",
+            "a { padding: 000; }",
+            "a::before { content: \"#ababa\"; }",
+            "a { border-#$side: 0; }",
+            "a { box-sizing: #$type-box; }",
+            "@font-face {\nfont-family: dashicons;\nsrc: url(data:application/font-woff;charset=utf-8;base64, ABCDEF==) format(\"woff\"),\nurl(../fonts/dashicons.ttf) format(\"truetype\"),\nurl(../fonts/dashicons.svg#dashicons) format(\"svg\");\nfont-weight: normal;\nfont-style: normal;\n}",
+        ];
+
+        let fail = &[
+            reject(
+                "a { color: #12345; }",
+                None,
+                rejected("#12345"),
+                (1, 12, 1, 18),
+            ),
+            reject(
+                "a { color: #123456a; }",
+                None,
+                rejected("#123456a"),
+                (1, 12, 1, 20),
+            ),
+            reject(
+                "a { color: #cccccc; }",
+                None,
+                rejected("#cccccc"),
+                (1, 12, 1, 19),
+            ),
+            reject(
+                "a { something: #00c, red, white; }",
+                None,
+                rejected("#00c"),
+                (1, 16, 1, 20),
+            ),
+            reject(
+                "a { something: black, #fff1a1, rgb(250, 250, 0); }",
+                None,
+                rejected("#fff1a1"),
+                (1, 23, 1, 30),
+            ),
+            reject(
+                "a { something:black,white,#12345a; }",
+                None,
+                rejected("#12345a"),
+                (1, 27, 1, 34),
+            ),
+            reject(
+                "a { color: #ffff; }",
+                None,
+                rejected("#ffff"),
+                (1, 12, 1, 17),
+            ),
+            reject(
+                "a { color: #ffffffaa; }",
+                None,
+                rejected("#ffffffaa"),
+                (1, 12, 1, 21),
+            ),
+        ];
+
+        Tester::new(NAME, json!([true]), pass, fail).test();
+    }
+
+    #[test]
+    #[ignore = "naive-css-in-js is not supported"]
+    fn css_in_js() {
+        let pass = &[
+            "css` color: pink; `;",
+            "css` color: rgba(0, 0, 0, 0); `;",
+            "css` content: \"#abcdef\"; `;",
+            "css` background: url(#aabbcc); `;",
+            "css` color: red /* #ff0000 */; `;",
+            "css` color: linear-gradient(green, rgb(123, 123, 123), hsl(24, 70%, 80%)); `;",
+        ];
+
+        let fail = &[
+            reject_message("css` color: #abcdef `;", None, rejected("#abcdef")),
+            reject_messages(
+                "css` background-color: linear-gradient(#aaa, #ffff, #01234567); `;",
+                None,
+                vec![rejected("#aaa"), rejected("#ffff"), rejected("#01234567")],
+            ),
+        ];
+
+        Tester::new(NAME, json!([true]), pass, fail)
+            .with_custom_syntax("naive-css-in-js")
+            .test();
+    }
+
+    #[test]
+    fn ignore_functions() {
+        let pass = &[
+            "a { color: var(--foo, #fff); }",
+            "a { color: --foo(#fff); }",
+        ];
+
+        let fail = &[reject(
+            "a { color: #ffffff; }",
+            None,
+            rejected("#ffffff"),
+            (1, 12, 1, 19),
+        )];
+
+        Tester::new(
+            NAME,
+            json!([true, { "ignoreFunctions": ["var", "/^--/"] }]),
+            pass,
+            fail,
+        )
+        .test();
+    }
+}

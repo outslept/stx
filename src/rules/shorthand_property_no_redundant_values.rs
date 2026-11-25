@@ -1,10 +1,8 @@
 use crate::{
     context::LintContext,
     fix::Fix,
-    rules::{
-        Rule,
-        value_utils::{ValueTokenKind, declaration_value_span, tokenize_value},
-    },
+    rules::Rule,
+    utils::{ValueTokenKind, declaration_value_span, tokenize_value},
 };
 use oxc_css_parser::ast::{Declaration, InterpolableIdent};
 

@@ -158,3 +158,141 @@ impl Rule for BlockNoEmpty {
         ctx.report(self.name(), block.span, "Empty block".to_string());
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::tester::{Tester, reject};
+
+    const NAME: &str = "block-no-empty";
+    const REJECTED: &str = "Empty block";
+
+    #[test]
+    fn default_config() {
+        let pass = &[
+            "",
+            "@import \"foo.css\";",
+            "a { color: pink; }",
+            "a { /* foo */ }",
+            "a {\n/* foo */\n}",
+            "a {\n/* foo */\n/* bar */\n}",
+            "a {\n/*\nfoo\nbar\n*/\n}",
+            "a { ; }",
+            "@media print { a { color: pink; } }",
+            "@media print { a { /* foo */ } }",
+            "@media print { a { ; } }",
+            "@media print { ; }",
+            "@import url(x.css)",
+            "a { /* stylelint-disable */ }",
+            "a { /* stylelint-disable block-no-empty */ }",
+            "a { /* stylelint-disable-line block-no-empty */ }",
+        ];
+
+        let fail = &[
+            reject("a {}", None, REJECTED, (1, 3, 1, 5)),
+            reject("a { }", None, REJECTED, (1, 3, 1, 6)),
+            reject("a {\n}", None, REJECTED, (1, 3, 2, 2)),
+            reject("a {\r\n}", None, REJECTED, (1, 3, 2, 2)),
+            reject("a {\n\n}", None, REJECTED, (1, 3, 3, 2)),
+            reject("a {\t}", None, REJECTED, (1, 3, 1, 6)),
+            reject("a {\t\t}", None, REJECTED, (1, 3, 1, 7)),
+            reject("@media print {}", None, REJECTED, (1, 14, 1, 16)),
+            reject("@media print {\n}", None, REJECTED, (1, 14, 2, 2)),
+            reject("@media print {\r\n}", None, REJECTED, (1, 14, 2, 2)),
+            reject("@media print {\t}", None, REJECTED, (1, 14, 1, 17)),
+            reject("@media print { a {} }", None, REJECTED, (1, 18, 1, 20)),
+            reject(
+                "@media print /*comment*/, screen {}",
+                None,
+                REJECTED,
+                (1, 34, 1, 36),
+            ),
+            reject(
+                "a { /* stylelint-disable foo */ }",
+                None,
+                REJECTED,
+                (1, 3, 1, 34),
+            ),
+        ];
+
+        Tester::new(NAME, json!([true]), pass, fail).test();
+    }
+
+    #[test]
+    fn ignore_comments() {
+        let pass = &[
+            "a { /* foo */ color: pink; }",
+            "a {\n/* foo */\ncolor: pink;\n}",
+            "@import \"foo.css\";",
+            "a { /* stylelint-disable */ }",
+        ];
+
+        let fail = &[
+            reject("a { /* foo */ }", None, REJECTED, (1, 3, 1, 16)),
+            reject("a {\n/* foo */\n}", None, REJECTED, (1, 3, 3, 2)),
+            reject("a {\n/* foo */\n/* bar */\n}", None, REJECTED, (1, 3, 4, 2)),
+            reject("a {\n/*\nfoo\nbar\n*/\n}", None, REJECTED, (1, 3, 6, 2)),
+            reject(
+                "@media print { a { /* foo */ } }",
+                None,
+                REJECTED,
+                (1, 18, 1, 31),
+            ),
+            reject(
+                "a { /* stylelint-disable foo */ }",
+                None,
+                REJECTED,
+                (1, 3, 1, 34),
+            ),
+        ];
+
+        Tester::new(NAME, json!([true, { "ignore": ["comments"] }]), pass, fail).test();
+    }
+
+    #[test]
+    #[ignore = "sugarss is not supported"]
+    fn sugarss_syntax() {
+        let fail = &[
+            reject(".a", None, REJECTED, (1, 2, 1, 4)),
+            reject(".a\n  padding: 25px\n  .a\n", None, REJECTED, (3, 4, 3, 6)),
+        ];
+
+        Tester::new(NAME, json!([true]), [], fail)
+            .with_custom_syntax("sugarss")
+            .test();
+    }
+
+    #[test]
+    fn scss_default() {
+        let pass = &[
+            "a {\n// foo\n}",
+            "a {\n// foo\n// bar\n}",
+            "@media print { a {\n// foo\n} }",
+        ];
+
+        Tester::new(NAME, json!([true]), pass, [])
+            .with_custom_syntax("postcss-scss")
+            .test();
+    }
+
+    #[test]
+    fn scss_ignore_comments() {
+        let pass = &["a {\n// foo\ncolor: pink;\n}"];
+
+        let fail = &[
+            reject("a {\n// foo\n}", None, REJECTED, (1, 3, 3, 2)),
+            reject("a {\n// foo\n// bar\n}", None, REJECTED, (1, 3, 4, 2)),
+            reject(
+                "@media print { a {\n// foo\n} }",
+                None,
+                REJECTED,
+                (1, 18, 3, 2),
+            ),
+        ];
+
+        Tester::new(NAME, json!([true, { "ignore": ["comments"] }]), pass, fail)
+            .with_custom_syntax("postcss-scss")
+            .test();
+    }
+}

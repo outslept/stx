@@ -1,10 +1,8 @@
 use crate::{
     context::LintContext,
     fix::Fix,
-    rules::{
-        Rule,
-        value_utils::{SelectorItemKind, scan_selector_items},
-    },
+    rules::Rule,
+    utils::{SelectorItemKind, scan_selector_items},
 };
 use oxc_css_parser::{Span, ast::SelectorList};
 
@@ -68,7 +66,7 @@ impl Rule for SelectorNoVendorPrefix {
                     ctx.report_with_fix(
                         self.name(),
                         item.span,
-                        format!("Unexpected vendor-prefix \"{}\"", raw),
+                        format!("Vendor-prefixed selector \"{}\"", raw),
                         Some(Fix::single(name_span, unprefixed.to_string())),
                     );
                 }
