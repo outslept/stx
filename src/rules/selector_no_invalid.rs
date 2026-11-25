@@ -3,7 +3,7 @@ use oxc_css_parser::ast::QualifiedRule;
 
 pub struct SelectorNoInvalid;
 
-fn invalid_reason(selector: &str) -> Option<&'static str> {
+fn invalid_reason(selector: &str) -> Option<(&'static str, Option<usize>)> {
     let bytes = selector.as_bytes();
     let mut parens = 0usize;
     let mut brackets = 0usize;
@@ -57,10 +57,10 @@ fn invalid_reason(selector: &str) -> Option<&'static str> {
             }
             b']' => {
                 if brackets == 0 {
-                    return Some("unexpected input");
+                    return Some(("unexpected input", Some(i)));
                 }
                 if brackets == 1 && selector[bracket_start + 1..i].trim().is_empty() {
-                    return Some("identifier is expected");
+                    return Some(("identifier is expected", Some(i)));
                 }
                 brackets -= 1;
                 i += 1;
@@ -72,7 +72,7 @@ fn invalid_reason(selector: &str) -> Option<&'static str> {
                 i += 1;
                 continue;
             }
-            b')' if parens == 0 => return Some("unexpected input"),
+            b')' if parens == 0 => return Some(("unexpected input", Some(i))),
             b')' => {
                 parens -= 1;
                 i += 1;
@@ -80,7 +80,7 @@ fn invalid_reason(selector: &str) -> Option<&'static str> {
             }
             b',' if brackets == 0 && parens == 0 => {
                 if comma_needs_selector {
-                    return Some("selector is expected");
+                    return Some(("selector is expected", Some(i)));
                 }
                 comma_needs_selector = true;
                 i += 1;
@@ -92,19 +92,19 @@ fn invalid_reason(selector: &str) -> Option<&'static str> {
             if byte.is_ascii_digit()
                 && (i == 0 || bytes[i - 1] == b'[' || bytes[i - 1].is_ascii_whitespace())
             {
-                return Some("identifier is expected");
+                return Some(("identifier is expected", Some(i)));
             }
             if byte == b'=' && bytes.get(i + 1) == Some(&b'=') {
-                return Some("identifier is expected");
+                return Some(("identifier is expected", Some(i + 1)));
             }
         } else {
             if byte == b'.'
                 && (bytes.get(i + 1) == Some(&b'.') || !has_selector_ident(bytes, i + 1))
             {
-                return Some("identifier is expected");
+                return Some(("identifier is expected", Some(i + 1)));
             }
             if byte == b'#' && !has_selector_ident(bytes, i + 1) {
-                return Some("identifier is expected");
+                return Some(("identifier is expected", Some(i + 1)));
             }
             if byte == b':' {
                 let name_start = i + if bytes.get(i + 1) == Some(&b':') {
@@ -114,19 +114,19 @@ fn invalid_reason(selector: &str) -> Option<&'static str> {
                 };
                 let name_end = selector_ident_end(bytes, name_start);
                 if name_end == name_start {
-                    return Some("identifier is expected");
+                    return Some(("identifier is expected", Some(name_start)));
                 }
                 let name = selector[name_start..name_end].to_ascii_lowercase();
                 if name == "dir" && bytes.get(name_end) == Some(&b'(') {
                     let end = selector[name_end + 1..].find(')').map(|n| name_end + 1 + n);
                     let Some(end) = end else {
-                        return Some("unexpected input");
+                        return Some(("unexpected input", None));
                     };
                     let direction = selector[name_end + 1..end].trim();
                     if !direction.eq_ignore_ascii_case("ltr")
                         && !direction.eq_ignore_ascii_case("rtl")
                     {
-                        return Some("expected \"ltr\" or \"rtl\" within \":dir()\"");
+                        return Some(("expected \"ltr\" or \"rtl\" within \":dir()\"", None));
                     }
                 }
             }
@@ -136,13 +136,13 @@ fn invalid_reason(selector: &str) -> Option<&'static str> {
     }
 
     if brackets > 0 || parens > 0 {
-        return Some("unexpected input");
+        return Some(("unexpected input", None));
     }
     if let Some(reason) = special_invalid_reason(selector) {
-        return Some(reason);
+        return Some((reason, None));
     }
     if comma_needs_selector && selector.contains(',') {
-        Some("selector is expected")
+        Some(("selector is expected", None))
     } else {
         None
     }
@@ -266,11 +266,22 @@ impl Rule for SelectorNoInvalid {
             return;
         }
         for selector in &rule.selector.selectors {
-            let raw = ctx.slice(selector.span).trim();
-            if let Some(reason) = invalid_reason(raw) {
+            let untrimmed = ctx.slice(selector.span);
+            let raw = untrimmed.trim();
+            if let Some((reason, offset)) = invalid_reason(raw) {
+                // css-tree syntax errors point at the single offending character.
+                let span = offset.map_or(selector.span, |offset| {
+                    let start = selector.span.start
+                        + (untrimmed.len() - untrimmed.trim_start().len() + offset) as u32;
+                    oxc_css_parser::Span {
+                        start,
+                        end: (start + 1)
+                            .min(selector.span.start + untrimmed.trim_end().len() as u32),
+                    }
+                });
                 ctx.report(
                     self.name(),
-                    selector.span,
+                    span,
                     format!("Invalid selector \"{raw}\", {reason}"),
                 );
             }
@@ -281,7 +292,7 @@ impl Rule for SelectorNoInvalid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tester::{Tester, reject_message, reject_messages};
+    use crate::tester::{Tester, reject, reject_message, reject_messages};
     use serde_json::json;
 
     #[test]
@@ -297,28 +308,41 @@ mod tests {
             "a, b {}",
             "a\\.b {}",
         ];
-        let fail = vec![reject_message(
-            ":dir(foo) {}",
-            None,
-            "Invalid selector \":dir(foo)\", expected \"ltr\" or \"rtl\" within \":dir()\"",
-        )];
+        let fail = vec![
+            reject_message(
+                ":dir(foo) {}",
+                None,
+                "Invalid selector \":dir(foo)\", expected \"ltr\" or \"rtl\" within \":dir()\"",
+            ),
+            reject(
+                "[foo==bar] {}",
+                None,
+                "Invalid selector \"[foo==bar]\", identifier is expected",
+                (1, 6, 1, 7),
+            ),
+        ];
         Tester::new("selector-no-invalid", json!(true), &pass, &fail).test();
     }
 
     #[test]
     fn selector_grammar_regressions() {
-        assert_eq!(invalid_reason(", a"), Some("selector is expected"));
-        assert_eq!(invalid_reason("a ) b"), Some("unexpected input"));
-        assert_eq!(invalid_reason(".foo..bar"), Some("identifier is expected"));
-        assert_eq!(invalid_reason("[foo==bar]"), Some("identifier is expected"));
-        assert_eq!(invalid_reason("[]"), Some("identifier is expected"));
+        let syntax = "identifier is expected";
+        assert_eq!(
+            invalid_reason(", a"),
+            Some(("selector is expected", Some(0)))
+        );
+        assert_eq!(invalid_reason("a ) b"), Some(("unexpected input", Some(2))));
+        assert_eq!(invalid_reason(".foo..bar"), Some((syntax, Some(5))));
+        assert_eq!(invalid_reason("[foo==bar]"), Some((syntax, Some(5))));
+        assert_eq!(invalid_reason("[0foo]"), Some((syntax, Some(1))));
+        assert_eq!(invalid_reason("[]").map(|r| r.0), Some(syntax));
         assert_eq!(
             invalid_reason(":not(::before)"),
-            Some("pseudo-elements are invalid within \":not()\""),
+            Some(("pseudo-elements are invalid within \":not()\"", None)),
         );
         assert_eq!(
             invalid_reason("::slotted(a .foo)"),
-            Some("combinators are invalid within \"::slotted()\""),
+            Some(("combinators are invalid within \"::slotted()\"", None)),
         );
         assert_eq!(invalid_reason("[data='.. ==']"), None);
     }

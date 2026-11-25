@@ -134,11 +134,41 @@ impl Rule for CommentWordDisallowedList {
         let (text, text_offset) = extract_comment_text_with_offset(raw);
 
         if let Some((pattern_str, match_start, match_end)) = self.find_match(text) {
-            let start = comment.span.start + (text_offset + match_start) as u32;
-            let end = comment.span.start + (text_offset + match_end) as u32;
+            let mut start = comment.span.start + (text_offset + match_start) as u32;
+            let mut end = comment.span.start + (text_offset + match_end) as u32;
+            if ctx.syntax == oxc_css_parser::Syntax::Less && raw.starts_with("//") {
+                // postcss-less ends inline comments at the start of their last token,
+                // so the word search can miss and fall back to that truncated node range.
+                let last = postcss_last_token_start(raw);
+                let word = &text[match_start..match_end];
+                if !raw[..last].contains(word) {
+                    start = comment.span.start;
+                    end = comment.span.start + last as u32 + 1;
+                }
+            }
             ctx.report(self.name(), Span { start, end }, rejected_msg(pattern_str));
         }
     }
+}
+
+// shortcut: ignores quoted strings and bracket tokens, enough for comment words.
+fn postcss_last_token_start(raw: &str) -> usize {
+    let bytes = raw.trim_end().as_bytes();
+    let Some(i) = bytes.len().checked_sub(1) else {
+        return 0;
+    };
+    let word_end = |b: u8| b" \t\n\r\x0c!\"#'():;@[\\]{}".contains(&b);
+    if b"():;[]{}".contains(&bytes[i]) {
+        return i;
+    }
+    let mut j = i;
+    while j > 0 && !word_end(bytes[j - 1]) {
+        j -= 1;
+    }
+    if j > 0 && b"!#@".contains(&bytes[j - 1]) {
+        j -= 1;
+    }
+    j
 }
 
 fn extract_comment_text_with_offset(raw: &str) -> (&str, usize) {
@@ -279,9 +309,10 @@ mod tests {
     fn less() {
         let pass = ["// comment", "// todo:", "// Todo:", "// tOdO:"];
         let fail = [
-            reject("// TODO:", None, TODO_MSG, (1, 4, 1, 9)),
+            reject("// TODO:", None, TODO_MSG, (1, 1, 1, 9)),
             reject("// TODO: comment", None, TODO_MSG, (1, 4, 1, 9)),
-            reject("// bad-word", None, BAD_WORD_MSG, (1, 4, 1, 12)),
+            reject("// bad-word", None, BAD_WORD_MSG, (1, 1, 1, 5)),
+            reject("a{}\n// bad-word x", None, BAD_WORD_MSG, (2, 4, 2, 12)),
         ];
 
         Tester::new(RULE_NAME, json!(["/^TODO:/", "bad-word"]), pass, fail)

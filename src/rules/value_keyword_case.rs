@@ -8,11 +8,14 @@ use crate::{
         FONT_SHORTHAND_KEYWORDS, GRID_AREA_KEYWORDS, GRID_COLUMN_KEYWORDS, GRID_ROW_KEYWORDS,
         LIST_STYLE_SHORTHAND_KEYWORDS, LIST_STYLE_TYPE_KEYWORDS, OptionMatcher,
         SYSTEM_COLORS_KEYWORDS, ValueTokenKind, declaration_value_span, in_set_ignore_case,
-        is_standard_syntax_value, options_matches, parse_option_matchers, secondary_bool,
-        tokenize_value,
+        is_standard_syntax_value, options_matches, parse_option_matchers, sass_variable_value_span,
+        secondary_bool, tokenize_value,
     },
 };
-use oxc_css_parser::ast::{Declaration, InterpolableIdent};
+use oxc_css_parser::{
+    Span,
+    ast::{Declaration, InterpolableIdent, SassVariableDeclaration},
+};
 use serde_json::{Map, Value};
 
 const NAME: &str = "value-keyword-case";
@@ -69,20 +72,36 @@ impl Rule for ValueKeywordCase {
         let InterpolableIdent::Literal(ident) = &decl.name else {
             return;
         };
-        if options_matches(&self.ignore_properties, ident.name) {
-            return;
-        }
         let imp_start = decl.important.as_ref().map(|i| i.span.start);
         let Some(value_span) =
             declaration_value_span(ctx.source, ident.span.end, decl.span.end, imp_start)
         else {
             return;
         };
+        self.check_value(ident.name, value_span, ctx);
+    }
+
+    fn check_sass_variable_declaration<'a>(
+        &self,
+        decl: &'a SassVariableDeclaration<'a>,
+        ctx: &mut LintContext<'a>,
+    ) {
+        if let Some(span) = sass_variable_value_span(ctx.source, decl) {
+            self.check_value(ctx.slice(decl.name.span), span, ctx);
+        }
+    }
+}
+
+impl ValueKeywordCase {
+    fn check_value(&self, prop: &str, value_span: Span, ctx: &mut LintContext<'_>) {
+        if options_matches(&self.ignore_properties, prop) {
+            return;
+        }
         let value = ctx.slice(value_span);
         if value.contains('#') || !is_standard_syntax_value(value) {
             return;
         }
-        let property = ident.name.to_ascii_lowercase();
+        let property = prop.to_ascii_lowercase();
         let mut depth = 0usize;
         let mut skipped_at = None;
         for token in tokenize_value(ctx.source, value_span) {
@@ -204,5 +223,37 @@ mod tests {
         )
         .with_fix(true)
         .test();
+    }
+
+    #[test]
+    fn checks_scss_variables_and_less_detached_rulesets() {
+        let fail = [
+            reject(
+                "a { $display: Block; }",
+                "a { $display: block; }",
+                "Expected \"Block\" to be \"block\"",
+                (1, 15, 1, 20),
+            ),
+            reject(
+                "$map: (display-first: Block, display-second: inline);",
+                "$map: (display-first: block, display-second: inline);",
+                "Expected \"Block\" to be \"block\"",
+                (1, 23, 1, 28),
+            ),
+        ];
+        Tester::new(NAME, json!("lower"), [], fail)
+            .with_custom_syntax("postcss-scss")
+            .with_fix(true)
+            .test();
+        let fail = [reject(
+            "@detached-ruleset: { background: Red; };",
+            "@detached-ruleset: { background: red; };",
+            "Expected \"Red\" to be \"red\"",
+            (1, 34, 1, 37),
+        )];
+        Tester::new(NAME, json!("lower"), [], fail)
+            .with_custom_syntax("postcss-less")
+            .with_fix(true)
+            .test();
     }
 }

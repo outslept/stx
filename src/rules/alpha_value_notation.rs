@@ -5,10 +5,14 @@ use crate::{
     rules::Rule,
     utils::{
         OptionMatcher, ValueToken, ValueTokenKind, decl_value_span, ident_name, in_set_ignore_case,
-        is_standard_syntax_value, options_matches, parse_option_matchers, tokenize_value,
+        is_standard_syntax_value, options_matches, parse_option_matchers, sass_variable_value_span,
+        tokenize_value,
     },
 };
-use oxc_css_parser::ast::Declaration;
+use oxc_css_parser::{
+    Span,
+    ast::{Declaration, SassVariableDeclaration},
+};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 declare_stx_lint!(
@@ -121,6 +125,22 @@ impl Rule for AlphaValueNotation {
         let Some(val_span) = decl_value_span(ctx.source, decl) else {
             return;
         };
+        self.check_value(prop_name, val_span, ctx);
+    }
+
+    fn check_sass_variable_declaration<'a>(
+        &self,
+        decl: &'a SassVariableDeclaration<'a>,
+        ctx: &mut LintContext<'a>,
+    ) {
+        if let Some(span) = sass_variable_value_span(ctx.source, decl) {
+            self.check_value(ctx.slice(decl.name.span), span, ctx);
+        }
+    }
+}
+
+impl AlphaValueNotation {
+    fn check_value(&self, prop_name: &str, val_span: Span, ctx: &mut LintContext<'_>) {
         let val_raw = ctx.slice_range(val_span.start, val_span.end);
         if !val_raw.bytes().any(|b| b.is_ascii_digit()) {
             return;
@@ -562,5 +582,19 @@ mod tests {
         ];
         let fail = vec![];
         Tester::new("alpha-value-notation", Some(json!("number")), pass, fail).test();
+    }
+
+    #[test]
+    fn checks_scss_variables() {
+        let fail = [reject(
+            "$a: rgb(0 0 0 / 50%);",
+            "$a: rgb(0 0 0 / 0.5);",
+            "Expected \"50%\" to be \"0.5\"",
+            (1, 17, 1, 20),
+        )];
+        Tester::new("alpha-value-notation", json!("number"), [], fail)
+            .with_custom_syntax("postcss-scss")
+            .with_fix(true)
+            .test();
     }
 }

@@ -1,173 +1,48 @@
-use crate::{context::LintContext, fix::Fix, rules::Rule};
+use crate::{
+    context::LintContext,
+    fix::Fix,
+    rules::Rule,
+    utils::{
+        AUTOPREFIXABLE_PROPERTIES, BASIC_KEYWORDS, OptionMatcher, decl_value_raw,
+        in_set_ignore_case, options_matches, parse_option_matchers,
+    },
+};
 use oxc_css_parser::ast::{Declaration, InterpolableIdent};
+use serde_json::{Map, Value};
 
-pub struct PropertyNoVendorPrefix;
+pub struct PropertyNoVendorPrefix {
+    ignore_properties: Vec<OptionMatcher>,
+}
 
-const PREFIXED_PROPERTIES: &[&str] = &[
-    "-webkit-align-content",
-    "-ms-flex-line-pack",
-    "-webkit-align-items",
-    "-webkit-box-align",
-    "-ms-flex-align",
-    "-webkit-align-self",
-    "-ms-flex-item-align",
-    "-webkit-animation",
-    "-moz-animation",
-    "-o-animation",
-    "-webkit-animation-delay",
-    "-moz-animation-delay",
-    "-o-animation-delay",
-    "-webkit-animation-direction",
-    "-moz-animation-direction",
-    "-o-animation-direction",
-    "-webkit-animation-duration",
-    "-moz-animation-duration",
-    "-o-animation-duration",
-    "-webkit-animation-fill-mode",
-    "-moz-animation-fill-mode",
-    "-o-animation-fill-mode",
-    "-webkit-animation-iteration-count",
-    "-moz-animation-iteration-count",
-    "-o-animation-iteration-count",
-    "-webkit-animation-name",
-    "-moz-animation-name",
-    "-o-animation-name",
-    "-webkit-animation-play-state",
-    "-moz-animation-play-state",
-    "-o-animation-play-state",
-    "-webkit-animation-timing-function",
-    "-moz-animation-timing-function",
-    "-o-animation-timing-function",
-    "-webkit-appearance",
-    "-moz-appearance",
-    "-webkit-backdrop-filter",
-    "-webkit-backface-visibility",
-    "-moz-backface-visibility",
-    "-webkit-background-clip",
-    "-moz-background-clip",
-    "-webkit-background-origin",
-    "-moz-background-origin",
-    "-webkit-background-size",
-    "-moz-background-size",
-    "-o-background-size",
-    "-webkit-box-Decoration-break",
-    "-webkit-box-shadow",
-    "-moz-box-shadow",
-    "-webkit-box-sizing",
-    "-moz-box-sizing",
-    "-webkit-clip-path",
-    "-webkit-column-count",
-    "-moz-column-count",
-    "-webkit-column-fill",
-    "-moz-column-fill",
-    "-webkit-column-gap",
-    "-moz-column-gap",
-    "-webkit-column-rule",
-    "-moz-column-rule",
-    "-webkit-column-rule-color",
-    "-moz-column-rule-color",
-    "-webkit-column-rule-style",
-    "-moz-column-rule-style",
-    "-webkit-column-rule-width",
-    "-moz-column-rule-width",
-    "-webkit-column-span",
-    "-moz-column-span",
-    "-webkit-column-width",
-    "-moz-column-width",
-    "-webkit-columns",
-    "-moz-columns",
-    "-webkit-filter",
-    "-webkit-flex",
-    "-ms-flex",
-    "-webkit-flex-basis",
-    "-ms-flex-preferred-size",
-    "-webkit-flex-direction",
-    "-ms-flex-direction",
-    "-webkit-flex-flow",
-    "-ms-flex-flow",
-    "-webkit-flex-grow",
-    "-ms-flex-positive",
-    "-webkit-flex-shrink",
-    "-ms-flex-negative",
-    "-webkit-flex-wrap",
-    "-ms-flex-wrap",
-    "-webkit-font-feature-settings",
-    "-moz-font-feature-settings",
-    "-webkit-hyphens",
-    "-moz-hyphens",
-    "-ms-hyphens",
-    "-webkit-justify-content",
-    "-webkit-mask",
-    "-webkit-mask-clip",
-    "-webkit-mask-composite",
-    "-webkit-mask-image",
-    "-webkit-mask-origin",
-    "-webkit-mask-position",
-    "-webkit-mask-repeat",
-    "-webkit-mask-size",
-    "-webkit-order",
-    "-ms-flex-order",
-    "-webkit-perspective",
-    "-moz-perspective",
-    "-webkit-perspective-origin",
-    "-moz-perspective-origin",
-    "-webkit-tab-size",
-    "-moz-tab-size",
-    "-o-tab-size",
-    "-webkit-text-decoration",
-    "-moz-text-decoration",
-    "-webkit-text-decoration-color",
-    "-moz-text-decoration-color",
-    "-webkit-text-decoration-line",
-    "-moz-text-decoration-line",
-    "-webkit-text-decoration-skip-ink",
-    "-webkit-text-decoration-style",
-    "-moz-text-decoration-style",
-    "-webkit-text-emphasis",
-    "-webkit-text-emphasis-color",
-    "-webkit-text-emphasis-position",
-    "-webkit-text-emphasis-style",
-    "-webkit-text-size-adjust",
-    "-moz-text-size-adjust",
-    "-ms-text-size-adjust",
-    "-webkit-transform",
-    "-moz-transform",
-    "-ms-transform",
-    "-o-transform",
-    "-webkit-transform-origin",
-    "-moz-transform-origin",
-    "-ms-transform-origin",
-    "-o-transform-origin",
-    "-webkit-transform-style",
-    "-moz-transform-style",
-    "-webkit-transition",
-    "-moz-transition",
-    "-o-transition",
-    "-webkit-transition-delay",
-    "-moz-transition-delay",
-    "-o-transition-delay",
-    "-webkit-transition-duration",
-    "-moz-transition-duration",
-    "-o-transition-duration",
-    "-webkit-transition-property",
-    "-moz-transition-property",
-    "-o-transition-property",
-    "-webkit-transition-timing-function",
-    "-moz-transition-timing-function",
-    "-o-transition-timing-function",
-    "-webkit-user-select",
-    "-moz-user-select",
-    "-ms-user-select",
-];
-
-fn strip_vendor_prefix(s: &str) -> Option<&str> {
-    let lower = s.to_ascii_lowercase();
-    for p in ["-webkit-", "-moz-", "-ms-", "-o-"] {
-        if lower.starts_with(p) {
-            return Some(&s[p.len()..]);
+impl PropertyNoVendorPrefix {
+    pub fn from_secondary(secondary: Option<&Map<String, Value>>) -> Self {
+        Self {
+            ignore_properties: parse_option_matchers(secondary, "ignoreProperties"),
         }
     }
-    None
+}
+
+/// Upstream `vendor.unprefixed`: strips a leading `-\w+-`.
+fn unprefixed(prop: &str) -> Option<&str> {
+    let rest = prop.strip_prefix('-')?;
+    let word = rest
+        .bytes()
+        .take_while(|b| b.is_ascii_alphanumeric() || *b == b'_')
+        .count();
+    (word > 0).then_some(())?;
+    rest[word..].strip_prefix('-')
+}
+
+/// See whatwg/compat#28: only some `-webkit-background-size` values are safe to unprefix.
+fn is_safe_webkit_background_size(value: &str) -> bool {
+    value.split(',').all(|background| {
+        let values: Vec<&str> = background.split_whitespace().collect();
+        match values.as_slice() {
+            [_, _] => true,
+            [first] => *first == "auto" || BASIC_KEYWORDS.contains(first),
+            _ => false,
+        }
+    })
 }
 
 impl Rule for PropertyNoVendorPrefix {
@@ -179,19 +54,66 @@ impl Rule for PropertyNoVendorPrefix {
         let InterpolableIdent::Literal(ident) = &decl.name else {
             return;
         };
-        let prop: &str = ident.name;
-        if PREFIXED_PROPERTIES
-            .iter()
-            .any(|p| p.eq_ignore_ascii_case(prop))
-        {
-            if let Some(unprefixed) = strip_vendor_prefix(prop) {
-                ctx.report_with_fix(
-                    self.name(),
-                    ident.span,
-                    format!("Vendor-prefixed property \"{}\"", prop),
-                    Some(Fix::single(ident.span, unprefixed.to_string())),
-                );
-            }
+        let prop: &str = ident.raw;
+        if options_matches(&self.ignore_properties, prop) || prop.starts_with("--") {
+            return;
         }
+        let Some(base) = unprefixed(prop) else {
+            return;
+        };
+        if !in_set_ignore_case(AUTOPREFIXABLE_PROPERTIES, base) {
+            return;
+        }
+        if prop == "-webkit-background-size"
+            && !decl_value_raw(ctx.source, decl)
+                .is_some_and(|(value, _)| is_safe_webkit_background_size(value))
+        {
+            return;
+        }
+        ctx.report_with_fix(
+            self.name(),
+            ident.span,
+            format!("Vendor-prefixed property \"{prop}\""),
+            Some(Fix::single(ident.span, base.to_string())),
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tester::{Tester, reject_message};
+    use serde_json::json;
+
+    #[test]
+    fn matches_autoprefixer_properties() {
+        let pass = [
+            "a { -webkit-background-size: 1px; }",
+            "a { -webkit-background-size: 1px   2px ,   1px; }",
+        ];
+        let fail = [
+            reject_message(
+                "a { -o-columns: 2; }",
+                "a { columns: 2; }",
+                "Vendor-prefixed property \"-o-columns\"",
+            ),
+            reject_message(
+                "a { -webkit-background-size: 1px 2px; }",
+                "a { background-size: 1px 2px; }",
+                "Vendor-prefixed property \"-webkit-background-size\"",
+            ),
+        ];
+        Tester::new("property-no-vendor-prefix", json!(true), pass, fail)
+            .with_fix(true)
+            .test();
+        Tester::new(
+            "property-no-vendor-prefix",
+            json!([true, {"ignoreProperties": ["-moz-columns", "/^-webkit-animation-/i"]}]),
+            [
+                "a { -moz-columns: 2; }",
+                "a { -webkit-ANIMATION-DeLaY: 0.5s; }",
+            ],
+            [],
+        )
+        .test();
     }
 }

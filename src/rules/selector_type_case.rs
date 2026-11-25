@@ -2,20 +2,13 @@ use crate::{
     context::LintContext,
     fix::Fix,
     rules::{Rule, function_name_case::CaseMode},
-    utils::{SelectorItemKind, scan_selector_items},
+    utils::{OptionMatcher, SelectorItemKind, options_matches, scan_selector_items},
 };
 use oxc_css_parser::ast::SelectorList;
 
 pub struct SelectorTypeCase {
     pub mode: CaseMode,
-}
-
-impl Default for SelectorTypeCase {
-    fn default() -> Self {
-        Self {
-            mode: CaseMode::Lower,
-        }
-    }
+    pub ignore_types: Vec<OptionMatcher>,
 }
 
 const CAMEL_CASE_SVG_TAGS: &[&str] = &[
@@ -110,14 +103,22 @@ impl Rule for SelectorTypeCase {
         if ctx.in_keyframes() {
             return;
         }
+        if !crate::utils::is_standard_syntax_selector(ctx.slice(list.span)) {
+            return;
+        }
         let items = scan_selector_items(ctx.source, list.span);
         for item in items {
+            // `&-bar` suffixes and `%placeholder`s are not type selectors.
+            let prev = ctx.source.as_bytes()[..item.span.start as usize].last();
             if item.kind != SelectorItemKind::Type
                 || is_nth_anb_item(ctx.source, item.span.start as usize)
+                || matches!(prev, Some(b'&' | b'%'))
             {
                 continue;
             }
-            if CAMEL_CASE_SVG_TAGS.contains(&item.name) {
+            if CAMEL_CASE_SVG_TAGS.contains(&item.name)
+                || options_matches(&self.ignore_types, item.name)
+            {
                 continue;
             }
             let expected = match self.mode {
@@ -154,6 +155,29 @@ mod tests {
             "selector-type-case",
             json!("lower"),
             [":nth-child(ODD), :nth-child(2N + 1) {}"],
+            [],
+        )
+        .test();
+    }
+
+    #[test]
+    fn ignores_non_standard_scss_type_selectors() {
+        Tester::new(
+            "selector-type-case",
+            json!("upper"),
+            [".foo { &-bar {} }", "#{$variable} {}", "%foo {}", ".foo, %foo {}"],
+            [],
+        )
+        .with_custom_syntax("postcss-scss")
+        .test();
+    }
+
+    #[test]
+    fn ignore_types() {
+        Tester::new(
+            "selector-type-case",
+            json!(["lower", {"ignoreTypes": ["/^my/"]}]),
+            ["myParentClass { color: pink; }"],
             [],
         )
         .test();

@@ -80,7 +80,7 @@ impl UnitAllowedList {
     ) {
         let mut depth = 0usize;
         let mut skip_from: Option<usize> = None;
-        for token in tokens {
+        for (i, token) in tokens.iter().enumerate() {
             match token.kind {
                 ValueTokenKind::Function => {
                     depth += 1;
@@ -103,7 +103,15 @@ impl UnitAllowedList {
                 }
                 _ if skip_from.is_some() => {}
                 ValueTokenKind::Dimension { num_len } => {
-                    self.check_unit(&token.raw[num_len..], token.span, num_len, prop, ctx);
+                    // postcss-value-parser words run on into adjacent closing braces, e.g. `2rem}`.
+                    let mut span = token.span;
+                    for next in &tokens[i + 1..] {
+                        if next.span.start != span.end || !matches!(next.raw, "}" | "]") {
+                            break;
+                        }
+                        span.end = next.span.end;
+                    }
+                    self.check_unit(&token.raw[num_len..], span, num_len, prop, ctx);
                 }
                 ValueTokenKind::Percentage => self.check_percent(token.span, prop, ctx),
                 _ => {}
@@ -191,6 +199,13 @@ mod tests {
             (1, 18, 1, 19),
         )];
         Tester::new("unit-allowed-list", json!(["px"]), [], &fail).test();
+        let fail = [reject(
+            "a { margin: calc(100px - #{$margin * 2rem}); }",
+            None,
+            "Disallowed unit \"rem\"",
+            (1, 39, 1, 43),
+        )];
+        Tester::new("unit-allowed-list", json!(["px", "em"]), [], &fail).test();
     }
     #[test]
     fn default_config() {

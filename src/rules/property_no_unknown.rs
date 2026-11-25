@@ -535,6 +535,9 @@ impl Rule for PropertyNoUnknown {
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {
+        if ctx.less_detached_depth > 0 {
+            return;
+        }
         if ctx
             .ancestors
             .iter()

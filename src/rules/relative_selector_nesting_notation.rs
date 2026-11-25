@@ -48,14 +48,31 @@ impl Rule for RelativeSelectorNestingNotation {
         {
             return;
         }
+        let mut prev_end = None;
         for selector in &rule.selector.selectors {
+            let report_span = match prev_end.replace(selector.span.end) {
+                // postcss-selector-parser starts later selectors right after the comma and
+                // measures them by their trimmed text, leading comments included.
+                Some(prev) => {
+                    let between = ctx.slice_range(prev, selector.span.start);
+                    let start = prev + between.find(',').map_or(0, |i| i + 1) as u32;
+                    let text = ctx.slice_range(start, selector.span.end).trim_start();
+                    Span {
+                        start,
+                        end: start + text.len() as u32,
+                    }
+                }
+                None => selector.span,
+            };
             let raw = ctx.slice(selector.span);
             let trimmed = raw.trim();
             let leading = strip_leading_comments(trimmed);
             let has_ampersand = trimmed.contains('&');
             let explicit_ampersand = leading.strip_prefix('&');
-            let implicit_valid =
-                explicit_ampersand.is_none_or(|rest| strip_leading_comments(rest).starts_with(':'));
+            // Implicit nesting applies only when `&` is followed by a combinator.
+            let implicit_valid = explicit_ampersand.is_none_or(|rest| {
+                !rest.starts_with(|c: char| c.is_whitespace() || "/>+~|".contains(c))
+            });
             let valid = if self.explicit {
                 has_ampersand && !starts_with_combinator(leading)
             } else {
@@ -64,14 +81,10 @@ impl Rule for RelativeSelectorNestingNotation {
             if valid {
                 continue;
             }
-            let fix = if self.explicit && !has_ampersand {
-                Some(Fix::single(
-                    Span {
-                        start: selector.span.start,
-                        end: selector.span.start,
-                    },
-                    "& ",
-                ))
+            let fix = if self.explicit {
+                let at =
+                    selector.span.start + (raw.len() - strip_leading_comments(raw).len()) as u32;
+                Some(Fix::single(Span { start: at, end: at }, "& "))
             } else if let Some(rest) = explicit_ampersand.filter(|_| !self.explicit) {
                 let amp_start = selector.span.start + (raw.len() - leading.len()) as u32;
                 let whitespace = rest.len() - rest.trim_start().len();
@@ -87,7 +100,7 @@ impl Rule for RelativeSelectorNestingNotation {
             };
             ctx.report_with_fix(
                 self.name(),
-                selector.span,
+                report_span,
                 format!(
                     "Expected {} nesting notation",
                     if self.explicit {
@@ -104,7 +117,7 @@ impl Rule for RelativeSelectorNestingNotation {
 
 #[cfg(test)]
 mod tests {
-    use crate::tester::{Tester, reject_message};
+    use crate::tester::{Tester, reject_message, reject_warnings};
     use serde_json::json;
 
     #[test]
@@ -120,6 +133,11 @@ mod tests {
                 Some("a { & > a {} }"),
                 "Expected explicit nesting notation",
             ),
+            reject_message(
+                "a { + a & {} }",
+                Some("a { & + a & {} }"),
+                "Expected explicit nesting notation",
+            ),
         ];
         Tester::new(
             "relative-selector-nesting-notation",
@@ -133,7 +151,13 @@ mod tests {
 
     #[test]
     fn implicit_accepts_type_selectors_and_autofixes_relative_ampersands() {
-        let pass = ["a {}", "a { a {} }", "a { > a {} }", "a { &:hover {} }"];
+        let pass = [
+            "a {}",
+            "a { a {} }",
+            "a { > a {} }",
+            "a { &:hover {} }",
+            "a { &.foo {} }",
+        ];
         let fail = [
             reject_message(
                 "a { & a {} }",
@@ -153,6 +177,30 @@ mod tests {
             fail,
         )
         .with_fix(true)
+        .test();
+    }
+
+    #[test]
+    fn later_selectors_span_from_the_comma() {
+        let msg = || "Expected explicit nesting notation".to_string();
+        let fail = [
+            reject_warnings(
+                "a { > .foo, /* bar */ + .baz {} }",
+                None,
+                vec![(msg(), (1, 5, 1, 11)), (msg(), (1, 12, 1, 28))],
+            ),
+            reject_warnings(
+                "a { > .foo,\n  + .baz {} }",
+                None,
+                vec![(msg(), (1, 5, 1, 11)), (msg(), (1, 12, 2, 6))],
+            ),
+        ];
+        Tester::new(
+            "relative-selector-nesting-notation",
+            json!(["explicit"]),
+            [],
+            fail,
+        )
         .test();
     }
 }

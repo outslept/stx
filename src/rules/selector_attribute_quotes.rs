@@ -18,6 +18,29 @@ impl Default for SelectorAttributeQuotes {
     }
 }
 
+// shortcut: only simple `\x` escapes; values with hex escapes are kept raw.
+fn unescape(raw: &str) -> std::borrow::Cow<'_, str> {
+    if !raw.contains('\\') || has_hex_escape(raw) {
+        return raw.into();
+    }
+    let mut out = String::with_capacity(raw.len());
+    let mut chars = raw.chars();
+    while let Some(c) = chars.next() {
+        out.push(if c == '\\' {
+            chars.next().unwrap_or(c)
+        } else {
+            c
+        });
+    }
+    out.into()
+}
+
+fn has_hex_escape(raw: &str) -> bool {
+    raw.as_bytes()
+        .windows(2)
+        .any(|w| w[0] == b'\\' && w[1].is_ascii_hexdigit())
+}
+
 impl Rule for SelectorAttributeQuotes {
     fn name(&self) -> &'static str {
         "selector-attribute-quotes"
@@ -67,26 +90,29 @@ impl Rule for SelectorAttributeQuotes {
             match self.mode {
                 UrlQuoteMode::Always => {
                     if !is_quoted {
+                        let value = unescape(val_part);
+                        let quoted = match &value {
+                            std::borrow::Cow::Owned(v) => {
+                                v.replace('\\', "\\\\").replace('"', "\\\"")
+                            }
+                            std::borrow::Cow::Borrowed(v) => v.to_string(),
+                        };
                         ctx.report_with_fix(
                             self.name(),
                             val_span,
-                            format!("Expected quotes around \"{}\"", val_part),
-                            Some(Fix::single(val_span, format!("\"{}\"", val_part))),
+                            format!("Expected quotes around \"{value}\""),
+                            Some(Fix::single(val_span, format!("\"{quoted}\""))),
                         );
                     }
                 }
                 UrlQuoteMode::Never => {
                     if is_quoted && val_part.len() >= 2 {
                         let unquoted = &val_part[1..val_part.len() - 1];
-                        if !unquoted.is_empty()
-                            && unquoted
-                                .bytes()
-                                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-                        {
+                        if crate::utils::is_valid_identifier(unquoted) {
                             ctx.report_with_fix(
                                 self.name(),
                                 val_span,
-                                format!("Expected no quotes around \"{}\"", unquoted),
+                                format!("Expected no quotes around \"{}\"", unescape(unquoted)),
                                 Some(Fix::single(val_span, unquoted.to_string())),
                             );
                         }
@@ -94,5 +120,45 @@ impl Rule for SelectorAttributeQuotes {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tester::{Tester, reject};
+    use serde_json::json;
+
+    #[test]
+    fn always_unescapes_values_and_requotes_them() {
+        let fail = [
+            reject(
+                r#"[href=te\'s\"t] { }"#,
+                r#"[href="te's\"t"] { }"#,
+                r#"Expected quotes around "te's"t""#,
+                (1, 7, 1, 15),
+            ),
+            reject(
+                r"[href=\'test\'] { }",
+                r#"[href="'test'"] { }"#,
+                r#"Expected quotes around "'test'""#,
+                (1, 7, 1, 15),
+            ),
+        ];
+        Tester::new("selector-attribute-quotes", json!("always"), [], fail)
+            .with_fix(true)
+            .test();
+    }
+
+    #[test]
+    fn never_keeps_escapes_in_the_fix() {
+        let fail = [reject(
+            r#"[href="te\"s\"t"] { }"#,
+            r#"[href=te\"s\"t] { }"#,
+            r#"Expected no quotes around "te"s"t""#,
+            (1, 7, 1, 17),
+        )];
+        Tester::new("selector-attribute-quotes", json!("never"), [], fail)
+            .with_fix(true)
+            .test();
     }
 }

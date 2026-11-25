@@ -47,14 +47,14 @@ const FONT_FAMILY_KEYWORDS: &[&str] = &[
     "unset",
     "revert",
     "revert-layer",
-    "-apple-system",
-    "blinkmacsystemfont",
 ];
 
 fn is_keyword(s: &str) -> bool {
     FONT_FAMILY_KEYWORDS
         .iter()
         .any(|k| k.eq_ignore_ascii_case(s))
+        || crate::utils::PREFIXED_SYSTEM_FONTS.contains(&s)
+        || s == "BlinkMacSystemFont"
 }
 
 fn is_recommended_unquoted(s: &str) -> bool {
@@ -142,6 +142,47 @@ impl FontFamilyNameQuotes {
             end: last_span.end,
         };
         let raw_family = ctx.slice(full_span).trim();
+
+        if raw_family.contains("/*") {
+            // Comments join words like spaces; such names are reported without a fix.
+            let name = group
+                .iter()
+                .map(|t| match t.kind {
+                    ValueTokenKind::String if t.raw.len() >= 2 => &t.raw[1..t.raw.len() - 1],
+                    _ => t.raw,
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            let message = if group[0].kind == ValueTokenKind::String {
+                let unquote = is_keyword(&name)
+                    || match self.mode {
+                        FontFamilyQuoteMode::AlwaysWhereRecommended => {
+                            is_recommended_unquoted(&name)
+                        }
+                        FontFamilyQuoteMode::AlwaysUnlessKeyword => false,
+                        FontFamilyQuoteMode::AlwaysWhereRequired => {
+                            is_valid_unquoted_ident_sequence(&name)
+                        }
+                    };
+                unquote.then(|| format!("Expected no quotes around \"{name}\""))
+            } else {
+                let quote = !is_keyword(&name)
+                    && match self.mode {
+                        FontFamilyQuoteMode::AlwaysWhereRecommended => {
+                            !is_recommended_unquoted(&name)
+                        }
+                        FontFamilyQuoteMode::AlwaysUnlessKeyword => true,
+                        FontFamilyQuoteMode::AlwaysWhereRequired => {
+                            !is_valid_unquoted_ident_sequence(&name)
+                        }
+                    };
+                quote.then(|| format!("Expected quotes around \"{name}\""))
+            };
+            if let Some(message) = message {
+                ctx.report(self.name(), first_span, message);
+            }
+            return;
+        }
 
         if is_keyword(raw_family) {
             return;
@@ -231,7 +272,7 @@ impl Rule for FontFamilyNameQuotes {
 
 #[cfg(test)]
 mod tests {
-    use crate::tester::{Tester, reject};
+    use crate::tester::{Tester, reject, reject_message};
     use serde_json::json;
 
     #[test]
@@ -269,5 +310,57 @@ mod tests {
             &fail,
         )
         .test();
+    }
+
+    #[test]
+    fn names_with_comments_are_reported_without_fix() {
+        let fail = [
+            reject_message(
+                "a { font-family: Comic /* foo */ Sans, serif; }",
+                None,
+                "Expected quotes around \"Comic Sans\"",
+            ),
+            reject_message(
+                "a { font-family: Comic/* foo */Sans, serif; }",
+                None,
+                "Expected quotes around \"Comic Sans\"",
+            ),
+        ];
+        Tester::new(
+            "font-family-name-quotes",
+            json!("always-unless-keyword"),
+            [],
+            fail,
+        )
+        .with_fix(true)
+        .test();
+        let fail = [reject_message(
+            "a { font-family: \"Comic\" /* foo */ Sans, serif; }",
+            None,
+            "Expected no quotes around \"Comic Sans\"",
+        )];
+        Tester::new(
+            "font-family-name-quotes",
+            json!("always-where-required"),
+            [],
+            fail,
+        )
+        .with_fix(true)
+        .test();
+    }
+
+    #[test]
+    fn unquotes_prefixed_system_fonts() {
+        let fail = [crate::tester::reject_messages(
+            "a { font-family: '-webkit-control', '-moz-button'; }",
+            "a { font-family: -webkit-control, -moz-button; }",
+            vec![
+                "Expected no quotes around \"-webkit-control\"".into(),
+                "Expected no quotes around \"-moz-button\"".into(),
+            ],
+        )];
+        Tester::new("font-family-name-quotes", json!("always-unless-keyword"), [], fail)
+            .with_fix(true)
+            .test();
     }
 }

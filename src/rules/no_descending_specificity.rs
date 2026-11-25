@@ -147,7 +147,7 @@ fn compute_specificity_and_tail(selector: &str) -> Option<(Specificity, String)>
                     && ["before", "after", "first-line", "first-letter"]
                         .iter()
                         .any(|candidate| name.eq_ignore_ascii_case(candidate)));
-            if pseudo_element {
+            if !pseudo_element {
                 i = name_end;
                 continue;
             }
@@ -238,7 +238,7 @@ impl Rule for NoDescendingSpecificity {
 
 #[cfg(test)]
 mod tests {
-    use crate::tester::{Tester, reject_message};
+    use crate::tester::{Tester, reject, reject_message};
     use serde_json::json;
 
     #[test]
@@ -252,18 +252,22 @@ mod tests {
     }
 
     #[test]
-    fn compares_pseudo_classes_without_pseudo_elements() {
+    fn compares_last_compounds_without_pseudo_classes() {
         Tester::new(
             "no-descending-specificity",
             json!(true),
-            ["a:focus::before {} a:hover {}"],
+            [
+                "a:focus::before {} a:hover {}",
+                "a:hover::before { color: red; } a:hover { color: red; }",
+            ],
             &[],
         )
         .test();
-        let fail = [reject_message(
-            "#a:hover::before {} #a:hover {}",
+        let fail = [reject(
+            "a:hover::before { color: red; } a::before { color: red; } a { color: red; }",
             None,
-            "Expected selector \"#a:hover\" to come before selector \"#a:hover::before\", at line 1",
+            "Expected selector \"a::before\" to come before selector \"a:hover::before\", at line 1",
+            (1, 33, 1, 42),
         )];
         Tester::new("no-descending-specificity", json!(true), [], &fail).test();
     }

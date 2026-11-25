@@ -7,7 +7,7 @@ use crate::{
         parse_option_matchers, selector_pseudos_nested,
     },
 };
-use oxc_css_parser::ast::QualifiedRule;
+use oxc_css_parser::ast::{QualifiedRule, UnknownQualifiedRule};
 fn class_remap(name: &str) -> Option<&'static str> {
     match name {
         "focus-ring" => Some("focus-visible"),
@@ -38,7 +38,21 @@ impl Rule for SelectorNoDeprecated {
         "selector-no-deprecated"
     }
     fn check_qualified_rule<'a>(&self, rule: &'a QualifiedRule<'a>, ctx: &mut LintContext<'a>) {
-        let raw = ctx.slice(rule.selector.span);
+        self.check_selector(rule.selector.span, ctx);
+    }
+
+    fn check_unknown_qualified_rule<'a>(
+        &self,
+        rule: &'a UnknownQualifiedRule<'a>,
+        ctx: &mut LintContext<'a>,
+    ) {
+        self.check_selector(rule.prelude.span, ctx);
+    }
+}
+
+impl SelectorNoDeprecated {
+    fn check_selector(&self, selector: oxc_css_parser::Span, ctx: &mut LintContext<'_>) {
+        let raw = ctx.slice(selector);
         for (vs, ve, ns, ne, is_el) in selector_pseudos_nested(raw) {
             let value = &raw[vs..ve];
             let name = &raw[ns..ne];
@@ -47,8 +61,8 @@ impl Rule for SelectorNoDeprecated {
                 continue;
             }
             let span = oxc_css_parser::Span {
-                start: rule.selector.span.start + vs as u32,
-                end: rule.selector.span.start + ve as u32,
+                start: selector.start + vs as u32,
+                end: selector.start + ve as u32,
             };
             if is_el {
                 if !DEPRECATED_PSEUDO_ELEMENTS.contains(&lower.as_str()) {
@@ -57,14 +71,14 @@ impl Rule for SelectorNoDeprecated {
                 if let Some(remap) = element_remap(&lower) {
                     let mapped = format!("::{remap}");
                     ctx.report_with_fix(
-                        self.name(),
+                        Rule::name(self),
                         span,
                         format!("Expected \"{value}\" to be \"{mapped}\""),
                         Fix::single(span, mapped),
                     );
                 } else {
                     ctx.report(
-                        self.name(),
+                        Rule::name(self),
                         span,
                         format!("Deprecated selector \"{value}\""),
                     );
@@ -76,14 +90,14 @@ impl Rule for SelectorNoDeprecated {
                 if let Some(remap) = class_remap(&lower) {
                     let mapped = format!(":{remap}");
                     ctx.report_with_fix(
-                        self.name(),
+                        Rule::name(self),
                         span,
                         format!("Expected \"{value}\" to be \"{mapped}\""),
                         Fix::single(span, mapped),
                     );
                 } else {
                     ctx.report(
-                        self.name(),
+                        Rule::name(self),
                         span,
                         format!("Deprecated selector \"{value}\""),
                     );
@@ -139,6 +153,19 @@ mod tests {
             ),
         ];
         Tester::new("selector-no-deprecated", json!(true), &pass, &fail)
+            .with_fix(true)
+            .test();
+    }
+
+    #[test]
+    fn checks_rules_with_unparsed_selectors() {
+        let fail = [reject(
+            ":is(), :matches() {}",
+            ":is(), :is() {}",
+            "Expected \":matches\" to be \":is\"",
+            (1, 8, 1, 16),
+        )];
+        Tester::new("selector-no-deprecated", json!(true), [], fail)
             .with_fix(true)
             .test();
     }

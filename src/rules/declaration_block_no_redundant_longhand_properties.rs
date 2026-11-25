@@ -2,17 +2,18 @@ use std::{collections::HashMap, sync::OnceLock};
 
 use oxc_css_parser::{
     Span,
-    ast::{ComponentValue, Declaration, InterpolableIdent, SimpleBlock, Statement},
+    ast::{Declaration, InterpolableIdent, SimpleBlock, Statement},
 };
 use serde_json::{Map, Value};
 
 use crate::{
     context::{Fix, LintContext},
+    fix::Edit,
     rules::Rule,
     utils::{
-        OptionMatcher, SHORTHAND_PROPERTIES, decl_value_raw, in_set_ignore_case,
-        is_css_wide_keyword, is_descriptor_declaration, longhand_sub_properties_of_shorthand,
-        options_matches, parse_option_matchers, secondary_str_list, vendor_prefix,
+        OptionMatcher, SHORTHAND_PROPERTIES, decl_value_raw, is_css_wide_keyword,
+        is_descriptor_declaration, longhand_sub_properties_of_shorthand, options_matches,
+        parse_option_matchers, secondary_str_list, vendor_prefix,
     },
 };
 
@@ -84,149 +85,223 @@ fn declaration_end(source: &str, end: u32) -> u32 {
     }
 }
 
-fn is_simple_box_value(decl: &Declaration<'_>, shorthand: &str) -> bool {
-    let number = match decl.value.as_slice() {
-        [ComponentValue::Number(number)] => return number.raw == "0",
-        [ComponentValue::Dimension(dimension)]
-            if in_set_ignore_case(&["px", "em"], dimension.unit.raw) =>
-        {
-            &dimension.value
+/// postcss `decl.value`: comments removed, trimmed.
+fn clean_value(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut rest = value;
+    while let Some(start) = rest.find("/*") {
+        out.push_str(&rest[..start]);
+        match rest[start + 2..].find("*/") {
+            Some(end) => rest = &rest[start + 2 + end + 2..],
+            None => {
+                rest = "";
+                break;
+            }
         }
-        [ComponentValue::Percentage(percent)] => &percent.value,
-        [ComponentValue::InterpolableIdent(InterpolableIdent::Literal(ident))] => {
-            return matches!(
-                shorthand,
-                "margin"
-                    | "margin-block"
-                    | "margin-inline"
-                    | "inset"
-                    | "inset-block"
-                    | "inset-inline"
-            ) && ident.raw.eq_ignore_ascii_case("auto");
-        }
-        _ => return false,
-    };
-    number.value.is_finite() && number.raw.bytes().all(|b| b.is_ascii_digit() || b == b'.')
+    }
+    out.push_str(rest);
+    out.trim().to_string()
 }
 
-fn is_box_shorthand(shorthand: &str) -> bool {
-    matches!(
-        shorthand,
-        "margin"
-            | "margin-block"
-            | "margin-inline"
-            | "padding"
-            | "padding-block"
-            | "padding-inline"
-            | "inset"
-            | "inset-block"
-            | "inset-inline"
-            | "scroll-margin"
-            | "scroll-margin-block"
-            | "scroll-margin-inline"
-            | "scroll-padding"
-            | "scroll-padding-block"
-            | "scroll-padding-inline"
-    )
+fn comma_separated(value: Option<&str>) -> Vec<String> {
+    let Some(value) = value.map(str::trim).filter(|v| !v.is_empty()) else {
+        return Vec::new();
+    };
+    let mut parts = Vec::new();
+    let (mut depth, mut start) = (0usize, 0);
+    for (i, b) in value.bytes().enumerate() {
+        match b {
+            b'(' => depth += 1,
+            b')' => depth = depth.saturating_sub(1),
+            b',' if depth == 0 => {
+                parts.push(value[start..i].trim().to_string());
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(value[start..].trim().to_string());
+    parts.retain(|p| !p.is_empty());
+    parts
 }
 
-fn border_side_component(part: &Longhand<'_>, shorthand: &str) -> Option<usize> {
-    let InterpolableIdent::Literal(ident) = &part.decl.name else {
-        return None;
-    };
-    let suffix = ident
-        .raw
-        .to_ascii_lowercase()
-        .strip_prefix(shorthand)?
-        .strip_prefix('-')?
-        .to_owned();
-    match suffix.as_str() {
-        "width" => Some(0),
-        "style" => Some(1),
-        "color" => Some(2),
-        _ => None,
+/// Port of upstream `resolveShorthandValue`; `values` maps unprefixed longhands to cleaned values.
+fn resolve_shorthand_value(
+    name: &str,
+    shorthand: &str,
+    ordered: &[&str],
+    values: &HashMap<&str, String>,
+) -> Option<String> {
+    let get = |p: &str| values.get(p).map(String::as_str).filter(|v| !v.is_empty());
+    match name {
+        "font" => {
+            let [style, variant, weight, stretch, size, line_height, family] = [
+                "font-style",
+                "font-variant",
+                "font-weight",
+                "font-stretch",
+                "font-size",
+                "line-height",
+                "font-family",
+            ]
+            .map(get);
+            Some(format!(
+                "{} {} {} {} {}/{} {}",
+                style?, variant?, weight?, stretch?, size?, line_height?, family?
+            ))
+        }
+        "font-synthesis" => {
+            let parts = [
+                ("font-synthesis-weight", "weight"),
+                ("font-synthesis-style", "style"),
+                ("font-synthesis-small-caps", "small-caps"),
+            ];
+            let mut auto = Vec::new();
+            for (property, keyword) in parts {
+                match get(property)? {
+                    "auto" => auto.push(keyword),
+                    "none" => {}
+                    _ => return None,
+                }
+            }
+            Some(if auto.is_empty() {
+                "none".into()
+            } else {
+                auto.join(" ")
+            })
+        }
+        "grid-column" | "grid-row" => Some(format!(
+            "{} / {}",
+            get(&format!("{name}-start"))?,
+            get(&format!("{name}-end"))?
+        )),
+        "grid-template" => {
+            let areas = get("grid-template-areas")?;
+            let columns = get("grid-template-columns")?;
+            let rows = get("grid-template-rows")?;
+            if columns.contains("repeat(") || rows.contains("repeat(") {
+                return None;
+            }
+            let split_areas: Vec<&str> = areas
+                .split('"')
+                .skip(1)
+                .step_by(2)
+                .filter(|area| !area.is_empty())
+                .collect();
+            let split_rows: Vec<&str> = rows.split(' ').collect();
+            if split_areas.is_empty() || split_areas.len() != split_rows.len() {
+                return None;
+            }
+            let zipped: Vec<String> = split_areas
+                .iter()
+                .zip(&split_rows)
+                .map(|(area, row)| format!("\"{area}\" {row}"))
+                .collect();
+            Some(format!("{} / {columns}", zipped.join(" ")))
+        }
+        "transition" => {
+            let [delays, durations, timings, properties] = [
+                "transition-delay",
+                "transition-duration",
+                "transition-timing-function",
+                "transition-property",
+            ]
+            .map(|p| comma_separated(get(p)));
+            if delays.is_empty() || durations.is_empty() || timings.is_empty() {
+                return None;
+            }
+            let items: Vec<String> = properties
+                .iter()
+                .enumerate()
+                .map(|(i, property)| {
+                    [
+                        property,
+                        &durations[i % durations.len()],
+                        &timings[i % timings.len()],
+                        &delays[i % delays.len()],
+                    ]
+                    .map(String::as_str)
+                    .join(" ")
+                })
+                .collect();
+            (!items.is_empty()).then(|| items.join(", "))
+        }
+        _ if shorthand == "background" && values.contains_key("background-size") => None,
+        _ => Some(
+            ordered
+                .iter()
+                .filter_map(|p| get(p))
+                .collect::<Vec<_>>()
+                .join(" "),
+        ),
     }
 }
 
-fn is_simple_border_side_value(part: &Longhand<'_>, component: usize) -> bool {
-    match (component, part.decl.value.as_slice()) {
-        (0, [ComponentValue::Number(number)]) => number.raw == "0",
-        (0, [ComponentValue::Dimension(dimension)]) => {
-            in_set_ignore_case(&["px", "em"], dimension.unit.raw)
-                && dimension.value.value.is_finite()
-        }
-        (1, [ComponentValue::InterpolableIdent(InterpolableIdent::Literal(style))]) => {
-            in_set_ignore_case(
-                &[
-                    "none", "hidden", "dotted", "dashed", "solid", "double", "groove", "ridge",
-                    "inset", "outset",
-                ],
-                style.raw,
-            )
-        }
-        (2, [ComponentValue::InterpolableIdent(InterpolableIdent::Literal(_))]) => true,
-        _ => false,
+/// Byte range postcss drops with `decl.remove()`: the whitespace before it through its `;`.
+fn removal_span(source: &str, decl: &Declaration<'_>) -> Span {
+    let before =
+        source[..decl.span.start as usize].trim_end_matches(|c: char| c.is_ascii_whitespace());
+    Span {
+        start: before.len() as u32,
+        end: declaration_end(source, decl.span.end),
     }
 }
 
 fn shorthand_fix(
     ctx: &LintContext<'_>,
+    name: &str,
     shorthand: &str,
+    ordered: &[&str],
     parts: &[Longhand<'_>],
-    span: Span,
 ) -> Option<Fix> {
-    let grid = matches!(shorthand, "grid-row" | "grid-column");
-    let border_side = matches!(
-        shorthand,
-        "border-top" | "border-right" | "border-bottom" | "border-left"
-    );
-    if !(grid || border_side || is_box_shorthand(shorthand))
-        || is_descriptor_declaration(&ctx.ancestors)
-        || !ctx.slice(span).is_ascii()
-        || !ctx.comments_in_range(span.start, span.end).is_empty()
-        || parts.windows(2).any(|pair| {
-            ctx.slice_range(pair[0].decl.span.end, pair[1].decl.span.start)
-                .trim_ascii()
-                != ";"
-        })
+    if is_descriptor_declaration(&ctx.ancestors)
         || parts.iter().any(|part| {
             let (line, _) = ctx.line_index.line_col(ctx.source, part.decl.span.start);
             ctx.disables.is_suppressed(RULE_NAME, line)
-                || if grid {
-                    !part.value.parse::<i32>().is_ok_and(|n| n != 0)
-                } else if border_side {
-                    border_side_component(part, shorthand)
-                        .is_none_or(|component| !is_simple_border_side_value(part, component))
-                } else {
-                    !is_simple_box_value(part.decl, shorthand)
-                }
         })
     {
         return None;
     }
-
-    let mut values = vec![""; if border_side { 3 } else { parts.len() }];
+    let mut values = HashMap::new();
     for part in parts {
-        let slot = if border_side {
-            border_side_component(part, shorthand)?
-        } else {
-            part.slot
+        let InterpolableIdent::Literal(ident) = &part.decl.name else {
+            return None;
         };
-        values[slot] = part.value;
+        let lower = ident.raw.to_ascii_lowercase();
+        let prefix = vendor_prefix(&lower).unwrap_or_default().len();
+        let property = ordered.iter().find(|p| **p == &lower[prefix..])?;
+        values.insert(*property, clean_value(part.value));
     }
-    let separator = if grid { " / " } else { " " };
-    let mut replacement = format!("{shorthand}: {}", values.join(separator));
-    if let Some(important) = &parts[0].decl.important {
-        replacement.push(' ');
-        replacement.push_str(ctx.slice(important.span));
+    let value = resolve_shorthand_value(name, shorthand, ordered, &values)?;
+    if value.is_empty() {
+        return None;
     }
-    Some(Fix::single(
-        Span {
-            start: span.start,
-            end: parts.last()?.decl.span.end,
+    let first = parts.iter().min_by_key(|part| part.index)?;
+    let (_, value_span) = decl_value_raw(ctx.source, first.decl)?;
+    let InterpolableIdent::Literal(ident) = &first.decl.name else {
+        return None;
+    };
+    let mut edits = vec![
+        Edit {
+            span: ident.span,
+            replacement: name.to_string(),
         },
-        replacement,
-    ))
+        Edit {
+            span: value_span,
+            replacement: value,
+        },
+    ];
+    // shortcut: when the removed last declaration had no `;`, postcss would also drop the new last one's.
+    edits.extend(
+        parts
+            .iter()
+            .filter(|part| part.index != first.index)
+            .map(|part| Edit {
+                span: removal_span(ctx.source, part.decl),
+                replacement: String::new(),
+            }),
+    );
+    Some(Fix { edits })
 }
 
 impl Rule for DeclarationBlockNoRedundantLonghandProperties {
@@ -287,16 +362,26 @@ impl Rule for DeclarationBlockNoRedundantLonghandProperties {
                 if options_matches(&self.ignore_shorthands, shorthand) {
                     continue;
                 }
+                let ignored = longhand_sub_properties_of_shorthand(shorthand)
+                    .unwrap_or_default()
+                    .iter()
+                    .filter(|p| self.ignore_longhands.iter().any(|ignored| ignored == *p))
+                    .count();
+                let len = len - ignored;
                 let name = format!("{prefix}{shorthand}");
                 let group = groups.entry(name.clone()).or_default();
                 if group.shorthand_value == Some(value) {
-                    ctx.report(
+                    let (line, _) = ctx.line_index.line_col(ctx.source, decl.span.start);
+                    let fix = (!ctx.disables.is_suppressed(RULE_NAME, line))
+                        .then(|| Fix::single(removal_span(ctx.source, decl), ""));
+                    ctx.report_with_fix(
                         self.name(),
                         ident.span,
                         format!(
                             "Redundant longhand property \"{}\" after shorthand property \"{name}\"",
                             ident.raw
                         ),
+                        fix,
                     );
                     break;
                 }
@@ -331,11 +416,13 @@ impl Rule for DeclarationBlockNoRedundantLonghandProperties {
                     },
                     end: declaration_end(ctx.source, decl.span.end),
                 };
-                let fix = if contiguous && prefix.is_empty() {
-                    shorthand_fix(ctx, shorthand, parts, span)
-                } else {
-                    None
-                };
+                let ordered: Vec<&str> = longhand_sub_properties_of_shorthand(shorthand)
+                    .unwrap_or_default()
+                    .iter()
+                    .copied()
+                    .filter(|p| !self.ignore_longhands.iter().any(|ignored| ignored == p))
+                    .collect();
+                let fix = shorthand_fix(ctx, &name, shorthand, &ordered, parts);
                 ctx.report_with_fix(
                     self.name(),
                     span,
@@ -388,25 +475,25 @@ mod tests {
             ),
             reject(
                 "a { -WEBKIT-transition-delay: 0.5s; -webKIT-transition-duration: 2s; -webkit-TRANSITION-property: top; -webkit-transition-timing-function: ease; }",
-                None,
+                "a { -webkit-transition: top 2s ease 0.5s; }",
                 "Expected shorthand property \"-webkit-transition\"",
                 (1, 5, 1, 145),
             ),
             reject(
                 "a {\n\tmargin-left: 40px;\n\tmargin-right: 10px;\n\tmargin-top: 20px;\n\tcolor: blue;\n\tmargin-bottom: 30px;\n}",
-                None,
+                "a {\n\tmargin: 20px 10px 30px 40px;\n\tcolor: blue;\n}",
                 "Expected shorthand property \"margin\"",
                 (6, 2, 6, 22),
             ),
             reject(
                 "a { background: red; background-color: red; }",
-                None,
+                "a { background: red; }",
                 "Redundant longhand property \"background-color\" after shorthand property \"background\"",
                 (1, 22, 1, 38),
             ),
             reject(
                 "a { margin: 1px; margin-left: 2px; margin-left: 1px !important; }",
-                None,
+                "a { margin: 1px; margin-left: 2px; }",
                 "Redundant longhand property \"margin-left\" after shorthand property \"margin\"",
                 (1, 36, 1, 47),
             ),
@@ -424,9 +511,13 @@ mod tests {
             [
                 "a { border-top-width: 7px; border-top-style: double; border-top-color: green; }",
                 "a { padding: 5px; padding-top: 5px; }",
-                "a { grid-row-start: 1; grid-row-end: 2; }",
             ],
-            [],
+            [reject(
+                "a { grid-row-start: 1; grid-row-end: 2; }",
+                None,
+                "Expected shorthand property \"grid-row\"",
+                (1, 5, 1, 23),
+            )],
         )
         .with_fix(true)
         .test();
@@ -434,6 +525,19 @@ mod tests {
 
     #[test]
     fn declaration_block_no_redundant_longhand_properties_safe_fixes() {
+        Tester::new(
+            RULE_NAME,
+            json!([true, {"ignoreLonghands": "text-decoration-thickness"}]),
+            [],
+            [reject(
+                "a { text-decoration-line: underline; text-decoration-style: solid; text-decoration-color: purple; }",
+                "a { text-decoration: underline solid purple; }",
+                "Expected shorthand property \"text-decoration\"",
+                (1, 5, 1, 98),
+            )],
+        )
+        .with_fix(true)
+        .test();
         let fail = [
             reject(
                 "a { MARGIN-LEFT: 10px; MARGIN-RIGHT: 10px; margin-top: 20px; margin-bottom: 30px; }",
@@ -449,7 +553,7 @@ mod tests {
             ),
             reject(
                 "a {\n  padding-top: var(--space);\n  padding-right: 2px;\n  padding-bottom: 3px;\n  padding-left: 4px;\n}",
-                None,
+                "a {\n  padding: var(--space) 2px 3px 4px;\n}",
                 "Expected shorthand property \"padding\"",
                 (2, 3, 5, 21),
             ),
@@ -484,11 +588,11 @@ mod tests {
     }
 
     #[test]
-    fn ambiguous_shorthands_are_not_fixed() {
+    fn custom_resolvers_and_unsplittable_grid_templates() {
         let fail = [
             reject(
                 "a { font-style: italic; font-variant: normal; font-weight: bold; font-size: .8em; font-family: Arial; line-height: 1.2; font-stretch: normal; }",
-                None,
+                "a { font: italic normal bold normal .8em/1.2 Arial; }",
                 "Expected shorthand property \"font\"",
                 (1, 5, 1, 142),
             ),
@@ -500,13 +604,13 @@ mod tests {
             ),
             reject(
                 "a { grid-row-start: span 2; grid-row-end: 3; }",
-                None,
+                "a { grid-row: span 2 / 3; }",
                 "Expected shorthand property \"grid-row\"",
                 (1, 5, 1, 45),
             ),
             reject(
                 "a { border-top-width: var(--w); border-top-style: solid; border-top-color: red; }",
-                None,
+                "a { border-top: var(--w) solid red; }",
                 "Expected shorthand property \"border-top\"",
                 (1, 5, 1, 80),
             ),

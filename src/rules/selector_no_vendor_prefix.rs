@@ -2,32 +2,25 @@ use crate::{
     context::LintContext,
     fix::Fix,
     rules::Rule,
-    utils::{SelectorItemKind, scan_selector_items},
+    utils::{
+        OptionMatcher, SelectorItemKind, is_autoprefixable_selector, options_matches,
+        parse_option_matchers, scan_selector_items,
+    },
 };
 use oxc_css_parser::{Span, ast::SelectorList};
+use serde_json::{Map, Value};
 
-pub struct SelectorNoVendorPrefix;
+pub struct SelectorNoVendorPrefix {
+    ignore_selectors: Vec<OptionMatcher>,
+}
 
-const PREFIXED_SELECTORS: &[&str] = &[
-    "-webkit-autofill",
-    "-webkit-any-link",
-    "-moz-any-link",
-    "-webkit-full-screen",
-    "-moz-full-screen",
-    "-ms-fullscreen",
-    "-moz-placeholder",
-    "-ms-input-placeholder",
-    "-webkit-input-placeholder",
-    "-moz-selection",
-    "-moz-focus-inner",
-    "-moz-ui-invalid",
-    "-moz-ui-valid",
-    "-moz-read-only",
-    "-moz-read-write",
-    "-webkit-file-upload-button",
-    "-webkit-backdrop",
-    "-ms-backdrop",
-];
+impl SelectorNoVendorPrefix {
+    pub fn from_secondary(secondary: Option<&Map<String, Value>>) -> Self {
+        Self {
+            ignore_selectors: parse_option_matchers(secondary, "ignoreSelectors"),
+        }
+    }
+}
 
 fn strip_prefix(s: &str) -> Option<&str> {
     let lower = s.to_ascii_lowercase();
@@ -53,23 +46,21 @@ impl Rule for SelectorNoVendorPrefix {
                 _ => continue,
             };
 
-            if PREFIXED_SELECTORS
-                .iter()
-                .any(|s| s.eq_ignore_ascii_case(item.name))
+            let raw = ctx.slice(item.span);
+            if is_autoprefixable_selector(raw)
+                && !options_matches(&self.ignore_selectors, raw)
+                && let Some(unprefixed) = strip_prefix(item.name)
             {
-                if let Some(unprefixed) = strip_prefix(item.name) {
-                    let raw = ctx.slice(item.span);
-                    let name_span = Span {
-                        start: colon_end,
-                        end: item.span.end,
-                    };
-                    ctx.report_with_fix(
-                        self.name(),
-                        item.span,
-                        format!("Vendor-prefixed selector \"{}\"", raw),
-                        Some(Fix::single(name_span, unprefixed.to_string())),
-                    );
-                }
+                let name_span = Span {
+                    start: colon_end,
+                    end: item.span.end,
+                };
+                ctx.report_with_fix(
+                    self.name(),
+                    item.span,
+                    format!("Vendor-prefixed selector \"{}\"", raw),
+                    Some(Fix::single(name_span, unprefixed.to_string())),
+                );
             }
         }
     }

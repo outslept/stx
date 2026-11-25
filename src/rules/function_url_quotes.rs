@@ -269,4 +269,17 @@ mod tests {
         )
         .test();
     }
+
+    #[test]
+    fn import_url_with_inner_whitespace() {
+        let fail = [reject(
+            "@import url( foo.css );",
+            "@import url( \"foo.css\" );",
+            "Expected quotes around \"url\" function argument",
+            (1, 14, 1, 22),
+        )];
+        Tester::new("function-url-quotes", json!(["always"]), [], &fail)
+            .with_fix(true)
+            .test();
+    }
 }

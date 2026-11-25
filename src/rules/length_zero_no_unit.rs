@@ -114,7 +114,10 @@ impl LengthZeroNoUnit {
                         self.name(),
                         unit_span,
                         "Disallowed unit".to_string(),
-                        Some(Fix::single(tok.span, "0".to_string())),
+                        Some(Fix::single(
+                            tok.span,
+                            num_str.strip_prefix('.').unwrap_or(num_str),
+                        )),
                     );
                 }
             }
@@ -128,6 +131,9 @@ impl Rule for LengthZeroNoUnit {
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {
+        if ctx.less_detached_depth > 0 {
+            return;
+        }
         let InterpolableIdent::Literal(ident) = &decl.name else {
             return;
         };
@@ -189,5 +195,26 @@ mod tests {
             ),
         ];
         Tester::new("length-zero-no-unit", json!(true), &accept, &fail).test();
+    }
+
+    #[test]
+    fn fix_keeps_the_number_but_drops_a_leading_dot() {
+        let fail = [
+            reject(
+                "a { top: 0.000px; }",
+                "a { top: 0.000; }",
+                "Disallowed unit",
+                (1, 15, 1, 17),
+            ),
+            reject(
+                "a { top: .0px; }",
+                "a { top: 0; }",
+                "Disallowed unit",
+                (1, 12, 1, 14),
+            ),
+        ];
+        Tester::new("length-zero-no-unit", json!(true), [], &fail)
+            .with_fix(true)
+            .test();
     }
 }

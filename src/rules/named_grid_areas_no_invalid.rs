@@ -104,6 +104,7 @@ impl Rule for NamedGridAreasNoInvalid {
             }
         }
 
+        areas.sort_by_key(|(name, _)| *name);
         for (name, coords) in areas {
             let min_r = coords.iter().map(|c| c.0).min().unwrap_or(0);
             let max_r = coords.iter().map(|c| c.0).max().unwrap_or(0);
@@ -114,10 +115,44 @@ impl Rule for NamedGridAreasNoInvalid {
             if coords.len() != expected_count {
                 ctx.report(
                     self.name(),
-                    decl.span,
+                    rows[coords[0].0].1,
                     format!("Expected single filled-in rectangle for \"{name}\""),
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tester::{Tester, reject, reject_warnings};
+    use serde_json::json;
+
+    fn rect(name: &str) -> String {
+        format!("Expected single filled-in rectangle for \"{name}\"")
+    }
+
+    #[test]
+    fn reports_on_first_string_with_area_in_name_order() {
+        let fail = [
+            reject(
+                "a { grid-template-areas: \"a a a\" \"b b a\"; }",
+                None,
+                rect("a"),
+                (1, 26, 1, 33),
+            ),
+            reject_warnings(
+                "a { grid-template-areas: \"c b a\" \"a c a\"; }",
+                None,
+                vec![(rect("a"), (1, 26, 1, 33)), (rect("c"), (1, 26, 1, 33))],
+            ),
+            reject(
+                "a { grid-template-areas: \"x y\" \"z y\" \"z x\"; }",
+                None,
+                rect("x"),
+                (1, 26, 1, 31),
+            ),
+        ];
+        Tester::new("named-grid-areas-no-invalid", json!(true), [], fail).test();
     }
 }

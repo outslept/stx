@@ -3,11 +3,11 @@ use crate::{
     rules::Rule,
     utils::{
         NAMED_COLORS_KEYWORDS, SYSTEM_COLORS_KEYWORDS, UNITS, ValueToken, ValueTokenKind,
-        decl_value_span, ident_name, in_set_ignore_case, is_custom_property,
-        is_standard_syntax_declaration, is_valid_hex, tokenize_value,
+        decl_value_span, ident_name, in_set_ignore_case, is_custom_property, is_valid_hex,
+        tokenize_value,
     },
 };
-use oxc_css_parser::ast::Declaration;
+use oxc_css_parser::{Span, ast::Declaration};
 
 pub struct DeclarationPropertyValueNoUnknown;
 
@@ -317,7 +317,7 @@ impl Rule for DeclarationPropertyValueNoUnknown {
         let Some(prop) = ident_name(&decl.name) else {
             return;
         };
-        if !is_standard_syntax_declaration(decl) || is_custom_property(prop) {
+        if !ctx.is_standard_declaration(decl) || is_custom_property(prop) {
             return;
         }
         let Some(span) = decl_value_span(ctx.source, decl) else {
@@ -331,10 +331,30 @@ impl Rule for DeclarationPropertyValueNoUnknown {
         if valid {
             return;
         }
+        // css-tree points at the first mismatching node, skipping leading comments.
+        let lower = prop.to_ascii_lowercase();
+        let bad = tokens.iter().position(|token| {
+            known_length_property(&lower, token.raw, std::slice::from_ref(token)) == Some(false)
+        });
+        let report_span = match (bad, tokens.first()) {
+            (Some(i), _) => tokens[i].span,
+            (None, Some(first)) => Span {
+                start: first.span.start,
+                end: span.end,
+            },
+            (None, None) => {
+                let rest = &ctx.source[span.start as usize..];
+                let start = span.start + (rest.len() - rest.trim_start().len()) as u32;
+                Span { start, end: start }
+            }
+        };
         ctx.report(
             self.name(),
-            span,
-            format!("Unknown value \"{}\" for property \"{prop}\"", value.trim()),
+            report_span,
+            format!(
+                "Unknown value \"{}\" for property \"{prop}\"",
+                ctx.slice(report_span).trim()
+            ),
         );
     }
 }
@@ -342,7 +362,7 @@ impl Rule for DeclarationPropertyValueNoUnknown {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tester::{Tester, reject_message};
+    use crate::tester::{Tester, reject, reject_message};
     use serde_json::json;
 
     #[test]
@@ -412,6 +432,37 @@ mod tests {
             json!(true),
             &pass,
             &fail,
+        )
+        .test();
+    }
+
+    #[test]
+    fn reports_the_mismatching_part_of_the_value() {
+        let fail = [
+            reject(
+                "a {\n\ttop: /* a comment */\n\t\tred;\n}",
+                None,
+                "Unknown value \"red\" for property \"top\"",
+                (3, 3, 3, 6),
+            ),
+            reject(
+                "a { color: ; }",
+                None,
+                "Unknown value \"\" for property \"color\"",
+                (1, 12, 1, 13),
+            ),
+            reject(
+                "a { padding: 10px --bar; }",
+                None,
+                "Unknown value \"--bar\" for property \"padding\"",
+                (1, 19, 1, 24),
+            ),
+        ];
+        Tester::new(
+            "declaration-property-value-no-unknown",
+            json!(true),
+            [],
+            fail,
         )
         .test();
     }

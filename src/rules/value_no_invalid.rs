@@ -2,8 +2,7 @@ use crate::{
     context::LintContext,
     rules::Rule,
     utils::{
-        ValueToken, ValueTokenKind, decl_value_span, is_standard_syntax_declaration,
-        is_standard_syntax_value, tokenize_value,
+        ValueToken, ValueTokenKind, decl_value_span, is_standard_syntax_value, tokenize_value,
     },
 };
 use oxc_css_parser::{Span, ast::Declaration};
@@ -34,7 +33,7 @@ impl Rule for ValueNoInvalid {
     }
 
     fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {
-        if !is_standard_syntax_declaration(decl) {
+        if !ctx.is_standard_declaration(decl) {
             return;
         }
         let Some(span) = decl_value_span(ctx.source, decl) else {
@@ -46,45 +45,59 @@ impl Rule for ValueNoInvalid {
         }
 
         let tokens = tokenize_value(ctx.source, span);
-        let mut function_stack = Vec::new();
+        // (is math, index of the function token)
+        let mut function_stack: Vec<(bool, usize)> = Vec::new();
         let mut math_depth = 0usize;
+        // css-calc stops at the first error of a math expression.
+        let mut reported = false;
         for (index, token) in tokens.iter().enumerate() {
             if token.kind == ValueTokenKind::Function {
                 let math = is_math_function(token);
-                function_stack.push(math);
+                function_stack.push((math, index));
                 math_depth += usize::from(math);
                 continue;
             }
+            let mut left_start = token.span.start;
+            let mut left_is_dim = is_dim(&token.kind);
             if token.kind == ValueTokenKind::CloseParen {
-                if let Some(math) = function_stack.pop() {
-                    math_depth -= usize::from(math);
-                } else {
+                let Some((math, open)) = function_stack.pop() else {
                     ctx.report(
                         self.name(),
                         token.span,
                         "Invalid value \")\", unexpected input",
                     );
+                    continue;
+                };
+                math_depth -= usize::from(math);
+                if math_depth == 0 {
+                    reported = false;
                 }
-                continue;
+                // A nested math function with dimensional arguments resolves to a dimension.
+                if !(math && math_depth > 0 && tokens[open..index].iter().any(|t| is_dim(&t.kind)))
+                {
+                    continue;
+                }
+                left_start = tokens[open].span.start;
+                left_is_dim = true;
             }
-            if math_depth == 0 || index + 2 >= tokens.len() {
+            if reported || math_depth == 0 || index + 2 >= tokens.len() {
                 continue;
             }
 
-            let left = token;
             let operator = &tokens[index + 1];
             let right = &tokens[index + 2];
             if !matches!(operator.raw, "+" | "-") {
                 continue;
             }
-            let invalid = (is_dim(&left.kind) && right.kind == ValueTokenKind::Number)
-                || (left.kind == ValueTokenKind::Number && is_dim(&right.kind));
+            let invalid = (left_is_dim && right.kind == ValueTokenKind::Number)
+                || (token.kind == ValueTokenKind::Number && is_dim(&right.kind));
             if !invalid {
                 continue;
             }
+            reported = true;
 
             let range = Span {
-                start: left.span.start,
+                start: left_start,
                 end: right.span.end,
             };
             let subject = ctx.slice(range);
@@ -127,6 +140,11 @@ mod tests {
                 "a { width: calc(10 - 20px); }",
                 None,
                 "Invalid value \"10 - 20px\", a number and a dimension or percentage cannot be subtracted",
+            ),
+            reject_message(
+                "a { height: calc(max(10px, 5px) + 2 + 3px); }",
+                None,
+                "Invalid value \"max(10px, 5px) + 2\", a number and a dimension or percentage cannot be added",
             ),
             reject_message(
                 "a { width: min(10px + 2, 20px); }",
