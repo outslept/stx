@@ -1,0 +1,11 @@
+{
+  "name": "stx-example",
+  "private": true,
+  "scripts": {
+    "lint": "stx \"src/**/*.css\"",
+    "lint:fix": "npm run lint -- --fix"
+  },
+  "devDependencies": {
+    "@outslept/stx": "file:../napi"
+  }
+}
