@@ -488,7 +488,90 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use super::{Config, ignore_matcher, ignored_by};
+    use super::{
+        Cli, Config, FileReport, Formatter, Path, StylelintWarning, format_report, ignore_matcher,
+        ignored_by, lint_source,
+    };
+    use clap::Parser;
+    use serde_json::{Value, json};
+
+    #[test]
+    fn text_formatter_lists_sources_and_warning_severities() {
+        let cwd = Path::new("project");
+        let cli = Cli::try_parse_from(["stx", "--formatter", "text"]).unwrap();
+        let report = |file, severity, text: &str| FileReport {
+            source: cwd.join(file).display().to_string(),
+            warnings: vec![StylelintWarning {
+                line: 1,
+                column: 2,
+                end_line: 1,
+                end_column: 5,
+                rule: "example-rule",
+                severity,
+                text: text.into(),
+                fix: None,
+            }],
+            ..FileReport::default()
+        };
+        let reports = [
+            report("a.css", "error", "Unexpected foo"),
+            report("b.css", "warning", "Unexpected 色"),
+        ];
+        assert_eq!(
+            format_report(cwd, &reports, &cli.formatter, 2).unwrap(),
+            "\na.css\n  1:2  error  Unexpected foo\n\nb.css\n  1:2  warning  Unexpected 色\n\n2 problems in 2 files\n"
+        );
+        assert_eq!(
+            format_report(cwd, &reports[..1], &cli.formatter, 1).unwrap(),
+            "\na.css\n  1:2  error  Unexpected foo\n\n1 problem in 1 file\n"
+        );
+    }
+
+    #[test]
+    fn only_verbose_text_reports_a_summary_without_warnings() {
+        let cwd = Path::new("project");
+        let reports = [FileReport {
+            source: "clean.css".into(),
+            ..FileReport::default()
+        }];
+        assert_eq!(
+            format_report(cwd, &reports, &Formatter::String, 0).unwrap(),
+            ""
+        );
+        assert_eq!(
+            format_report(cwd, &reports, &Formatter::Verbose, 0).unwrap(),
+            "\n0 problems in 1 file\n"
+        );
+    }
+
+    #[test]
+    fn json_formatter_serializes_public_warning_fields_without_edit_data() {
+        let cwd = Path::new("project");
+        let cli = Cli::try_parse_from(["stx", "--formatter", "json"]).unwrap();
+        let config = Config::from_json_str(r#"{"rules":{"color-hex-length":"short"}}"#).unwrap();
+        let (report, _) = lint_source("a { color: #ffffff; }", None, &config, &cli);
+        assert!(report.warnings[0].fix.is_some());
+        let output = format_report(cwd, &[report], &cli.formatter, 1).unwrap();
+        assert!(output.ends_with('\n'));
+        assert_eq!(
+            serde_json::from_str::<Value>(&output).unwrap(),
+            json!([{
+                "source": "<stdin>",
+                "errored": true,
+                "ignored": false,
+                "autofixed": false,
+                "warnings": [{
+                    "line": 1,
+                    "column": 12,
+                    "endLine": 1,
+                    "endColumn": 19,
+                    "rule": "color-hex-length",
+                    "severity": "error",
+                    "text": "Expected \"#ffffff\" to be \"#fff\" (color-hex-length)"
+                }]
+            }])
+        );
+    }
 
     #[test]
     fn configured_ignore_files_match_paths_under_the_config_directory() {

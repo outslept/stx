@@ -41,3 +41,40 @@ impl LineIndex {
         (line_number, col_number)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::LineIndex;
+
+    #[test]
+    fn handles_mixed_line_endings_and_clamps_past_eof() {
+        let source = "a\r\n\nb\n";
+        let index = LineIndex::new(source);
+        for (offset, expected) in [
+            (0, (1, 1)),
+            (3, (2, 1)),
+            (4, (3, 1)),
+            (5, (3, 2)),
+            (6, (4, 1)),
+            (u32::MAX, (4, 1)),
+        ] {
+            assert_eq!(index.line_col(source, offset), expected, "offset {offset}");
+        }
+        assert_eq!(LineIndex::new("").line_col("", 0), (1, 1));
+    }
+
+    #[test]
+    fn counts_unicode_scalars_instead_of_utf8_bytes() {
+        let source = "é😀x\r\n界z";
+        let index = LineIndex::new(source);
+        for (offset, expected) in [
+            (2, (1, 2)),
+            (6, (1, 3)),
+            (9, (2, 1)),
+            (12, (2, 2)),
+            (13, (2, 3)),
+        ] {
+            assert_eq!(index.line_col(source, offset), expected, "offset {offset}");
+        }
+    }
+}

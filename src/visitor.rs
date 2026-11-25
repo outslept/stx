@@ -239,3 +239,63 @@ impl<'r, 'a> SinglePassVisitor<'r, 'a> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{AstParent, ConfiguredRule, Declaration, LintContext};
+    use crate::{diagnostic::Severity, lint_once, rules::Rule};
+    use oxc_css_parser::Syntax;
+
+    struct Ancestry;
+
+    impl Rule for Ancestry {
+        fn name(&self) -> &'static str {
+            "test-ancestry"
+        }
+
+        fn check_declaration<'a>(&self, decl: &'a Declaration<'a>, ctx: &mut LintContext<'a>) {
+            let ancestors = ctx
+                .ancestors
+                .iter()
+                .map(|parent| match parent {
+                    AstParent::QualifiedRule(rule) => ctx.slice(rule.selector.span),
+                    AstParent::AtRule(rule) => rule.name.name,
+                    AstParent::KeyframeBlock(_) => "keyframe",
+                })
+                .collect::<Vec<_>>();
+            ctx.report(self.name(), decl.span, ancestors.join(" > "));
+        }
+    }
+
+    #[test]
+    fn tracks_ancestors_in_order_and_pops_them_between_siblings() {
+        let rules = [ConfiguredRule {
+            rule: Box::new(Ancestry),
+            severity: Severity::Error,
+            custom_message: None,
+        }];
+        let pass = lint_once(
+            "@media screen {
+                .outer { & .inner { color: red; } color: blue; }
+                @keyframes fade { from { opacity: 0; } }
+                .sibling { color: green; }
+            }
+            .root { color: black; }",
+            Syntax::Css,
+            &rules,
+            false,
+        );
+        assert!(pass.parse_error.is_none(), "{:?}", pass.parse_error);
+        let messages: Vec<_> = pass.warnings.iter().map(|w| w.text.as_str()).collect();
+        assert_eq!(
+            messages,
+            [
+                "media > .outer > & .inner (test-ancestry)",
+                "media > .outer (test-ancestry)",
+                "media > keyframes > keyframe (test-ancestry)",
+                "media > .sibling (test-ancestry)",
+                ".root (test-ancestry)",
+            ]
+        );
+    }
+}
