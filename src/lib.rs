@@ -2,29 +2,19 @@
 //!
 //! See [`rules`] for rule configuration and CSS examples, and [`utils`] for the
 //! source, AST, and configuration helpers used by rule implementations.
-
 pub mod cli;
 pub mod config;
-mod context;
 pub mod diagnostic;
-mod disable;
-mod fix;
-mod line_index;
+mod lint;
 pub mod rules;
 #[cfg(test)]
 mod tester;
 pub mod utils;
-mod visitor;
 
-use context::LintContext;
-use diagnostic::StylelintWarning;
-use disable::DisableDirectives;
-use line_index::LineIndex;
+pub use lint::{LintPass, lint_and_fix, lint_once};
+pub(crate) use lint::{context, disable, fix, fix::fix_from_pass, line_index, visitor};
 pub use oxc_css_parser::Syntax;
-use oxc_css_parser::{Allocator, ParserBuilder, ast::Stylesheet, token::Comment};
-use rules::ConfiguredRule;
 use std::path::Path;
-use visitor::SinglePassVisitor;
 
 pub fn syntax_for_path(path: &Path) -> Option<Syntax> {
     match path.extension()?.to_str()? {
@@ -36,182 +26,105 @@ pub fn syntax_for_path(path: &Path) -> Option<Syntax> {
     }
 }
 
-#[derive(Default)]
-pub struct LintPass {
-    pub warnings: Vec<StylelintWarning>,
-    pub fixes: Vec<fix::Fix>,
-    pub parse_error: Option<StylelintWarning>,
-}
+#[cfg(test)]
+mod tests {
+    use super::{Syntax, config::Config, lint_once, rules::build_rules};
 
-impl LintPass {
-    pub fn into_warnings(self) -> Vec<StylelintWarning> {
-        let mut warnings = self.warnings;
-        warnings.extend(self.parse_error);
-        warnings.sort_by_key(|w| (w.line, w.column, w.rule));
-        warnings
+    fn lines_with_warnings(source: &str, syntax: Syntax) -> Vec<usize> {
+        let config = Config::from_json_str(r#"{"rules":{"color-hex-length":"short"}}"#).unwrap();
+        let pass = lint_once(source, syntax, &build_rules(&config), false);
+        pass.warnings.iter().map(|w| w.line).collect()
     }
-}
 
-fn run_pass<'a>(
-    input: &'a str,
-    stylesheet: &'a Stylesheet<'a>,
-    comments: &'a [Comment<'a>],
-    syntax: Syntax,
-    active_rules: &[ConfiguredRule],
-    quiet: bool,
-) -> LintPass {
-    let source = input.strip_prefix('\u{feff}').unwrap_or(input);
-    let bom_len = (input.len() - source.len()) as u32;
-    let line_index = LineIndex::new(source);
-    let disables = DisableDirectives::parse(comments, source, &line_index);
-    let mut ctx = LintContext::new(
-        source,
-        stylesheet,
-        comments,
-        &line_index,
-        &disables,
-        bom_len != 0,
-        syntax,
-    );
-    SinglePassVisitor::new(&mut ctx, active_rules).visit_stylesheet(stylesheet);
-    let fixes = ctx.fixes();
-    let mut pass = LintPass {
-        warnings: ctx.into_warnings(quiet),
-        fixes,
-        parse_error: None,
-    };
-    if bom_len != 0 {
-        for fix in pass
-            .fixes
-            .iter_mut()
-            .chain(pass.warnings.iter_mut().filter_map(|w| w.fix.as_mut()))
-        {
-            for edit in &mut fix.edits {
-                edit.span.start += bom_len;
-                edit.span.end += bom_len;
-            }
-        }
+    #[test]
+    fn disable_comments_suppress_warnings() {
+        let scss = "// stylelint-disable-next-line color-hex-length\na { color: #FFFFFF; }\nb { color: #FFFFFF; }\n";
+        assert_eq!(lines_with_warnings(scss, Syntax::Scss), [3]);
+        let less = "a { color: #FFFFFF; } // stylelint-disable-line color-hex-length\nb { color: #FFFFFF; }\n";
+        assert_eq!(lines_with_warnings(less, Syntax::Less), [2]);
+        let reenabled = "/* stylelint-disable */\na { color: #FFFFFF; }\n/* stylelint-enable color-hex-length */\nb { color: #FFFFFF; }\n";
+        assert_eq!(lines_with_warnings(reenabled, Syntax::Css), [4]);
     }
-    pass
-}
 
-pub fn lint_once(
-    input: &str,
-    syntax: Syntax,
-    active_rules: &[ConfiguredRule],
-    quiet: bool,
-) -> LintPass {
-    let allocator = Allocator::default();
-    let mut parser = ParserBuilder::new(&allocator, input)
-        .syntax(syntax)
-        .comments()
-        .build();
-    let err = match parser.parse::<Stylesheet>() {
-        Ok(stylesheet) => {
-            return run_pass(
-                input,
-                &stylesheet,
-                parser.comments(),
-                syntax,
-                active_rules,
-                quiet,
-            );
-        }
-        Err(err) => err,
-    };
-
-    if input.chars().any(|c| !c.is_ascii() && c.is_whitespace()) {
-        let mut sanitized = String::with_capacity(input.len());
-        for ch in input.chars() {
-            if !ch.is_ascii() && ch.is_whitespace() {
-                sanitized.push_str(&"    "[..ch.len_utf8()]);
-            } else {
-                sanitized.push(ch);
-            }
-        }
-        let alloc2 = Allocator::default();
-        let mut parser2 = ParserBuilder::new(&alloc2, &sanitized)
-            .syntax(syntax)
-            .comments()
-            .build();
-        if let Ok(stylesheet) = parser2.parse::<Stylesheet>() {
-            return run_pass(
-                input,
-                &stylesheet,
-                parser2.comments(),
-                syntax,
-                active_rules,
-                quiet,
-            );
+    #[test]
+    fn prioritized_secondary_options_are_applied() {
+        for (source, config) in [
+            (
+                "a { unknown-property: 0; }",
+                r#"{"rules":{"property-no-unknown":[true,{"ignoreProperties":["unknown-property"]}]}}"#,
+            ),
+            (
+                "a { width: calc(0px); }",
+                r#"{"rules":{"length-zero-no-unit":[true,{"ignoreFunctions":["calc"]}]}}"#,
+            ),
+            (
+                "a { opacity: round(0.12345); }",
+                r#"{"rules":{"number-max-precision":[2,{"insideFunctions":{"round":5}}]}}"#,
+            ),
+            (
+                "a {}",
+                r#"{"rules":{"selector-max-type":[0,{"ignoreTypes":["a"]}]}}"#,
+            ),
+            (
+                "a { &:hover { a { color: red; } } }",
+                r#"{"rules":{"max-nesting-depth":[1,{"ignorePseudoClasses":["hover"]}]}}"#,
+            ),
+            (
+                "a { width: custom(1xyz); }",
+                r#"{"rules":{"unit-no-unknown":[true,{"ignoreFunctions":["custom"]}]}}"#,
+            ),
+        ] {
+            let config = Config::from_json_str(config).unwrap();
+            let pass = lint_once(source, Syntax::Css, &build_rules(&config), false);
+            assert!(pass.warnings.is_empty(), "{source}: {:?}", pass.warnings);
         }
     }
 
-    let empty_alloc = Allocator::default();
-    let mut empty_parser = ParserBuilder::new(&empty_alloc, "")
-        .syntax(syntax)
-        .comments()
-        .build();
-    let mut pass = match empty_parser.parse::<Stylesheet>() {
-        Ok(stylesheet) => run_pass(
-            input,
-            &stylesheet,
-            empty_parser.comments(),
-            syntax,
-            active_rules,
-            quiet,
-        ),
-        Err(_) => LintPass::default(),
-    };
-    let source = input.strip_prefix('\u{feff}').unwrap_or(input);
-    let index = LineIndex::new(source);
-    let (line, column) = index.line_col(source, err.span.start);
-    let (end_line, end_column) = index.line_col(source, err.span.end);
-    pass.parse_error = Some(StylelintWarning {
-        line,
-        column,
-        end_line,
-        end_column,
-        rule: "CssSyntaxError",
-        severity: "error",
-        text: format!("{} (CssSyntaxError)", err.kind),
-        fix: None,
-    });
-    pass
-}
-
-pub fn lint_and_fix(
-    source: &str,
-    syntax: Syntax,
-    active_rules: &[ConfiguredRule],
-    quiet: bool,
-) -> (String, LintPass) {
-    let pass = lint_once(source, syntax, active_rules, quiet);
-    fix_from_pass(source, syntax, active_rules, quiet, pass)
-}
-
-pub(crate) fn fix_from_pass(
-    source: &str,
-    syntax: Syntax,
-    active_rules: &[ConfiguredRule],
-    quiet: bool,
-    mut pass: LintPass,
-) -> (String, LintPass) {
-    let mut source = source.to_string();
-    for _ in 0..10 {
-        if pass.fixes.is_empty() {
-            break;
-        }
-        let fixes = std::mem::take(&mut pass.fixes);
-        let (new_source, applied) = fix::apply_fixes(&source, fixes);
-        if !applied || new_source == source {
-            break;
-        }
-        let next = lint_once(&new_source, syntax, active_rules, quiet);
-        if pass.parse_error.is_none() && next.parse_error.is_some() {
-            break;
-        }
-        pass = next;
-        source = new_source;
+    #[test]
+    fn default_severity_and_custom_message_are_applied() {
+        let config = Config::from_json_str(
+            r#"{"defaultSeverity":"warning","rules":{"block-no-empty":[true,{"message":"Custom text"}]}}"#,
+        )
+        .unwrap();
+        let pass = lint_once("a {}", Syntax::Css, &build_rules(&config), false);
+        assert_eq!(pass.warnings.len(), 1);
+        assert_eq!(pass.warnings[0].severity, "warning");
+        assert_eq!(pass.warnings[0].text, "Custom text (block-no-empty)");
     }
-    (source, pass)
+
+    #[test]
+    fn fatal_parse_failure_reports_syntax_error() {
+        let pass = lint_once(", a {}", Syntax::Css, &[], true);
+        let warning = pass.parse_error.expect("expected a syntax error");
+        assert_eq!(warning.rule, "CssSyntaxError");
+        assert_eq!((warning.line, warning.column), (1, 1));
+        assert_eq!(warning.severity, "error");
+        assert!(
+            lint_once("a {}", Syntax::Css, &[], false)
+                .parse_error
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn top_level_src_entries_match_layers() {
+        const TOP_LEVEL: &[&str] = &[
+            "bin",
+            "cli.rs",
+            "config",
+            "diagnostic.rs",
+            "lib.rs",
+            "lint",
+            "main.rs",
+            "rules",
+            "tester.rs",
+            "utils",
+        ];
+        let mut entries: Vec<_> = std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/src"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        entries.sort();
+        assert_eq!(entries, TOP_LEVEL);
+    }
 }

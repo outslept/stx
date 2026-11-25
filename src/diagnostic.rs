@@ -1,4 +1,3 @@
-use crate::fix::Fix;
 use oxc_css_parser::Span;
 use serde::Serialize;
 
@@ -14,6 +13,28 @@ impl Severity {
         match self {
             Self::Error => "error",
             Self::Warning => "warning",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Edit {
+    pub span: Span,
+    pub replacement: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct Fix {
+    pub edits: Vec<Edit>,
+}
+
+impl Fix {
+    pub fn single(span: Span, replacement: impl Into<String>) -> Self {
+        Self {
+            edits: vec![Edit {
+                span,
+                replacement: replacement.into(),
+            }],
         }
     }
 }

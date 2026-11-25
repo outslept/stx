@@ -1,4 +1,4 @@
-pub use crate::fix::Fix;
+pub use crate::diagnostic::Fix;
 use crate::{
     diagnostic::{Diagnostic, Severity, StylelintWarning},
     disable::DisableDirectives,
@@ -9,14 +9,12 @@ use oxc_css_parser::{
     ast::{AtRule, KeyframeBlock, QualifiedRule, Stylesheet},
     token::Comment,
 };
-
 #[derive(Debug, Clone, Copy)]
 pub enum AstParent<'a> {
     QualifiedRule(&'a QualifiedRule<'a>),
     AtRule(&'a AtRule<'a>),
     KeyframeBlock(&'a KeyframeBlock<'a>),
 }
-
 pub struct LintContext<'a> {
     pub source: &'a str,
     pub has_bom: bool,
@@ -32,7 +30,6 @@ pub struct LintContext<'a> {
     current_custom_message: Option<std::sync::Arc<str>>,
     diagnostics: Vec<Diagnostic>,
 }
-
 impl<'a> LintContext<'a> {
     pub fn new(
         source: &'a str,
@@ -58,12 +55,10 @@ impl<'a> LintContext<'a> {
             diagnostics: Vec::new(),
         }
     }
-
     /// Upstream `isStandardSyntaxDeclaration`, including its parent checks.
     pub fn is_standard_declaration(&self, decl: &oxc_css_parser::ast::Declaration<'_>) -> bool {
         self.less_detached_depth == 0 && crate::utils::is_standard_syntax_declaration(decl)
     }
-
     #[inline]
     pub fn slice(&self, span: Span) -> &'a str {
         let start = (span.start as usize).min(self.source.len());
@@ -74,12 +69,10 @@ impl<'a> LintContext<'a> {
             ""
         }
     }
-
     #[inline]
     pub fn slice_range(&self, start: u32, end: u32) -> &'a str {
         self.slice(Span { start, end })
     }
-
     pub fn comments_in_range(&self, start: u32, end: u32) -> &'a [Comment<'a>] {
         let start_idx = self.comments.partition_point(|c| c.span.start < start);
         let end_idx = self.comments.partition_point(|c| c.span.end <= end);
@@ -89,12 +82,10 @@ impl<'a> LintContext<'a> {
             &[]
         }
     }
-
     pub fn set_rule(&mut self, rule: &crate::rules::ConfiguredRule) {
         self.current_severity = rule.severity;
         self.current_custom_message = rule.custom_message.clone();
     }
-
     pub fn in_keyframes(&self) -> bool {
         self.ancestors.iter().any(|p| match p {
             AstParent::AtRule(at_rule) => {
@@ -104,7 +95,6 @@ impl<'a> LintContext<'a> {
             _ => false,
         })
     }
-
     pub fn report(&mut self, rule: &'static str, span: Span, message: impl Into<String>) {
         let (line, _) = self.line_index.line_col(self.source, span.start);
         if self.disables.is_suppressed(rule, line) {
@@ -122,7 +112,6 @@ impl<'a> LintContext<'a> {
             fix: None,
         });
     }
-
     pub fn report_with_fix(
         &mut self,
         rule: &'static str,
@@ -146,14 +135,12 @@ impl<'a> LintContext<'a> {
             fix: fix.into(),
         });
     }
-
     pub fn fixes(&self) -> Vec<Fix> {
         self.diagnostics
             .iter()
             .filter_map(|d| d.fix.clone())
             .collect()
     }
-
     pub fn into_warnings(self, quiet: bool) -> Vec<StylelintWarning> {
         let mut warnings = Vec::with_capacity(self.diagnostics.len());
         for d in self.diagnostics {
