@@ -38,6 +38,8 @@ pub struct StylelintWarning {
     pub rule: &'static str,
     pub severity: &'static str,
     pub text: String,
+    #[serde(skip)]
+    pub fix: Option<Fix>,
 }
 
 #[derive(Debug, Serialize)]

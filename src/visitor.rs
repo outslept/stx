@@ -16,17 +16,15 @@ impl<'r, 'a> SinglePassVisitor<'r, 'a> {
 
     pub fn visit_stylesheet(&mut self, stylesheet: &'a Stylesheet<'a>) {
         for r in self.rules {
-            self.ctx.current_severity = r.severity;
+            self.ctx.set_rule(r);
             r.rule.check_stylesheet(stylesheet, self.ctx);
         }
-
         for comment in self.ctx.comments {
             for r in self.rules {
-                self.ctx.current_severity = r.severity;
+                self.ctx.set_rule(r);
                 r.rule.check_comment(comment, self.ctx);
             }
         }
-
         self.visit_statements(&stylesheet.statements);
     }
 
@@ -35,33 +33,33 @@ impl<'r, 'a> SinglePassVisitor<'r, 'a> {
             match stmt {
                 Statement::QualifiedRule(qrule) => {
                     for r in self.rules {
-                        self.ctx.current_severity = r.severity;
+                        self.ctx.set_rule(r);
                         r.rule.check_qualified_rule(qrule, self.ctx);
                     }
-                    self.ctx.ancestry.push(AstParent::QualifiedRule(qrule));
+                    self.ctx.ancestors.push(AstParent::QualifiedRule(qrule));
                     self.visit_selector_list(&qrule.selector);
                     self.visit_simple_block(&qrule.block);
-                    self.ctx.ancestry.pop();
+                    self.ctx.ancestors.pop();
                 }
                 Statement::AtRule(at_rule) => {
                     for r in self.rules {
-                        self.ctx.current_severity = r.severity;
+                        self.ctx.set_rule(r);
                         r.rule.check_at_rule(at_rule, self.ctx);
                     }
-                    self.ctx.ancestry.push(AstParent::AtRule(at_rule));
+                    self.ctx.ancestors.push(AstParent::AtRule(at_rule));
                     if let Some(block) = &at_rule.block {
                         self.visit_simple_block(block);
                     }
-                    self.ctx.ancestry.pop();
+                    self.ctx.ancestors.pop();
                 }
                 Statement::KeyframeBlock(kf_block) => {
                     for r in self.rules {
-                        self.ctx.current_severity = r.severity;
+                        self.ctx.set_rule(r);
                         r.rule.check_keyframe_block(kf_block, self.ctx);
                     }
-                    self.ctx.ancestry.push(AstParent::KeyframeBlock(kf_block));
+                    self.ctx.ancestors.push(AstParent::KeyframeBlock(kf_block));
                     self.visit_simple_block(&kf_block.block);
-                    self.ctx.ancestry.pop();
+                    self.ctx.ancestors.pop();
                 }
                 Statement::Declaration(decl) => {
                     self.visit_declaration(decl);
@@ -105,29 +103,25 @@ impl<'r, 'a> SinglePassVisitor<'r, 'a> {
 
     fn visit_simple_block(&mut self, block: &'a SimpleBlock<'a>) {
         for r in self.rules {
-            self.ctx.current_severity = r.severity;
+            self.ctx.set_rule(r);
             r.rule.check_simple_block(block, self.ctx);
         }
-        self.ctx.ancestry.push(AstParent::SimpleBlock(block));
         self.visit_statements(&block.statements);
-        self.ctx.ancestry.pop();
     }
 
     fn visit_declaration(&mut self, decl: &'a Declaration<'a>) {
         for r in self.rules {
-            self.ctx.current_severity = r.severity;
+            self.ctx.set_rule(r);
             r.rule.check_declaration(decl, self.ctx);
         }
-        self.ctx.ancestry.push(AstParent::Declaration(decl));
         for val in &decl.value {
             self.visit_component_value(val);
         }
-        self.ctx.ancestry.pop();
     }
 
     fn visit_selector_list(&mut self, list: &'a SelectorList<'a>) {
         for r in self.rules {
-            self.ctx.current_severity = r.severity;
+            self.ctx.set_rule(r);
             r.rule.check_selector_list(list, self.ctx);
         }
         for complex in &list.selectors {
@@ -137,7 +131,7 @@ impl<'r, 'a> SinglePassVisitor<'r, 'a> {
 
     fn visit_complex_selector(&mut self, complex: &'a ComplexSelector<'a>) {
         for r in self.rules {
-            self.ctx.current_severity = r.severity;
+            self.ctx.set_rule(r);
             r.rule.check_complex_selector(complex, self.ctx);
         }
         for child in &complex.children {
@@ -149,12 +143,12 @@ impl<'r, 'a> SinglePassVisitor<'r, 'a> {
 
     fn visit_compound_selector(&mut self, compound: &'a CompoundSelector<'a>) {
         for r in self.rules {
-            self.ctx.current_severity = r.severity;
+            self.ctx.set_rule(r);
             r.rule.check_compound_selector(compound, self.ctx);
         }
         for simple in &compound.children {
             for r in self.rules {
-                self.ctx.current_severity = r.severity;
+                self.ctx.set_rule(r);
                 r.rule.check_simple_selector(simple, self.ctx);
             }
             if let SimpleSelector::PseudoClass(pseudo) = simple {
@@ -189,7 +183,7 @@ impl<'r, 'a> SinglePassVisitor<'r, 'a> {
 
     fn visit_component_value(&mut self, value: &'a ComponentValue<'a>) {
         for r in self.rules {
-            self.ctx.current_severity = r.severity;
+            self.ctx.set_rule(r);
             r.rule.check_component_value(value, self.ctx);
         }
         match value {

@@ -1,7 +1,7 @@
+pub use crate::fix::Fix;
 use crate::{
     diagnostic::{Diagnostic, Severity, StylelintWarning},
     disable::DisableDirectives,
-    fix::Fix,
     line_index::LineIndex,
 };
 use oxc_css_parser::{
@@ -19,12 +19,14 @@ pub enum AstParent<'a> {
 
 pub struct LintContext<'a> {
     pub source: &'a str,
+    pub has_bom: bool,
     pub stylesheet: &'a Stylesheet<'a>,
     pub comments: &'a [Comment<'a>],
     pub line_index: &'a LineIndex,
     pub disables: &'a DisableDirectives,
     pub ancestors: Vec<AstParent<'a>>,
     pub current_severity: Severity,
+    current_custom_message: Option<std::sync::Arc<str>>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -35,15 +37,18 @@ impl<'a> LintContext<'a> {
         comments: &'a [Comment<'a>],
         line_index: &'a LineIndex,
         disables: &'a DisableDirectives,
+        has_bom: bool,
     ) -> Self {
         Self {
             source,
+            has_bom,
             stylesheet,
             comments,
             line_index,
             disables,
             ancestors: Vec::with_capacity(16),
             current_severity: Severity::Error,
+            current_custom_message: None,
             diagnostics: Vec::new(),
         }
     }
@@ -74,6 +79,11 @@ impl<'a> LintContext<'a> {
         }
     }
 
+    pub fn set_rule(&mut self, rule: &crate::rules::ConfiguredRule) {
+        self.current_severity = rule.severity;
+        self.current_custom_message = rule.custom_message.clone();
+    }
+
     pub fn in_keyframes(&self) -> bool {
         self.ancestors.iter().any(|p| match p {
             AstParent::AtRule(at_rule) => {
@@ -91,7 +101,11 @@ impl<'a> LintContext<'a> {
         }
         self.diagnostics.push(Diagnostic {
             rule,
-            message: message.into(),
+            message: self
+                .current_custom_message
+                .as_deref()
+                .map(str::to_owned)
+                .unwrap_or_else(|| message.into()),
             span,
             severity: self.current_severity,
             fix: None,
@@ -103,7 +117,7 @@ impl<'a> LintContext<'a> {
         rule: &'static str,
         span: Span,
         message: impl Into<String>,
-        fix: Fix,
+        fix: impl Into<Option<Fix>>,
     ) {
         let (line, _) = self.line_index.line_col(self.source, span.start);
         if self.disables.is_suppressed(rule, line) {
@@ -111,17 +125,21 @@ impl<'a> LintContext<'a> {
         }
         self.diagnostics.push(Diagnostic {
             rule,
-            message: message.into(),
+            message: self
+                .current_custom_message
+                .as_deref()
+                .map(str::to_owned)
+                .unwrap_or_else(|| message.into()),
             span,
             severity: self.current_severity,
-            fix: Some(fix),
+            fix: fix.into(),
         });
     }
 
-    pub fn take_fixes(&mut self) -> Vec<Fix> {
+    pub fn fixes(&self) -> Vec<Fix> {
         self.diagnostics
-            .iter_mut()
-            .filter_map(|d| d.fix.take())
+            .iter()
+            .filter_map(|d| d.fix.clone())
             .collect()
     }
 
@@ -137,7 +155,14 @@ impl<'a> LintContext<'a> {
             } else {
                 d.span.start + 1
             };
-            let (end_line, end_column) = self.line_index.line_col(self.source, end_offset);
+            let (end_line, end_column) = if end_offset as usize == self.source.len() + 1 {
+                let (line, column) = self
+                    .line_index
+                    .line_col(self.source, self.source.len() as u32);
+                (line, column + 1)
+            } else {
+                self.line_index.line_col(self.source, end_offset)
+            };
             let rule_str = d.rule;
             let has_suffix = d
                 .message
@@ -157,6 +182,7 @@ impl<'a> LintContext<'a> {
                 rule: rule_str,
                 severity: d.severity.as_str(),
                 text,
+                fix: d.fix,
             });
         }
         warnings
