@@ -27,18 +27,18 @@ impl CustomMediaPattern {
 }
 
 fn compile_pattern(raw: &str) -> Option<Regex> {
-    if raw.starts_with('/') && raw.len() >= 2 {
-        if let Some(last_slash) = raw.rfind('/') {
-            if last_slash > 0 {
-                let pattern = &raw[1..last_slash];
-                let flags = &raw[last_slash + 1..];
-                let mut builder = RegexBuilder::new(pattern);
-                if flags.contains('i') {
-                    builder.case_insensitive(true);
-                }
-                return builder.build().ok();
-            }
+    if raw.starts_with('/')
+        && raw.len() >= 2
+        && let Some(last_slash) = raw.rfind('/')
+        && last_slash > 0
+    {
+        let pattern = &raw[1..last_slash];
+        let flags = &raw[last_slash + 1..];
+        let mut builder = RegexBuilder::new(pattern);
+        if flags.contains('i') {
+            builder.case_insensitive(true);
         }
+        return builder.build().ok();
     }
     Regex::new(raw).ok()
 }

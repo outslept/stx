@@ -6,7 +6,7 @@ use crate::{
         secondary_has_flag,
     },
 };
-use oxc_css_parser::{Span, ast::QualifiedRule};
+use oxc_css_parser::ast::QualifiedRule;
 
 pub fn reject_msg(selector: &str) -> String {
     format!("Disallowed selector \"{selector}\"")

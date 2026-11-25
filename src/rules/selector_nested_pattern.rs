@@ -8,19 +8,18 @@ use regex::Regex;
 
 fn compile(primary: &serde_json::Value) -> Option<(Regex, String)> {
     let raw = primary.as_str()?;
-    if raw.starts_with('/') {
-        if let Some(last) = raw.rfind('/') {
-            if last > 0 {
-                let pattern = &raw[1..last];
-                let flags = &raw[last + 1..];
-                let pat = if flags.contains('i') {
-                    format!("(?i){}", pattern)
-                } else {
-                    pattern.to_string()
-                };
-                return Regex::new(&pat).ok().map(|r| (r, raw.to_string()));
-            }
-        }
+    if raw.starts_with('/')
+        && let Some(last) = raw.rfind('/')
+        && last > 0
+    {
+        let pattern = &raw[1..last];
+        let flags = &raw[last + 1..];
+        let pat = if flags.contains('i') {
+            format!("(?i){}", pattern)
+        } else {
+            pattern.to_string()
+        };
+        return Regex::new(&pat).ok().map(|r| (r, raw.to_string()));
     }
     Regex::new(raw).ok().map(|r| (r, raw.to_string()))
 }
@@ -47,10 +46,10 @@ impl SelectorNestedPattern {
         if has_interpolation(value) {
             return;
         }
-        if let Some(re) = &self.regex {
-            if re.is_match(value) {
-                return;
-            }
+        if let Some(re) = &self.regex
+            && re.is_match(value)
+        {
+            return;
         }
         ctx.report(
             self.name(),
@@ -80,7 +79,7 @@ impl Rule for SelectorNestedPattern {
 }
 #[cfg(test)]
 mod tests {
-    use super::*;
+
     use crate::tester::{Tester, reject};
     use serde_json::json;
     #[test]

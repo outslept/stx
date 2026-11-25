@@ -56,14 +56,14 @@ impl Rule for NoUnknownAnimations {
         let mut declared = HashSet::new();
         for at_rule in &at_rules {
             let lower = at_rule.name.name.to_ascii_lowercase();
-            if lower == "keyframes" || lower == "-webkit-keyframes" {
-                if let Some(sp) = at_rule_prelude_span(source, at_rule) {
-                    declared.insert(
-                        source[sp.start as usize..sp.end as usize]
-                            .trim()
-                            .to_string(),
-                    );
-                }
+            if (lower == "keyframes" || lower == "-webkit-keyframes")
+                && let Some(sp) = at_rule_prelude_span(source, at_rule)
+            {
+                declared.insert(
+                    source[sp.start as usize..sp.end as usize]
+                        .trim()
+                        .to_string(),
+                );
             }
         }
         let mut decls = Vec::new();
@@ -128,7 +128,7 @@ impl Rule for NoUnknownAnimations {
 }
 #[cfg(test)]
 mod tests {
-    use super::*;
+
     use crate::tester::{Tester, reject, reject_message};
     use serde_json::json;
     #[test]

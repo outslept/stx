@@ -14,18 +14,18 @@ enum IgnoreMatcher {
 
 impl IgnoreMatcher {
     fn from_str(s: &str) -> Option<Self> {
-        if s.starts_with('/') && s.len() >= 2 {
-            if let Some(last_slash) = s.rfind('/') {
-                if last_slash > 0 {
-                    let pattern = &s[1..last_slash];
-                    let flags = &s[last_slash + 1..];
-                    let mut builder = RegexBuilder::new(pattern);
-                    if flags.contains('i') {
-                        builder.case_insensitive(true);
-                    }
-                    return builder.build().ok().map(IgnoreMatcher::Regex);
-                }
+        if s.starts_with('/')
+            && s.len() >= 2
+            && let Some(last_slash) = s.rfind('/')
+            && last_slash > 0
+        {
+            let pattern = &s[1..last_slash];
+            let flags = &s[last_slash + 1..];
+            let mut builder = RegexBuilder::new(pattern);
+            if flags.contains('i') {
+                builder.case_insensitive(true);
             }
+            return builder.build().ok().map(IgnoreMatcher::Regex);
         }
         Some(IgnoreMatcher::Exact(s.to_string()))
     }
@@ -81,10 +81,10 @@ impl DeclarationBlockNoDuplicateProperties {
                     }
                     Value::Array(arr) => {
                         for item in arr {
-                            if let Some(s) = item.as_str() {
-                                if let Some(m) = IgnoreMatcher::from_str(s) {
-                                    rule.ignore_properties.push(m);
-                                }
+                            if let Some(s) = item.as_str()
+                                && let Some(m) = IgnoreMatcher::from_str(s)
+                            {
+                                rule.ignore_properties.push(m);
                             }
                         }
                     }
@@ -713,7 +713,7 @@ impl DeclarationBlockNoDuplicateProperties {
         let unprefixed_duplicates_are_equal =
             vendor_unprefixed(decl.value) == vendor_unprefixed(duplicate_decl.value);
 
-        let mut fix_or_report = |block: &mut BlockState<'a>| {
+        let fix_or_report = |block: &mut BlockState<'a>| {
             let target = if duplicate_is_more_important {
                 decl.clone()
             } else {
@@ -733,11 +733,11 @@ impl DeclarationBlockNoDuplicateProperties {
                 fix_or_report(block);
                 return;
             }
-            if self.ignore_diff_syntaxes {
-                if is_equal_value_syntaxes(decl.value, duplicate_decl.value, prop) {
-                    fix_or_report(block);
-                    return;
-                }
+            if self.ignore_diff_syntaxes
+                && is_equal_value_syntaxes(decl.value, duplicate_decl.value, prop)
+            {
+                fix_or_report(block);
+                return;
             }
             if decl.value != duplicate_decl.value {
                 return;
@@ -918,24 +918,24 @@ impl Rule for DeclarationBlockNoDuplicateProperties {
                 let stmt_slice = &source[stmt_start..i];
                 let is_less_at_var = stmt_slice.starts_with('@') && first_colon.is_some();
 
-                if !stmt_slice.starts_with('@') || is_less_at_var {
-                    if let Some(colon_pos) = first_colon {
-                        let prop = source[stmt_start..colon_pos].trim();
-                        let raw_val = &source[colon_pos + 1..i];
-                        let (value, important) = split_value_and_important(raw_val);
+                if (!stmt_slice.starts_with('@') || is_less_at_var)
+                    && let Some(colon_pos) = first_colon
+                {
+                    let prop = source[stmt_start..colon_pos].trim();
+                    let raw_val = &source[colon_pos + 1..i];
+                    let (value, important) = split_value_and_important(raw_val);
 
-                        if let Some(current) = stack.last_mut() {
-                            let decl_info = DeclInfo {
-                                prop,
-                                lower_prop: prop.to_ascii_lowercase(),
-                                value,
-                                important,
-                                prop_start: stmt_start,
-                                raw_before_start: current.last_token_end,
-                                stmt_end,
-                            };
-                            self.process_declaration(current, decl_info);
-                        }
+                    if let Some(current) = stack.last_mut() {
+                        let decl_info = DeclInfo {
+                            prop,
+                            lower_prop: prop.to_ascii_lowercase(),
+                            value,
+                            important,
+                            prop_start: stmt_start,
+                            raw_before_start: current.last_token_end,
+                            stmt_end,
+                        };
+                        self.process_declaration(current, decl_info);
                     }
                 }
 

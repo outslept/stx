@@ -21,18 +21,19 @@ enum StringOrRegex {
 
 impl StringOrRegex {
     fn parse(s: &str) -> Option<Self> {
-        if s.starts_with('/') && s.len() >= 2 {
-            if let Some(last_slash) = s[1..].rfind('/') {
-                let pattern = &s[1..=last_slash];
-                let flags = &s[last_slash + 2..];
-                let full_pattern = if flags.contains('i') {
-                    format!("(?i){pattern}")
-                } else {
-                    pattern.to_string()
-                };
-                if let Ok(re) = Regex::new(&full_pattern) {
-                    return Some(Self::Regex(re));
-                }
+        if s.starts_with('/')
+            && s.len() >= 2
+            && let Some(last_slash) = s[1..].rfind('/')
+        {
+            let pattern = &s[1..=last_slash];
+            let flags = &s[last_slash + 2..];
+            let full_pattern = if flags.contains('i') {
+                format!("(?i){pattern}")
+            } else {
+                pattern.to_string()
+            };
+            if let Ok(re) = Regex::new(&full_pattern) {
+                return Some(Self::Regex(re));
             }
         }
         Some(Self::Exact(s.to_string()))
@@ -80,19 +81,19 @@ impl ColorNamed {
             }
             if let Some(arr) = sec.get("ignoreProperties").and_then(|v| v.as_array()) {
                 for item in arr {
-                    if let Some(s) = item.as_str() {
-                        if let Some(matcher) = StringOrRegex::parse(s) {
-                            ignore_properties.push(matcher);
-                        }
+                    if let Some(s) = item.as_str()
+                        && let Some(matcher) = StringOrRegex::parse(s)
+                    {
+                        ignore_properties.push(matcher);
                     }
                 }
             }
             if let Some(arr) = sec.get("ignoreFunctions").and_then(|v| v.as_array()) {
                 for item in arr {
-                    if let Some(s) = item.as_str() {
-                        if let Some(matcher) = StringOrRegex::parse(s) {
-                            ignore_functions.push(matcher);
-                        }
+                    if let Some(s) = item.as_str()
+                        && let Some(matcher) = StringOrRegex::parse(s)
+                    {
+                        ignore_functions.push(matcher);
                     }
                 }
             }
@@ -177,16 +178,15 @@ impl ColorNamed {
                             }
                         }
                         Mode::AlwaysWherePossible => {
-                            if word.starts_with('#') {
-                                if let Some(rgba) = parse_color_string(word) {
-                                    if let Some(named) = rgba_to_name(rgba) {
-                                        let span = Span {
-                                            start: base_offset + *start as u32,
-                                            end: base_offset + *end as u32,
-                                        };
-                                        ctx.report(self.name(), span, expected_msg(word, named));
-                                    }
-                                }
+                            if word.starts_with('#')
+                                && let Some(rgba) = parse_color_string(word)
+                                && let Some(named) = rgba_to_name(rgba)
+                            {
+                                let span = Span {
+                                    start: base_offset + *start as u32,
+                                    end: base_offset + *end as u32,
+                                };
+                                ctx.report(self.name(), span, expected_msg(word, named));
                             }
                         }
                     }
@@ -215,14 +215,14 @@ impl ColorNamed {
                     if self.mode == Mode::AlwaysWherePossible {
                         let raw_color_string = &raw_source[*full_start..*full_end];
                         let color_string = normalize_color_function_string(raw_color_string);
-                        if let Some(rgba) = parse_color_string(&color_string) {
-                            if let Some(named) = rgba_to_name(rgba) {
-                                let span = Span {
-                                    start: base_offset + *full_start as u32,
-                                    end: base_offset + *full_end as u32,
-                                };
-                                ctx.report(self.name(), span, expected_msg(&color_string, named));
-                            }
+                        if let Some(rgba) = parse_color_string(&color_string)
+                            && let Some(named) = rgba_to_name(rgba)
+                        {
+                            let span = Span {
+                                start: base_offset + *full_start as u32,
+                                end: base_offset + *full_end as u32,
+                            };
+                            ctx.report(self.name(), span, expected_msg(&color_string, named));
                         }
                     }
 
@@ -262,12 +262,11 @@ fn accepts_custom_idents(prop: &str) -> bool {
 }
 
 fn strip_vendor_prefix(s: &str) -> &str {
-    if let Some(rest) = s.strip_prefix('-') {
-        if !rest.starts_with('-') {
-            if let Some(idx) = rest.find('-') {
-                return &rest[idx + 1..];
-            }
-        }
+    if let Some(rest) = s.strip_prefix('-')
+        && !rest.starts_with('-')
+        && let Some(idx) = rest.find('-')
+    {
+        return &rest[idx + 1..];
     }
     s
 }

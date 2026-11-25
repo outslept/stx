@@ -31,18 +31,18 @@ impl CustomPropertyPattern {
 }
 
 fn compile_pattern(raw: &str) -> Option<Regex> {
-    if raw.starts_with('/') && raw.len() >= 2 {
-        if let Some(last_slash) = raw.rfind('/') {
-            if last_slash > 0 {
-                let pattern = &raw[1..last_slash];
-                let flags = &raw[last_slash + 1..];
-                let mut builder = RegexBuilder::new(pattern);
-                if flags.contains('i') {
-                    builder.case_insensitive(true);
-                }
-                return builder.build().ok();
-            }
+    if raw.starts_with('/')
+        && raw.len() >= 2
+        && let Some(last_slash) = raw.rfind('/')
+        && last_slash > 0
+    {
+        let pattern = &raw[1..last_slash];
+        let flags = &raw[last_slash + 1..];
+        let mut builder = RegexBuilder::new(pattern);
+        if flags.contains('i') {
+            builder.case_insensitive(true);
         }
+        return builder.build().ok();
     }
     Regex::new(raw).ok()
 }
@@ -268,18 +268,17 @@ impl CustomPropertyPattern {
         ctx: &mut LintContext<'a>,
     ) {
         if let ValNode::Function { name, args } = node {
-            if name.eq_ignore_ascii_case("var") {
-                if let Some(ValNode::Word { value, offset }) = args.first() {
-                    if !self.check_prop(value) {
-                        let start = (value_start + *offset) as u32;
-                        let end = start + value.len() as u32;
-                        ctx.report(
-                            self.name(),
-                            Span { start, end },
-                            expected_message(value, &self.raw_pattern),
-                        );
-                    }
-                }
+            if name.eq_ignore_ascii_case("var")
+                && let Some(ValNode::Word { value, offset }) = args.first()
+                && !self.check_prop(value)
+            {
+                let start = (value_start + *offset) as u32;
+                let end = start + value.len() as u32;
+                ctx.report(
+                    self.name(),
+                    Span { start, end },
+                    expected_message(value, &self.raw_pattern),
+                );
             }
             for arg in args {
                 self.walk_value_node(arg, value_start, ctx);
@@ -393,16 +392,16 @@ impl Rule for CustomPropertyPattern {
                         let params_abs_start = stmt_start + 1 + name_len + trimmed_start;
 
                         for node in parse_value_nodes(params_trimmed, 0) {
-                            if let ValNode::Word { value, offset } = node {
-                                if !self.check_prop(value) {
-                                    let start = (params_abs_start + offset) as u32;
-                                    let end = start + value.len() as u32;
-                                    ctx.report(
-                                        self.name(),
-                                        Span { start, end },
-                                        expected_message(value, &self.raw_pattern),
-                                    );
-                                }
+                            if let ValNode::Word { value, offset } = node
+                                && !self.check_prop(value)
+                            {
+                                let start = (params_abs_start + offset) as u32;
+                                let end = start + value.len() as u32;
+                                ctx.report(
+                                    self.name(),
+                                    Span { start, end },
+                                    expected_message(value, &self.raw_pattern),
+                                );
                             }
                         }
                     }
@@ -410,32 +409,33 @@ impl Rule for CustomPropertyPattern {
                 block_depth += 1;
                 i += 1;
             } else {
-                if block_depth > 0 && !stmt_slice.starts_with('@') {
-                    if let Some(colon_pos) = first_colon {
-                        let prop_raw = &source[stmt_start..colon_pos];
-                        let prop = prop_raw.trim();
+                if block_depth > 0
+                    && !stmt_slice.starts_with('@')
+                    && let Some(colon_pos) = first_colon
+                {
+                    let prop_raw = &source[stmt_start..colon_pos];
+                    let prop = prop_raw.trim();
 
-                        let raw_val = &source[colon_pos + 1..i];
-                        let val_trimmed_start = raw_val.len() - raw_val.trim_start().len();
-                        let val_trimmed = raw_val.trim();
-                        let val_start = colon_pos + 1 + val_trimmed_start;
+                    let raw_val = &source[colon_pos + 1..i];
+                    let val_trimmed_start = raw_val.len() - raw_val.trim_start().len();
+                    let val_trimmed = raw_val.trim();
+                    let val_start = colon_pos + 1 + val_trimmed_start;
 
-                        if val_trimmed.to_ascii_lowercase().contains("var(") {
-                            let nodes = parse_value_nodes(val_trimmed, 0);
-                            for node in &nodes {
-                                self.walk_value_node(node, val_start, ctx);
-                            }
+                    if val_trimmed.to_ascii_lowercase().contains("var(") {
+                        let nodes = parse_value_nodes(val_trimmed, 0);
+                        for node in &nodes {
+                            self.walk_value_node(node, val_start, ctx);
                         }
+                    }
 
-                        if !self.check_prop(prop) {
-                            let start = stmt_start as u32;
-                            let end = start + prop.len() as u32;
-                            ctx.report(
-                                self.name(),
-                                Span { start, end },
-                                expected_message(prop, &self.raw_pattern),
-                            );
-                        }
+                    if !self.check_prop(prop) {
+                        let start = stmt_start as u32;
+                        let end = start + prop.len() as u32;
+                        ctx.report(
+                            self.name(),
+                            Span { start, end },
+                            expected_message(prop, &self.raw_pattern),
+                        );
                     }
                 }
                 if i < len && bytes[i] == b';' {

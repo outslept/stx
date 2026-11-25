@@ -79,10 +79,7 @@ pub fn function_ident<'a>(func: &'a Function<'a>) -> Option<&'a Ident<'a>> {
 /// Splits a raw function call span (`name(args)`) into `(name_str, name_span, args_span)`.
 ///
 /// Returns `None` if `func_span` is out of bounds or does not contain balanced parentheses.
-pub fn extract_function_name_and_args<'a>(
-    source: &'a str,
-    func_span: Span,
-) -> Option<(&'a str, Span, Span)> {
+pub fn extract_function_name_and_args(source: &str, func_span: Span) -> Option<(&str, Span, Span)> {
     let raw = source.get(func_span.start as usize..func_span.end as usize)?;
     let open_rel = raw.find('(')?;
     if !raw.ends_with(')') {
@@ -148,10 +145,10 @@ pub fn is_standard_syntax_rule(source: &str, rule: &QualifiedRule<'_>) -> bool {
 /// rather than a standard style property declaration.
 pub fn is_descriptor_declaration(ancestry: &[AstParent<'_>]) -> bool {
     for parent in ancestry.iter().rev() {
-        if let AstParent::AtRule(at) = parent {
-            if !in_set_ignore_case(NESTING_SUPPORTED_AT_KEYWORDS, at.name.name) {
-                return true;
-            }
+        if let AstParent::AtRule(at) = parent
+            && !in_set_ignore_case(NESTING_SUPPORTED_AT_KEYWORDS, at.name.name)
+        {
+            return true;
         }
     }
     false

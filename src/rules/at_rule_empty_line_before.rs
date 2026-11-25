@@ -717,7 +717,7 @@ mod tests {
             .iter()
             .map(|&(code, _, msg, span, edit)| reject_edit(code, msg, span, edit))
             .collect();
-        Tester::new(AtRuleEmptyLineBefore::NAME, config, &[], &fail_edits)
+        Tester::new(AtRuleEmptyLineBefore::NAME, config, [], &fail_edits)
             .with_compute_edit_info(true)
             .test();
     }

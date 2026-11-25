@@ -74,8 +74,8 @@ mod tests {
                 (1, 5, 1, 10),
             ),
         ];
-        Tester::new("property-allowed-list", json!(""), &[], &fail).test();
-        Tester::new("property-allowed-list", json!([]), &[], &fail).test();
+        Tester::new("property-allowed-list", json!(""), [], &fail).test();
+        Tester::new("property-allowed-list", json!([]), [], &fail).test();
     }
 
     #[test]

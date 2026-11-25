@@ -49,22 +49,21 @@ impl Rule for MediaTypeNoDeprecated {
             let at_end = i == len;
             if at_end || (bytes[i] == b',' && depth == 0) {
                 let segment = &params[segment_start..i];
-                if let Some((offset, media_type)) = media_type(segment) {
-                    if DEPRECATED_MEDIA_TYPES_NAMES
+                if let Some((offset, media_type)) = media_type(segment)
+                    && DEPRECATED_MEDIA_TYPES_NAMES
                         .iter()
                         .any(|name| name.eq_ignore_ascii_case(media_type))
-                        && !options_matches(&self.ignore, media_type)
-                    {
-                        let start = prelude.start + segment_start as u32 + offset as u32;
-                        ctx.report(
-                            self.name(),
-                            Span {
-                                start,
-                                end: start + media_type.len() as u32,
-                            },
-                            rejected_message(media_type),
-                        );
-                    }
+                    && !options_matches(&self.ignore, media_type)
+                {
+                    let start = prelude.start + segment_start as u32 + offset as u32;
+                    ctx.report(
+                        self.name(),
+                        Span {
+                            start,
+                            end: start + media_type.len() as u32,
+                        },
+                        rejected_message(media_type),
+                    );
                 }
                 if at_end {
                     break;

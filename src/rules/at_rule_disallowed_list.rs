@@ -211,10 +211,7 @@ fn is_standard_at_rule_after_name(ctx: &LintContext<'_>, name_end: u32, len: u32
     }
 
     let prelude = ctx.slice_range(name_end, pos).trim();
-    if prelude.starts_with(':') || has_interpolation(prelude) {
-        return false;
-    }
-    true
+    !(prelude.starts_with(':') || has_interpolation(prelude))
 }
 
 /// Skips past the closing `*/` of a block comment.

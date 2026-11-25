@@ -41,24 +41,23 @@ fn collect_statements<'a>(
     for statement in statements {
         match statement {
             Statement::Declaration(decl) => {
-                if let Some(name) = ident_name(&decl.name) {
-                    if name.starts_with("--") {
-                        declared.insert(name.to_string());
-                    }
+                if let Some(name) = ident_name(&decl.name)
+                    && name.starts_with("--")
+                {
+                    declared.insert(name.to_string());
                 }
             }
             Statement::QualifiedRule(rule) => {
                 collect_statements(&rule.block.statements, source, declared);
             }
             Statement::AtRule(at_rule) => {
-                if at_rule.name.name.eq_ignore_ascii_case("property") {
-                    if let Some(prelude) = at_rule_prelude_span(source, at_rule) {
-                        for part in source[prelude.start as usize..prelude.end as usize].split(',')
-                        {
-                            let name = part.trim();
-                            if name.starts_with("--") {
-                                declared.insert(name.to_string());
-                            }
+                if at_rule.name.name.eq_ignore_ascii_case("property")
+                    && let Some(prelude) = at_rule_prelude_span(source, at_rule)
+                {
+                    for part in source[prelude.start as usize..prelude.end as usize].split(',') {
+                        let name = part.trim();
+                        if name.starts_with("--") {
+                            declared.insert(name.to_string());
                         }
                     }
                 }

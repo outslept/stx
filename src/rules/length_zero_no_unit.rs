@@ -194,7 +194,7 @@ mod tests {
                 (1, 28, 1, 30),
             ),
         ];
-        Tester::new("length-zero-no-unit", json!(true), &accept, &fail).test();
+        Tester::new("length-zero-no-unit", json!(true), accept, &fail).test();
     }
 
     #[test]

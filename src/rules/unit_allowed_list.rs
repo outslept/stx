@@ -129,10 +129,10 @@ impl UnitAllowedList {
         if self.allowed.iter().any(|u| u.eq_ignore_ascii_case(unit)) {
             return;
         }
-        if let Some(p) = prop {
-            if self.property_ignores(unit, p) {
-                return;
-            }
+        if let Some(p) = prop
+            && self.property_ignores(unit, p)
+        {
+            return;
         }
         ctx.report(
             self.name(),
@@ -147,10 +147,10 @@ impl UnitAllowedList {
         if self.allowed.iter().any(|u| u == "%") {
             return;
         }
-        if let Some(p) = prop {
-            if self.property_ignores("%", p) {
-                return;
-            }
+        if let Some(p) = prop
+            && self.property_ignores("%", p)
+        {
+            return;
         }
         ctx.report(
             self.name(),
@@ -187,7 +187,7 @@ impl Rule for UnitAllowedList {
 }
 #[cfg(test)]
 mod tests {
-    use super::*;
+
     use crate::tester::{Tester, reject, reject_message};
     use serde_json::json;
     #[test]

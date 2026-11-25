@@ -61,14 +61,14 @@ impl ColorNoInvalidHex {
                     if !is_standard_syntax_hex_color(word) {
                         continue;
                     }
-                    if let Some(hex_value) = extract_hex_prefix(word) {
-                        if !is_valid_hex(hex_value) {
-                            let span = Span {
-                                start: base_offset + *start as u32,
-                                end: base_offset + (*start + hex_value.len()) as u32,
-                            };
-                            ctx.report(self.name(), span, rejected_msg(hex_value));
-                        }
+                    if let Some(hex_value) = extract_hex_prefix(word)
+                        && !is_valid_hex(hex_value)
+                    {
+                        let span = Span {
+                            start: base_offset + *start as u32,
+                            end: base_offset + (*start + hex_value.len()) as u32,
+                        };
+                        ctx.report(self.name(), span, rejected_msg(hex_value));
                     }
                 }
                 ValueNode::Function {

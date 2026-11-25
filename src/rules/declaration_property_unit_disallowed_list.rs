@@ -90,10 +90,8 @@ impl Rule for DeclarationPropertyUnitDisallowedList {
                         ctx.report(self.name(), token.span, rejected_message(prop, unit));
                     }
                 }
-                ValueTokenKind::Percentage => {
-                    if disallowed.iter().any(|u| u == "%") {
-                        ctx.report(self.name(), token.span, rejected_message(prop, "%"));
-                    }
+                ValueTokenKind::Percentage if disallowed.iter().any(|u| u == "%") => {
+                    ctx.report(self.name(), token.span, rejected_message(prop, "%"));
                 }
                 _ => {}
             }

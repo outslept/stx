@@ -16,7 +16,7 @@ fn custom_media_name(raw: &str) -> Option<&str> {
     let end = trimmed
         .find(|c: char| c.is_ascii_whitespace() || c == '(' || c == ')')
         .unwrap_or(trimmed.len());
-    (&end > &2).then_some(&trimmed[..end])
+    (end > 2).then_some(&trimmed[..end])
 }
 
 fn collect<'a>(at_rules: &mut Vec<&'a AtRule<'a>>, statements: &'a [Statement<'a>]) {
@@ -46,14 +46,11 @@ impl Rule for NoUnknownCustomMedia {
         collect(&mut at_rules, &stylesheet.statements);
         let mut declared = HashSet::new();
         for at_rule in &at_rules {
-            if at_rule.name.name.eq_ignore_ascii_case("custom-media") {
-                if let Some(sp) = at_rule_prelude_span(source, at_rule) {
-                    if let Some(name) =
-                        custom_media_name(&source[sp.start as usize..sp.end as usize])
-                    {
-                        declared.insert(name.to_string());
-                    }
-                }
+            if at_rule.name.name.eq_ignore_ascii_case("custom-media")
+                && let Some(sp) = at_rule_prelude_span(source, at_rule)
+                && let Some(name) = custom_media_name(&source[sp.start as usize..sp.end as usize])
+            {
+                declared.insert(name.to_string());
             }
         }
         for at_rule in at_rules {
@@ -104,7 +101,7 @@ impl Rule for NoUnknownCustomMedia {
 }
 #[cfg(test)]
 mod tests {
-    use super::*;
+
     use crate::tester::{Tester, reject, reject_warnings};
     use serde_json::json;
     #[test]

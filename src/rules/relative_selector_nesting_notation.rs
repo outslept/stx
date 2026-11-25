@@ -21,11 +21,11 @@ impl RelativeSelectorNestingNotation {
 fn strip_leading_comments(mut selector: &str) -> &str {
     loop {
         let trimmed = selector.trim_start();
-        if let Some(comment) = trimmed.strip_prefix("/*") {
-            if let Some(end) = comment.find("*/") {
-                selector = &comment[end + 2..];
-                continue;
-            }
+        if let Some(comment) = trimmed.strip_prefix("/*")
+            && let Some(end) = comment.find("*/")
+        {
+            selector = &comment[end + 2..];
+            continue;
         }
         return trimmed;
     }

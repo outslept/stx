@@ -472,10 +472,8 @@ impl Rule for CustomPropertyEmptyLineBefore {
                 let stmt_slice = &source[stmt_start..stmt_end];
                 let is_custom = is_custom_property_statement(stmt_slice);
 
-                if is_custom {
-                    if let Some(current) = stack.last() {
-                        self.check_custom_property(ctx, current, stmt_start, newline);
-                    }
+                if is_custom && let Some(current) = stack.last() {
+                    self.check_custom_property(ctx, current, stmt_start, newline);
                 }
 
                 if let Some(current) = stack.last_mut() {

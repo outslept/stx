@@ -106,12 +106,11 @@ impl Rule for PropertyNoDeprecated {
             return;
         };
 
-        if normalized == "-webkit-box-orient" {
-            if let Some(value_span) = decl_value_span(ctx.source, decl) {
-                if ctx.slice(value_span).eq_ignore_ascii_case("vertical") {
-                    return;
-                }
-            }
+        if normalized == "-webkit-box-orient"
+            && let Some(value_span) = decl_value_span(ctx.source, decl)
+            && ctx.slice(value_span).eq_ignore_ascii_case("vertical")
+        {
+            return;
         }
 
         let prop_span = Span {
@@ -128,17 +127,15 @@ impl Rule for PropertyNoDeprecated {
             span: prop_span,
             replacement: replacement.to_string(),
         }];
-        if normalized == "page-break-before" || normalized == "page-break-after" {
-            if let Some(value_span) = decl_value_span(ctx.source, decl) {
-                for token in tokenize_value(ctx.source, value_span) {
-                    if token.kind == ValueTokenKind::Ident
-                        && token.raw.eq_ignore_ascii_case("always")
-                    {
-                        edits.push(Edit {
-                            span: token.span,
-                            replacement: "page".to_string(),
-                        });
-                    }
+        if (normalized == "page-break-before" || normalized == "page-break-after")
+            && let Some(value_span) = decl_value_span(ctx.source, decl)
+        {
+            for token in tokenize_value(ctx.source, value_span) {
+                if token.kind == ValueTokenKind::Ident && token.raw.eq_ignore_ascii_case("always") {
+                    edits.push(Edit {
+                        span: token.span,
+                        replacement: "page".to_string(),
+                    });
                 }
             }
         }

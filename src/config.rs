@@ -14,12 +14,6 @@ pub struct RuleSetting {
     pub severity: Severity,
 }
 
-impl Default for Severity {
-    fn default() -> Self {
-        Self::Error
-    }
-}
-
 #[derive(Debug, Default, Clone)]
 pub struct Config {
     pub rules: HashMap<String, Option<RuleSetting>>,
@@ -82,14 +76,12 @@ impl Config {
                 }
             }
             let pkg = dir.join("package.json");
-            if pkg.is_file() {
-                if let Ok(content) = fs::read_to_string(&pkg) {
-                    if let Ok(json) = serde_json::from_str::<Value>(&content) {
-                        if json.get("stylelint").is_some() {
-                            return Some(pkg);
-                        }
-                    }
-                }
+            if pkg.is_file()
+                && let Ok(content) = fs::read_to_string(&pkg)
+                && let Ok(json) = serde_json::from_str::<Value>(&content)
+                && json.get("stylelint").is_some()
+            {
+                return Some(pkg);
             }
             current = dir.parent();
         }
@@ -100,9 +92,17 @@ impl Config {
         if path
             .extension()
             .and_then(|ext| ext.to_str())
-            .is_some_and(|ext| matches!(ext, "js" | "cjs" | "mjs" | "ts" | "cts" | "mts" | "yaml" | "yml"))
+            .is_some_and(|ext| {
+                matches!(
+                    ext,
+                    "js" | "cjs" | "mjs" | "ts" | "cts" | "mts" | "yaml" | "yml"
+                )
+            })
         {
-            return Err(format!("Unsupported config format in {}: use JSON", path.display()));
+            return Err(format!(
+                "Unsupported config format in {}: use JSON",
+                path.display()
+            ));
         }
         let content = fs::read_to_string(path)
             .map_err(|e| format!("Failed to read config {}: {e}", path.display()))?;
@@ -114,9 +114,10 @@ impl Config {
                 config.base_dir = path.parent().map(Path::to_path_buf);
                 return Ok(config);
             }
-            let mut config = Self::default();
-            config.base_dir = path.parent().map(Path::to_path_buf);
-            return Ok(config);
+            return Ok(Self {
+                base_dir: path.parent().map(Path::to_path_buf),
+                ..Self::default()
+            });
         }
         let mut config = Self::from_json_str(&content)?;
         config.base_dir = path.parent().map(Path::to_path_buf);
@@ -136,10 +137,12 @@ impl Config {
     }
 
     fn from_raw(raw: RawConfig) -> Self {
-        let mut config = Self::default();
-        config.default_severity = match raw.default_severity.as_deref() {
-            Some("warning") => Severity::Warning,
-            _ => Severity::Error,
+        let mut config = Self {
+            default_severity: match raw.default_severity.as_deref() {
+                Some("warning") => Severity::Warning,
+                _ => Severity::Error,
+            },
+            ..Self::default()
         };
         if let Some(severity) = raw.default_severity.as_deref()
             && !matches!(severity, "warning" | "error")
@@ -423,11 +426,7 @@ impl Config {
         }
     }
 
-    fn validate_rule_name(
-        name: &str,
-        setting: Option<&RuleSetting>,
-        errors: &mut Vec<String>,
-    ) {
+    fn validate_rule_name(name: &str, setting: Option<&RuleSetting>, errors: &mut Vec<String>) {
         if !crate::rules::is_known_rule(name, setting) {
             errors.push(format!("Unknown rule {name}"));
         }
@@ -770,10 +769,9 @@ mod tests {
 
     #[test]
     fn recognizes_rules_with_special_primary_options() {
-        let config = Config::from_json_str(
-            r#"{"rules":{"color-function-alias-notation":"with-alpha"}}"#,
-        )
-        .unwrap();
+        let config =
+            Config::from_json_str(r#"{"rules":{"color-function-alias-notation":"with-alpha"}}"#)
+                .unwrap();
         assert!(config.validation_errors.is_empty());
     }
 

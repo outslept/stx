@@ -83,17 +83,17 @@ impl Rule for LightnessNotation {
 
         match self.mode {
             LightnessMode::Percentage => {
-                if first.kind == ValueTokenKind::Number {
-                    if let Ok(num) = first.raw.parse::<f64>() {
-                        let pct = if is_ok { num * 100.0 } else { num };
-                        let expected = format!("{}%", format_clean_float(pct));
-                        ctx.report_with_fix(
-                            self.name(),
-                            first.span,
-                            format!("Expected \"{}\" to be \"{}\"", first.raw, expected),
-                            Some(Fix::single(first.span, expected)),
-                        );
-                    }
+                if first.kind == ValueTokenKind::Number
+                    && let Ok(num) = first.raw.parse::<f64>()
+                {
+                    let pct = if is_ok { num * 100.0 } else { num };
+                    let expected = format!("{}%", format_clean_float(pct));
+                    ctx.report_with_fix(
+                        self.name(),
+                        first.span,
+                        format!("Expected \"{}\" to be \"{}\"", first.raw, expected),
+                        Some(Fix::single(first.span, expected)),
+                    );
                 }
             }
             LightnessMode::Number => {

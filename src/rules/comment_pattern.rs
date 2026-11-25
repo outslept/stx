@@ -28,18 +28,19 @@ impl CommentPattern {
 }
 
 fn compile_pattern(s: &str) -> Option<Regex> {
-    if s.starts_with('/') && s.len() >= 2 {
-        if let Some(last_slash) = s[1..].rfind('/') {
-            let pattern = &s[1..=last_slash];
-            let flags = &s[last_slash + 2..];
-            let full_pattern = if flags.contains('i') {
-                format!("(?i){pattern}")
-            } else {
-                pattern.to_string()
-            };
-            if let Ok(re) = Regex::new(&full_pattern) {
-                return Some(re);
-            }
+    if s.starts_with('/')
+        && s.len() >= 2
+        && let Some(last_slash) = s[1..].rfind('/')
+    {
+        let pattern = &s[1..=last_slash];
+        let flags = &s[last_slash + 2..];
+        let full_pattern = if flags.contains('i') {
+            format!("(?i){pattern}")
+        } else {
+            pattern.to_string()
+        };
+        if let Ok(re) = Regex::new(&full_pattern) {
+            return Some(re);
         }
     }
     Regex::new(s).ok()

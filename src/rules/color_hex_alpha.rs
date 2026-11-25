@@ -103,11 +103,13 @@ impl Rule for ColorHexAlpha {
                 // Opening brace `{` means any preceding `:` was a pseudo-class in a selector,
                 // unless it is a `#{...}` SCSS interpolation inside a declaration value.
                 if b == b'{' {
-                    if colon_pos.is_some() && pos > 0 && byte_at(ctx, pos - 1) == b'#' {
-                        if let Some(close_brace) = find_matching_brace(ctx, pos, len) {
-                            pos = close_brace + 1;
-                            continue;
-                        }
+                    if colon_pos.is_some()
+                        && pos > 0
+                        && byte_at(ctx, pos - 1) == b'#'
+                        && let Some(close_brace) = find_matching_brace(ctx, pos, len)
+                    {
+                        pos = close_brace + 1;
+                        continue;
                     }
                     colon_pos = None;
                     pos += 1;

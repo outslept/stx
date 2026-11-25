@@ -97,7 +97,7 @@ impl Rule for ValueKeywordLayoutMappings {
 }
 #[cfg(test)]
 mod tests {
-    use super::*;
+
     use crate::tester::{Tester, reject, reject_warnings};
     use serde_json::json;
     #[test]

@@ -35,7 +35,7 @@ impl Rule for R {
 }
 #[cfg(test)]
 mod tests {
-    use super::*;
+
     use crate::tester::{Tester, reject_message};
     use serde_json::json;
     #[test]

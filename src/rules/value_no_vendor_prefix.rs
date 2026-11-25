@@ -174,25 +174,25 @@ fn strip_vendor_prefix(s: &str) -> Option<&str> {
 impl ValueNoVendorPrefix {
     pub fn from_secondary(secondary: Option<&Map<String, Value>>) -> Self {
         let mut ignore_values = Vec::new();
-        if let Some(sec) = secondary {
-            if let Some(val) = sec.get("ignoreValues") {
-                match val {
-                    Value::String(s) => {
-                        if let Some(pat) = IgnorePattern::parse(s) {
+        if let Some(sec) = secondary
+            && let Some(val) = sec.get("ignoreValues")
+        {
+            match val {
+                Value::String(s) => {
+                    if let Some(pat) = IgnorePattern::parse(s) {
+                        ignore_values.push(pat);
+                    }
+                }
+                Value::Array(arr) => {
+                    for item in arr {
+                        if let Value::String(s) = item
+                            && let Some(pat) = IgnorePattern::parse(s)
+                        {
                             ignore_values.push(pat);
                         }
                     }
-                    Value::Array(arr) => {
-                        for item in arr {
-                            if let Value::String(s) = item {
-                                if let Some(pat) = IgnorePattern::parse(s) {
-                                    ignore_values.push(pat);
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
                 }
+                _ => {}
             }
         }
         Self { ignore_values }

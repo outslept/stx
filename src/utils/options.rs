@@ -295,24 +295,24 @@ pub fn parse_string_set_map(
 }
 
 fn parse_slash_regex(raw: &str) -> Option<Regex> {
-    if raw.starts_with('/') && raw.len() >= 2 {
-        if let Some(last_slash) = raw.rfind('/') {
-            if last_slash > 0 {
-                let pattern = &raw[1..last_slash];
-                let flags = &raw[last_slash + 1..];
-                // `u` is Rust's default and `g`/`y` do not affect a match test.
-                if !flags.chars().all(|f| "imsuyg".contains(f)) {
-                    return None;
-                }
-                let inline: String = flags.chars().filter(|f| "ims".contains(*f)).collect();
-                let final_pat = if inline.is_empty() {
-                    pattern.to_string()
-                } else {
-                    format!("(?{inline}){pattern}")
-                };
-                return Regex::new(&final_pat).ok();
-            }
+    if raw.starts_with('/')
+        && raw.len() >= 2
+        && let Some(last_slash) = raw.rfind('/')
+        && last_slash > 0
+    {
+        let pattern = &raw[1..last_slash];
+        let flags = &raw[last_slash + 1..];
+        // `u` is Rust's default and `g`/`y` do not affect a match test.
+        if !flags.chars().all(|f| "imsuyg".contains(f)) {
+            return None;
         }
+        let inline: String = flags.chars().filter(|f| "ims".contains(*f)).collect();
+        let final_pat = if inline.is_empty() {
+            pattern.to_string()
+        } else {
+            format!("(?{inline}){pattern}")
+        };
+        return Regex::new(&final_pat).ok();
     }
     None
 }
@@ -332,7 +332,10 @@ mod tests {
     fn slash_regex_accepts_js_flags() {
         assert!(OptionMatcher::parse("/^ignore/u").is_match("ignore-at-start"));
         assert!(OptionMatcher::parse("/^IGN/iu").is_match("ignore"));
-        assert!(matches!(OptionMatcher::parse("/a/x"), OptionMatcher::Exact(_)));
+        assert!(matches!(
+            OptionMatcher::parse("/a/x"),
+            OptionMatcher::Exact(_)
+        ));
     }
     use serde_json::json;
 

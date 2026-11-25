@@ -226,24 +226,24 @@ impl Rule for SelectorMaxId {
 }
 
 fn parse_regex_string(s: &str) -> Option<Regex> {
-    if s.starts_with('/') && s.len() >= 2 {
-        if let Some(last_slash) = s.rfind('/') {
-            if last_slash > 0 {
-                let pattern = &s[1..last_slash];
-                let flags = &s[last_slash + 1..];
-                let full_pattern = if flags.contains('i') {
-                    format!("(?i){}", pattern)
-                } else {
-                    pattern.to_string()
-                };
-                return Regex::new(&full_pattern).ok();
-            }
-        }
+    if s.starts_with('/')
+        && s.len() >= 2
+        && let Some(last_slash) = s.rfind('/')
+        && last_slash > 0
+    {
+        let pattern = &s[1..last_slash];
+        let flags = &s[last_slash + 1..];
+        let full_pattern = if flags.contains('i') {
+            format!("(?i){}", pattern)
+        } else {
+            pattern.to_string()
+        };
+        return Regex::new(&full_pattern).ok();
     }
     None
 }
 
-fn strip_selector_span<'a>(source: &'a str, span: Span) -> (Span, &'a str) {
+fn strip_selector_span(source: &str, span: Span) -> (Span, &str) {
     let raw = &source[span.start as usize..span.end as usize];
     let trimmed_start = raw.trim_start();
     let leading = raw.len() - trimmed_start.len();

@@ -14,30 +14,25 @@ enum WordPattern {
 
 impl WordPattern {
     fn parse(s: &str) -> Option<Self> {
-        if s.starts_with('/') && s.len() >= 2 {
-            if let Some(last_slash) = s[1..].rfind('/') {
-                let pattern = &s[1..=last_slash];
-                let flags = &s[last_slash + 2..];
-                let full_pattern = if flags.contains('i') {
-                    format!("(?i){pattern}")
-                } else {
-                    pattern.to_string()
-                };
-                if let Ok(re) = Regex::new(&full_pattern) {
-                    return Some(Self::Regex {
-                        raw: s.to_string(),
-                        regex: re,
-                    });
-                }
+        if s.starts_with('/')
+            && s.len() >= 2
+            && let Some(last_slash) = s[1..].rfind('/')
+        {
+            let pattern = &s[1..=last_slash];
+            let flags = &s[last_slash + 2..];
+            let full_pattern = if flags.contains('i') {
+                format!("(?i){pattern}")
+            } else {
+                pattern.to_string()
+            };
+            if let Ok(re) = Regex::new(&full_pattern) {
+                return Some(Self::Regex {
+                    raw: s.to_string(),
+                    regex: re,
+                });
             }
         }
         Some(Self::String { raw: s.to_string() })
-    }
-
-    fn raw(&self) -> &str {
-        match self {
-            Self::String { raw } | Self::Regex { raw, .. } => raw,
-        }
     }
 }
 
@@ -67,10 +62,10 @@ impl CommentWordDisallowedList {
                         }
                     } else if let Some(inner) = item.as_array() {
                         for sub in inner {
-                            if let Some(s) = sub.as_str() {
-                                if let Some(p) = WordPattern::parse(s) {
-                                    patterns.push(p);
-                                }
+                            if let Some(s) = sub.as_str()
+                                && let Some(p) = WordPattern::parse(s)
+                            {
+                                patterns.push(p);
                             }
                         }
                     }
@@ -105,12 +100,11 @@ impl CommentWordDisallowedList {
 
         // 2. containsString(text, primary)
         for pat in &self.patterns {
-            if let WordPattern::String { raw } = pat {
-                if !raw.is_empty() {
-                    if let Some(pos) = text.find(raw.as_str()) {
-                        return Some((raw.as_str(), pos, pos + raw.len()));
-                    }
-                }
+            if let WordPattern::String { raw } = pat
+                && !raw.is_empty()
+                && let Some(pos) = text.find(raw.as_str())
+            {
+                return Some((raw.as_str(), pos, pos + raw.len()));
             }
         }
 

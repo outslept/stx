@@ -216,12 +216,11 @@ fn check_statement_decl<'a>(
             continue;
         }
 
-        if let Some(BlockKind::AtRule { name: parent_name }) = immediate_parent {
-            if is_margin_context_property_in_margin_at_rule(at_rule_name, prop, parent_name)
-                || is_font_feature_value_type(at_rule_name, parent_name)
-            {
-                continue;
-            }
+        if let Some(BlockKind::AtRule { name: parent_name }) = immediate_parent
+            && (is_margin_context_property_in_margin_at_rule(at_rule_name, prop, parent_name)
+                || is_font_feature_value_type(at_rule_name, parent_name))
+        {
+            continue;
         }
 
         if in_set_ignore_case(descriptors, prop) {
@@ -535,6 +534,6 @@ mod tests {
             (11, 3, 11, 6),
         )];
 
-        Tester::new(AtRuleDescriptorNoUnknown::NAME, json!(true), &[], fail).test();
+        Tester::new(AtRuleDescriptorNoUnknown::NAME, json!(true), [], fail).test();
     }
 }

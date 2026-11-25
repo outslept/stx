@@ -16,10 +16,10 @@ fn is_configuration_comment(content: &str) -> bool {
         "stylelint-enable",
         "stylelint-configure",
     ] {
-        if let Some(rest) = base.strip_prefix(prefix) {
-            if rest.is_empty() || rest.starts_with(char::is_whitespace) {
-                return true;
-            }
+        if let Some(rest) = base.strip_prefix(prefix)
+            && (rest.is_empty() || rest.starts_with(char::is_whitespace))
+        {
+            return true;
         }
     }
     false

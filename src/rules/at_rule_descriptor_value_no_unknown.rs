@@ -254,12 +254,11 @@ impl AtRuleDescriptorValueNoUnknown {
                 continue;
             }
 
-            if let Some(BlockKind::AtRule { name: parent_name }) = immediate_parent {
-                if in_set_ignore_case(PAGE_MARGIN_AT_KEYWORDS, parent_name)
-                    || in_set_ignore_case(FONT_FEATURE_VALUE_TYPES, parent_name)
-                {
-                    continue;
-                }
+            if let Some(BlockKind::AtRule { name: parent_name }) = immediate_parent
+                && (in_set_ignore_case(PAGE_MARGIN_AT_KEYWORDS, parent_name)
+                    || in_set_ignore_case(FONT_FEATURE_VALUE_TYPES, parent_name))
+            {
+                continue;
             }
 
             // Only validate descriptors that are actually known for this at-rule.

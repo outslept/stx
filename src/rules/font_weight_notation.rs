@@ -51,15 +51,11 @@ fn is_numbery(value: &str) -> bool {
 }
 
 fn is_non_numeric_keyword(lower: &str) -> bool {
-    FONT_WEIGHT_NON_NUMERIC_KEYWORDS
-        .iter()
-        .any(|keyword| *keyword == lower)
+    FONT_WEIGHT_NON_NUMERIC_KEYWORDS.contains(&lower)
 }
 
 fn is_relative_keyword(lower: &str) -> bool {
-    FONT_WEIGHT_RELATIVE_KEYWORDS
-        .iter()
-        .any(|keyword| *keyword == lower)
+    FONT_WEIGHT_RELATIVE_KEYWORDS.contains(&lower)
 }
 
 fn is_div(kind: &ValueTokenKind) -> bool {

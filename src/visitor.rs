@@ -159,31 +159,31 @@ impl<'r, 'a> SinglePassVisitor<'r, 'a> {
                 self.ctx.set_rule(r);
                 r.rule.check_simple_selector(simple, self.ctx);
             }
-            if let SimpleSelector::PseudoClass(pseudo) = simple {
-                if let Some(arg) = &pseudo.arg {
-                    match &arg.kind {
-                        PseudoClassSelectorArgKind::SelectorList(list) => {
+            if let SimpleSelector::PseudoClass(pseudo) = simple
+                && let Some(arg) = &pseudo.arg
+            {
+                match &arg.kind {
+                    PseudoClassSelectorArgKind::SelectorList(list) => {
+                        self.visit_selector_list(list);
+                    }
+                    PseudoClassSelectorArgKind::CompoundSelectorList(list) => {
+                        for c in &list.selectors {
+                            self.visit_compound_selector(c);
+                        }
+                    }
+                    PseudoClassSelectorArgKind::RelativeSelectorList(list) => {
+                        for rel in &list.selectors {
+                            self.visit_complex_selector(&rel.complex_selector);
+                        }
+                    }
+                    PseudoClassSelectorArgKind::Nth(nth) => {
+                        if let Some(matcher) = &nth.matcher
+                            && let Some(list) = &matcher.selector
+                        {
                             self.visit_selector_list(list);
                         }
-                        PseudoClassSelectorArgKind::CompoundSelectorList(list) => {
-                            for c in &list.selectors {
-                                self.visit_compound_selector(c);
-                            }
-                        }
-                        PseudoClassSelectorArgKind::RelativeSelectorList(list) => {
-                            for rel in &list.selectors {
-                                self.visit_complex_selector(&rel.complex_selector);
-                            }
-                        }
-                        PseudoClassSelectorArgKind::Nth(nth) => {
-                            if let Some(matcher) = &nth.matcher {
-                                if let Some(list) = &matcher.selector {
-                                    self.visit_selector_list(list);
-                                }
-                            }
-                        }
-                        _ => {}
                     }
+                    _ => {}
                 }
             }
         }

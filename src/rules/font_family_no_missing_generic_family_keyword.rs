@@ -169,7 +169,7 @@ mod tests {
         Tester::new(
             "font-family-no-missing-generic-family-keyword",
             json!(true),
-            &pass,
+            pass,
             &fail,
         )
         .test();

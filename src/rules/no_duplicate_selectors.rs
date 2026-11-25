@@ -53,10 +53,8 @@ fn normalize_raw(raw: &str) -> String {
                 codepoint = codepoint * 16 + (bytes[i] as char).to_digit(16).unwrap_or(0);
                 i += 1;
             }
-            if i > start {
-                if i < bytes.len() && bytes[i].is_ascii_whitespace() {
-                    i += 1;
-                }
+            if i > start && i < bytes.len() && bytes[i].is_ascii_whitespace() {
+                i += 1;
             }
             let ch = if i > start {
                 char::from_u32(codepoint)
@@ -412,7 +410,7 @@ mod tests {
             None,
             "Duplicate selector \"a\", first used at line 1",
         )];
-        Tester::new("no-duplicate-selectors", json!(true), &[], &fail).test();
+        Tester::new("no-duplicate-selectors", json!(true), [], &fail).test();
         let fail = [reject_message(
             "b {}\n  b {}",
             None,

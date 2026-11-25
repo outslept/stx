@@ -15,18 +15,19 @@ enum StringOrRegex {
 
 impl StringOrRegex {
     fn parse(s: &str) -> Option<Self> {
-        if s.starts_with('/') && s.len() >= 2 {
-            if let Some(last_slash) = s[1..].rfind('/') {
-                let pattern = &s[1..=last_slash];
-                let flags = &s[last_slash + 2..];
-                let full_pattern = if flags.contains('i') {
-                    format!("(?i){pattern}")
-                } else {
-                    pattern.to_string()
-                };
-                if let Ok(re) = Regex::new(&full_pattern) {
-                    return Some(Self::Regex(re));
-                }
+        if s.starts_with('/')
+            && s.len() >= 2
+            && let Some(last_slash) = s[1..].rfind('/')
+        {
+            let pattern = &s[1..=last_slash];
+            let flags = &s[last_slash + 2..];
+            let full_pattern = if flags.contains('i') {
+                format!("(?i){pattern}")
+            } else {
+                pattern.to_string()
+            };
+            if let Ok(re) = Regex::new(&full_pattern) {
+                return Some(Self::Regex(re));
             }
         }
         Some(Self::Exact(s.to_string()))
@@ -56,14 +57,14 @@ impl ColorNoHex {
         }
 
         let mut ignore_functions = Vec::new();
-        if let Some(sec) = secondary {
-            if let Some(arr) = sec.get("ignoreFunctions").and_then(|v| v.as_array()) {
-                for item in arr {
-                    if let Some(s) = item.as_str() {
-                        if let Some(matcher) = StringOrRegex::parse(s) {
-                            ignore_functions.push(matcher);
-                        }
-                    }
+        if let Some(sec) = secondary
+            && let Some(arr) = sec.get("ignoreFunctions").and_then(|v| v.as_array())
+        {
+            for item in arr {
+                if let Some(s) = item.as_str()
+                    && let Some(matcher) = StringOrRegex::parse(s)
+                {
+                    ignore_functions.push(matcher);
                 }
             }
         }

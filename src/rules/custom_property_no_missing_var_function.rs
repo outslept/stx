@@ -279,11 +279,10 @@ fn check_node<'a>(
                     name: child_name,
                     args: child_args,
                 }) = args.first()
+                    && child_name.eq_ignore_ascii_case("var")
                 {
-                    if child_name.eq_ignore_ascii_case("var") {
-                        for arg in child_args.iter().skip(1) {
-                            check_node(arg, value_start, known, rule_name, ctx);
-                        }
+                    for arg in child_args.iter().skip(1) {
+                        check_node(arg, value_start, known, rule_name, ctx);
                     }
                 }
                 return;
@@ -293,7 +292,7 @@ fn check_node<'a>(
                 let comma_index = args.iter().position(|n| n.is_comma());
                 for (idx, arg) in args.iter().enumerate() {
                     let is_anchor_name =
-                        arg.is_dashed_ident() && comma_index.map_or(true, |c| idx < c);
+                        arg.is_dashed_ident() && comma_index.is_none_or(|c| idx < c);
                     if !is_anchor_name {
                         check_node(arg, value_start, known, rule_name, ctx);
                     }
@@ -450,22 +449,23 @@ impl Rule for CustomPropertyNoMissingVarFunction {
                 i += 1;
             } else {
                 // Declaration or statement ending in `;` or before `}`
-                if block_depth > 0 && !stmt_slice.starts_with('@') {
-                    if let Some(colon_pos) = first_colon {
-                        let prop = source[stmt_start..colon_pos].trim();
-                        if prop.starts_with("--") && prop.len() > 2 {
-                            known_custom_properties.insert(prop.to_string());
-                        }
-                        let raw_val = &source[colon_pos + 1..i];
-                        let trimmed_start = raw_val.len() - raw_val.trim_start().len();
-                        let val_trimmed = raw_val.trim();
-                        let val_start = colon_pos + 1 + trimmed_start;
-                        decls.push(DeclRecord {
-                            prop,
-                            value: val_trimmed,
-                            value_start: val_start,
-                        });
+                if block_depth > 0
+                    && !stmt_slice.starts_with('@')
+                    && let Some(colon_pos) = first_colon
+                {
+                    let prop = source[stmt_start..colon_pos].trim();
+                    if prop.starts_with("--") && prop.len() > 2 {
+                        known_custom_properties.insert(prop.to_string());
                     }
+                    let raw_val = &source[colon_pos + 1..i];
+                    let trimmed_start = raw_val.len() - raw_val.trim_start().len();
+                    let val_trimmed = raw_val.trim();
+                    let val_start = colon_pos + 1 + trimmed_start;
+                    decls.push(DeclRecord {
+                        prop,
+                        value: val_trimmed,
+                        value_start: val_start,
+                    });
                 }
                 if i < len && bytes[i] == b';' {
                     i += 1;

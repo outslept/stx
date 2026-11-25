@@ -39,19 +39,17 @@ impl RuleSelectorPropertyDisallowedList {
         for statement in &block.statements {
             match statement {
                 Statement::Declaration(Declaration { name, span, .. }) => {
-                    if let Some(prop) = ident_name(name) {
-                        if options_matches(props, prop) {
-                            ctx.report(
-                                self.name(),
-                                oxc_css_parser::Span {
-                                    start: span.start,
-                                    end: span.start + prop.len() as u32,
-                                },
-                                format!(
-                                    "Disallowed property \"{prop}\" for selector \"{selector}\""
-                                ),
-                            );
-                        }
+                    if let Some(prop) = ident_name(name)
+                        && options_matches(props, prop)
+                    {
+                        ctx.report(
+                            self.name(),
+                            oxc_css_parser::Span {
+                                start: span.start,
+                                end: span.start + prop.len() as u32,
+                            },
+                            format!("Disallowed property \"{prop}\" for selector \"{selector}\""),
+                        );
                     }
                 }
                 Statement::AtRule(at_rule) => {
@@ -85,7 +83,7 @@ impl Rule for RuleSelectorPropertyDisallowedList {
 }
 #[cfg(test)]
 mod tests {
-    use super::*;
+
     use crate::tester::{Tester, reject};
     use serde_json::json;
     #[test]

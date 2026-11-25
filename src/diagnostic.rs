@@ -2,9 +2,9 @@ use crate::fix::Fix;
 use oxc_css_parser::Span;
 use serde::Serialize;
 
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
+    #[default]
     Error,
     Warning,
 }

@@ -61,10 +61,10 @@ impl Rule for FunctionAllowedList {
                 continue;
             }
             let name = token.raw.strip_suffix('(').unwrap_or(token.raw);
-            if options_matches(&self.allowed, name) {
-                if !options_matches(&self.except_without_property_fallback, name) || has_fallback {
-                    continue;
-                }
+            if options_matches(&self.allowed, name)
+                && (!options_matches(&self.except_without_property_fallback, name) || has_fallback)
+            {
+                continue;
             }
             let span = Span {
                 start: token.span.start,

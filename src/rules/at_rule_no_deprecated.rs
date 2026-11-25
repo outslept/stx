@@ -302,7 +302,7 @@ mod tests {
             ),
         ];
 
-        Tester::new(AtRuleNoDeprecated::NAME, json!(true), &[], &fail_edits)
+        Tester::new(AtRuleNoDeprecated::NAME, json!(true), [], &fail_edits)
             .with_compute_edit_info(true)
             .test();
     }

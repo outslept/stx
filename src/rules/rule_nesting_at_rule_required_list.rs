@@ -3,7 +3,7 @@ use crate::{
     rules::Rule,
     utils::{OptionMatcher, options_matches, parse_primary_option_matchers},
 };
-use oxc_css_parser::{Span, ast::QualifiedRule};
+use oxc_css_parser::ast::QualifiedRule;
 
 pub struct RuleNestingAtRuleRequiredList {
     required: Vec<OptionMatcher>,

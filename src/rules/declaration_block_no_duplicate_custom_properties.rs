@@ -16,18 +16,18 @@ enum IgnoreMatcher {
 
 impl IgnoreMatcher {
     fn from_str(s: &str) -> Option<Self> {
-        if s.starts_with('/') && s.len() >= 2 {
-            if let Some(last_slash) = s.rfind('/') {
-                if last_slash > 0 {
-                    let pattern = &s[1..last_slash];
-                    let flags = &s[last_slash + 1..];
-                    let mut builder = RegexBuilder::new(pattern);
-                    if flags.contains('i') {
-                        builder.case_insensitive(true);
-                    }
-                    return builder.build().ok().map(IgnoreMatcher::Regex);
-                }
+        if s.starts_with('/')
+            && s.len() >= 2
+            && let Some(last_slash) = s.rfind('/')
+            && last_slash > 0
+        {
+            let pattern = &s[1..last_slash];
+            let flags = &s[last_slash + 1..];
+            let mut builder = RegexBuilder::new(pattern);
+            if flags.contains('i') {
+                builder.case_insensitive(true);
             }
+            return builder.build().ok().map(IgnoreMatcher::Regex);
         }
         Some(IgnoreMatcher::Exact(s.to_string()))
     }
@@ -52,25 +52,25 @@ impl DeclarationBlockNoDuplicateCustomProperties {
         }
 
         let mut ignore_properties = Vec::new();
-        if let Some(sec) = secondary {
-            if let Some(ig) = sec.get("ignoreProperties") {
-                match ig {
-                    Value::String(s) => {
-                        if let Some(m) = IgnoreMatcher::from_str(s) {
+        if let Some(sec) = secondary
+            && let Some(ig) = sec.get("ignoreProperties")
+        {
+            match ig {
+                Value::String(s) => {
+                    if let Some(m) = IgnoreMatcher::from_str(s) {
+                        ignore_properties.push(m);
+                    }
+                }
+                Value::Array(arr) => {
+                    for item in arr {
+                        if let Some(s) = item.as_str()
+                            && let Some(m) = IgnoreMatcher::from_str(s)
+                        {
                             ignore_properties.push(m);
                         }
                     }
-                    Value::Array(arr) => {
-                        for item in arr {
-                            if let Some(s) = item.as_str() {
-                                if let Some(m) = IgnoreMatcher::from_str(s) {
-                                    ignore_properties.push(m);
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
                 }
+                _ => {}
             }
         }
 
@@ -216,26 +216,20 @@ impl Rule for DeclarationBlockNoDuplicateCustomProperties {
                 i += 1;
             } else {
                 let stmt_slice = &source[stmt_start..i];
-                if !stmt_slice.starts_with('@') {
-                    if let Some(colon_pos) = first_colon {
-                        let prop = source[stmt_start..colon_pos].trim();
-                        if prop.starts_with("--")
-                            && prop.len() > 2
-                            && is_standard_syntax_property(prop)
-                            && !self.is_ignored(prop)
-                        {
-                            if let Some(current_set) = stack.last_mut() {
-                                if !current_set.insert(prop.to_string()) {
-                                    let start = stmt_start as u32;
-                                    let end = start + prop.len() as u32;
-                                    ctx.report(
-                                        self.name(),
-                                        Span { start, end },
-                                        rejected_message(prop),
-                                    );
-                                }
-                            }
-                        }
+                if !stmt_slice.starts_with('@')
+                    && let Some(colon_pos) = first_colon
+                {
+                    let prop = source[stmt_start..colon_pos].trim();
+                    if prop.starts_with("--")
+                        && prop.len() > 2
+                        && is_standard_syntax_property(prop)
+                        && !self.is_ignored(prop)
+                        && let Some(current_set) = stack.last_mut()
+                        && !current_set.insert(prop.to_string())
+                    {
+                        let start = stmt_start as u32;
+                        let end = start + prop.len() as u32;
+                        ctx.report(self.name(), Span { start, end }, rejected_message(prop));
                     }
                 }
                 if i < len && bytes[i] == b';' {

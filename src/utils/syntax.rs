@@ -149,29 +149,29 @@ pub fn is_standard_syntax_value(value: &str) -> bool {
     }
     if let Some(start) = value.find("__MSG_") {
         let rest = &value[start + 6..];
-        if let Some(end) = rest.find("__") {
-            if end > 0 && !rest[..end].chars().any(char::is_whitespace) {
-                return false;
-            }
+        if let Some(end) = rest.find("__")
+            && end > 0
+            && !rest[..end].chars().any(char::is_whitespace)
+        {
+            return false;
         }
     }
     if let Some(paren_idx) = value.find('(') {
         let before_paren = &value[..paren_idx];
-        if let Some(dot_idx) = before_paren.rfind('.') {
-            if dot_idx > 0 {
-                let after_dot = &before_paren[dot_idx + 1..];
-                let before_dot = &before_paren[..dot_idx];
-                let before_char = before_dot.chars().next_back();
-                if !after_dot.is_empty()
-                    && after_dot.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
-                    && after_dot
-                        .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-                    && before_char
-                        .is_some_and(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-                {
-                    return false;
-                }
+        if let Some(dot_idx) = before_paren.rfind('.')
+            && dot_idx > 0
+        {
+            let after_dot = &before_paren[dot_idx + 1..];
+            let before_dot = &before_paren[..dot_idx];
+            let before_char = before_dot.chars().next_back();
+            if !after_dot.is_empty()
+                && after_dot.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+                && after_dot
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+                && before_char.is_some_and(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+            {
+                return false;
             }
         }
     }
@@ -230,10 +230,11 @@ pub fn is_standard_syntax_selector(selector: &str) -> bool {
     if trimmed.ends_with(')') && !trimmed.contains(':') {
         return false;
     }
-    if let Some(open_idx) = trimmed.rfind("(@") {
-        if trimmed.ends_with(')') && open_idx < trimmed.len() - 1 {
-            return false;
-        }
+    if let Some(open_idx) = trimmed.rfind("(@")
+        && trimmed.ends_with(')')
+        && open_idx < trimmed.len() - 1
+    {
+        return false;
     }
     true
 }
@@ -263,7 +264,7 @@ pub fn is_standard_syntax_url(url: &str) -> bool {
             return false;
         }
     }
-    if url.contains('$')
+    !(url.contains('$')
         && !url.ends_with('/')
         && url.bytes().all(|b| {
             b.is_ascii_alphanumeric()
@@ -283,11 +284,7 @@ pub fn is_standard_syntax_url(url: &str) -> bool {
                         | b'#'
                         | b'?'
                 )
-        })
-    {
-        return false;
-    }
-    true
+        }))
 }
 
 /// Returns `true` if `value` can be parsed as a finite floating-point number.
@@ -1347,7 +1344,6 @@ pub fn count_selector_types(selector: &str) -> usize {
         }
         let ident_start = b.is_ascii_alphabetic() || b == b'_' || b == b'-' || b >= 0x80;
         if ident_start {
-            let start = i;
             i += 1;
             while i < len
                 && (bytes[i].is_ascii_alphanumeric()

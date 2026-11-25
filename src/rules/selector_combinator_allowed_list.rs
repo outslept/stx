@@ -37,7 +37,7 @@ impl Rule for SelectorCombinatorAllowedList {
     fn check_complex_selector<'a>(&self, sel: &'a ComplexSelector<'a>, ctx: &mut LintContext<'a>) {
         let raw = ctx.slice(sel.span);
         for (start, end, value) in selector_combinators(raw) {
-            if self.allowed.iter().any(|c| *c == value) {
+            if self.allowed.contains(&value) {
                 continue;
             }
             ctx.report(

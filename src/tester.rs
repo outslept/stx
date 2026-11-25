@@ -13,6 +13,7 @@ use crate::{
 };
 
 type Position = (usize, usize);
+type WarningSpan = (usize, usize, usize, usize);
 
 /// Expected warning assertion for a single diagnostic emitted by a rule.
 #[derive(Debug, Clone)]
@@ -50,7 +51,7 @@ pub fn reject<'a>(
     code: &'a str,
     fixed: impl Into<Option<&'a str>>,
     message: impl Into<String>,
-    (line, col, end_line, end_col): (usize, usize, usize, usize),
+    (line, col, end_line, end_col): WarningSpan,
 ) -> FailCase<'a> {
     let mut case = reject_message(code, fixed, message);
     case.warnings[0].span = Some(((line, col), Some((end_line, end_col))));
@@ -113,7 +114,7 @@ pub fn reject_messages<'a>(
 pub fn reject_warnings<'a>(
     code: &'a str,
     fixed: impl Into<Option<&'a str>>,
-    warnings: Vec<(String, (usize, usize, usize, usize))>,
+    warnings: Vec<(String, WarningSpan)>,
 ) -> FailCase<'a> {
     let fixed = fixed.into();
     FailCase {
@@ -137,7 +138,7 @@ pub fn reject_warnings<'a>(
 pub fn reject_edit<'a>(
     code: &'a str,
     message: impl Into<String>,
-    span: (usize, usize, usize, usize),
+    span: WarningSpan,
     edit_info: (u32, u32, &'static str),
 ) -> FailCase<'a> {
     reject(code, None, message, span).with_edit_info(0, edit_info)
@@ -146,7 +147,7 @@ pub fn reject_edit<'a>(
 /// Constructs a [`FailCase`] expecting multiple warnings with optional `computeEditInfo` data.
 pub fn reject_edit_warnings<'a, E>(
     code: &'a str,
-    warnings: Vec<(String, (usize, usize, usize, usize), E)>,
+    warnings: Vec<(String, WarningSpan, E)>,
 ) -> FailCase<'a>
 where
     E: Into<Option<(u32, u32, &'static str)>>,

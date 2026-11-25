@@ -143,10 +143,10 @@ impl MediaQueryNoInvalid {
         }
 
         let mut idx = 0;
-        if let TopItem::Word { text, .. } = &items[idx] {
-            if text.eq_ignore_ascii_case("not") || text.eq_ignore_ascii_case("only") {
-                idx += 1;
-            }
+        if let TopItem::Word { text, .. } = &items[idx]
+            && (text.eq_ignore_ascii_case("not") || text.eq_ignore_ascii_case("only"))
+        {
+            idx += 1;
         }
 
         if idx >= items.len() {
@@ -228,24 +228,24 @@ impl MediaQueryNoInvalid {
             return;
         }
 
-        if let TopItem::Word { text, .. } = &items[0] {
-            if text.eq_ignore_ascii_case("not") {
-                if items.len() == 2 {
-                    if let TopItem::Paren { start, end } = &items[1] {
-                        self.validate_media_in_parens(src, *start, *end, full_query_str, ctx);
-                        return;
-                    }
-                }
-                if !self.has_ignored_function(full_query_str) {
-                    self.report_invalid(
-                        ctx,
-                        container_span,
-                        &src[container_span.start as usize..container_span.end as usize],
-                        None,
-                    );
-                }
+        if let TopItem::Word { text, .. } = &items[0]
+            && text.eq_ignore_ascii_case("not")
+        {
+            if items.len() == 2
+                && let TopItem::Paren { start, end } = &items[1]
+            {
+                self.validate_media_in_parens(src, *start, *end, full_query_str, ctx);
                 return;
             }
+            if !self.has_ignored_function(full_query_str) {
+                self.report_invalid(
+                    ctx,
+                    container_span,
+                    &src[container_span.start as usize..container_span.end as usize],
+                    None,
+                );
+            }
+            return;
         }
 
         let mut idx = 0;
@@ -709,15 +709,10 @@ fn is_valid_plain_value(feature_name: &str, val: &str) -> bool {
         .or_else(|| name_lower.strip_prefix("max-"))
         .unwrap_or(&name_lower);
 
-    if matches!(
+    !(matches!(
         base_name,
         "width" | "height" | "device-width" | "device-height"
-    ) && val.ends_with('%')
-    {
-        return false;
-    }
-
-    true
+    ) && val.ends_with('%'))
 }
 
 #[cfg(test)]

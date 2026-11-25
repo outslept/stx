@@ -112,12 +112,13 @@ pub fn scan_at_rule_preludes<'a>(source: &'a str, target_name: &str) -> Vec<(Spa
                         j = skip_block_comment(bytes, j, len);
                         continue;
                     }
-                    if cj == b'{' && j > prelude_scan_start && matches!(bytes[j - 1], b'#' | b'@')
+                    if cj == b'{'
+                        && j > prelude_scan_start
+                        && matches!(bytes[j - 1], b'#' | b'@')
+                        && let Some(end) = skip_interpolation_brace(bytes, j, len)
                     {
-                        if let Some(end) = skip_interpolation_brace(bytes, j, len) {
-                            j = end;
-                            continue;
-                        }
+                        j = end;
+                        continue;
                     }
                     match cj {
                         b'(' => paren_depth += 1,
@@ -392,10 +393,7 @@ pub fn analyze_preceding_gap(
         if c.span.end != gap_start_u32 {
             return false;
         }
-        let before = source
-            .get(..c.span.start as usize)
-            .unwrap_or("")
-            .trim_end();
+        let before = source.get(..c.span.start as usize).unwrap_or("").trim_end();
         let line_start = before.rfind('\n').map_or(0, |newline| newline + 1);
         before.as_bytes().last() != Some(&b'}') || line_start == before.len()
     });
@@ -498,10 +496,12 @@ pub fn scan_direct_declarations<'a>(source: &'a str, block_span: Span) -> Vec<Sc
             _ => i += 1,
         }
     }
-    if brace_depth == 0 && paren_depth == 0 && stmt_start < end {
-        if let Some(d) = parse_scanned_decl(source, stmt_start, end) {
-            decls.push(d);
-        }
+    if brace_depth == 0
+        && paren_depth == 0
+        && stmt_start < end
+        && let Some(d) = parse_scanned_decl(source, stmt_start, end)
+    {
+        decls.push(d);
     }
     decls
 }
@@ -843,7 +843,10 @@ mod tests {
     fn scan_at_rule_preludes_interpolation() {
         assert_eq!(preludes("@media #{$q} {}", "media"), ["#{$q}"]);
         assert_eq!(preludes("@media @{q} {}", "media"), ["@{q}"]);
-        assert_eq!(preludes("@media #{map-get($q, x)} {}", "media"), ["#{map-get($q, x)}"]);
+        assert_eq!(
+            preludes("@media #{map-get($q, x)} {}", "media"),
+            ["#{map-get($q, x)}"]
+        );
     }
 
     fn tokens(src: &str, span: Span) -> Vec<(ValueTokenKind, &str)> {

@@ -129,17 +129,17 @@ impl UnitDisallowedList {
                         format!("Disallowed unit \"{unit}\""),
                     );
                 }
-                ValueTokenKind::Percentage => {
-                    if self.is_disallowed("%") && !self.property_ignores("%", prop) {
-                        ctx.report(
-                            self.name(),
-                            Span {
-                                start: token.span.end - 1,
-                                end: token.span.end,
-                            },
-                            "Disallowed unit \"%\"".to_string(),
-                        );
-                    }
+                ValueTokenKind::Percentage
+                    if self.is_disallowed("%") && !self.property_ignores("%", prop) =>
+                {
+                    ctx.report(
+                        self.name(),
+                        Span {
+                            start: token.span.end - 1,
+                            end: token.span.end,
+                        },
+                        "Disallowed unit \"%\"".to_string(),
+                    );
                 }
                 _ => {}
             }
@@ -200,7 +200,7 @@ impl Rule for UnitDisallowedList {
 }
 #[cfg(test)]
 mod tests {
-    use super::*;
+
     use crate::tester::{Tester, reject, reject_message};
     use serde_json::json;
     #[test]

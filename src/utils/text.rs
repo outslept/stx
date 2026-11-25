@@ -177,7 +177,7 @@ pub fn strip_comments(raw: &str) -> String {
 /// brackets, braces, string literals, or block comments.
 ///
 /// Each returned tuple contains `(start_offset, end_offset, slice)`.
-pub fn split_top_level<'a>(raw: &'a str, delimiter: u8) -> Vec<(usize, usize, &'a str)> {
+pub fn split_top_level(raw: &str, delimiter: u8) -> Vec<(usize, usize, &str)> {
     let bytes = raw.as_bytes();
     let mut parts = Vec::new();
     let mut start = 0usize;
@@ -230,7 +230,7 @@ pub fn split_top_level<'a>(raw: &'a str, delimiter: u8) -> Vec<(usize, usize, &'
 }
 
 /// Trims ASCII whitespace from `&raw[start..end]` and returns `(trimmed_start, trimmed_end, slice)`.
-pub fn trim_subslice<'a>(raw: &'a str, start: usize, end: usize) -> (usize, usize, &'a str) {
+pub fn trim_subslice(raw: &str, start: usize, end: usize) -> (usize, usize, &str) {
     let bytes = raw.as_bytes();
     let mut s = start;
     let mut e = end;

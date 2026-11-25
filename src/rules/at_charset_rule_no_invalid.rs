@@ -153,10 +153,10 @@ impl Rule for AtCharsetRuleNoInvalid {
                         match t.kind {
                             TokenKind::OpenParen => inner_brackets.push(TokenKind::CloseParen),
                             TokenKind::OpenBracket => inner_brackets.push(TokenKind::CloseBracket),
-                            TokenKind::CloseParen | TokenKind::CloseBracket => {
-                                if inner_brackets.last() == Some(&t.kind) {
-                                    inner_brackets.pop();
-                                }
+                            TokenKind::CloseParen | TokenKind::CloseBracket
+                                if inner_brackets.last() == Some(&t.kind) =>
+                            {
+                                inner_brackets.pop();
                             }
                             _ => {}
                         }

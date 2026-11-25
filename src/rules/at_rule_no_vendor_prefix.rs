@@ -295,7 +295,7 @@ mod tests {
             ),
         ];
 
-        Tester::new(AtRuleNoVendorPrefix::NAME, json!(true), &[], &fail_edits)
+        Tester::new(AtRuleNoVendorPrefix::NAME, json!(true), [], &fail_edits)
             .with_compute_edit_info(true)
             .test();
     }
@@ -329,7 +329,7 @@ mod tests {
             (1, 6, ""),
         )];
 
-        Tester::new(AtRuleNoVendorPrefix::NAME, config, &[], &fail_edits)
+        Tester::new(AtRuleNoVendorPrefix::NAME, config, [], &fail_edits)
             .with_compute_edit_info(true)
             .test();
     }
