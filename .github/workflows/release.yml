@@ -1,0 +1,125 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    uses: ./.github/workflows/ci.yml
+    with:
+      release: true
+
+  pack:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+        working-directory: napi
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: bindings-*
+          path: napi/artifacts
+      - name: Assemble npm packages
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          cp artifacts/bindings-x86_64-unknown-linux-gnu/index.js .
+          cp artifacts/bindings-x86_64-unknown-linux-gnu/index.d.ts .
+          npm exec -- napi create-npm-dirs
+          npm exec -- napi artifacts
+          npm exec -- napi pre-publish --no-gh-release --skip-optional-publish --root-publisher npm
+          packages="$RUNNER_TEMP/packages"
+          mkdir -p "$packages/bindings"
+          npm pack --ignore-scripts --pack-destination "$packages/bindings" ./npm/*
+          npm pack --ignore-scripts --pack-destination "$packages"
+      - name: Test clean install from tarballs
+        run: |
+          smoke="$RUNNER_TEMP/stx-smoke"
+          packages="$RUNNER_TEMP/packages"
+          npm install --offline --ignore-scripts --no-package-lock --no-audit --no-fund --prefix "$smoke" \
+            "$packages/"*.tgz "$packages/bindings/"*-linux-x64-gnu-*.tgz
+          cp test.mjs "$smoke/"
+          node --test "$smoke/test.mjs"
+          "$smoke/node_modules/.bin/stx" --version
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: npm-packages
+          path: ${{ runner.temp }}/packages
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+  npm:
+    needs: pack
+    if: github.event_name == 'push' && github.repository == 'outslept/stx'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.22.3'
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: npm-packages
+          path: packages
+      - name: Publish bindings then wrapper
+        shell: bash
+        run: |
+          tag=latest
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then tag=next; fi
+          for tarball in packages/bindings/*.tgz packages/*.tgz; do
+            if ! npm publish "$tarball" --access public --ignore-scripts --tag "$tag"; then
+              spec=$(tar -xOf "$tarball" package/package.json | jq -er '.name + "@" + .version')
+              integrity="sha512-$(openssl dgst -sha512 -binary "$tarball" | openssl base64 -A)"
+              test "$(npm view "$spec" dist.integrity)" = "$integrity"
+            fi
+          done
+
+  github-release:
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: cli-*
+          path: cli
+          merge-multiple: true
+      - name: Publish standalone CLI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: cli
+        shell: bash
+        run: |
+          sha256sum stx-*.tar.gz > SHA256SUMS
+          flags=()
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then flags+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes \
+            "${flags[@]}" stx-*.tar.gz SHA256SUMS
