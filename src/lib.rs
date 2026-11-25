@@ -12,7 +12,7 @@ mod tester;
 pub mod utils;
 
 pub use lint::{LintPass, lint_and_fix, lint_once};
-pub(crate) use lint::{context, disable, fix, fix::fix_from_pass, line_index, visitor};
+pub(crate) use lint::{context, disable, fix, fix::fix_from_pass, line_index};
 pub use oxc_css_parser::Syntax;
 use std::path::Path;
 
