@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>oxc-css-parser sandbox</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; font-family: monospace; }
+    body { display: flex; flex-direction: column; padding: 8px; gap: 8px; }
+    header { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    main { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; min-height: 0; }
+    textarea { width: 100%; height: 100%; resize: none; font-family: monospace; font-size: 13px; padding: 8px; }
+    #out { overflow: auto; border: 1px solid #999; padding: 8px; font-size: 13px; }
+    details { margin-left: 14px; }
+    #tree > details { margin-left: 0; }
+    summary { cursor: pointer; }
+    .kv { margin-left: 16px; }
+    .span { color: #555; cursor: pointer; text-decoration: underline; margin-left: 6px; }
+    .active { background: #fff3a8; }
+    .err { color: #b00; white-space: pre-wrap; margin-bottom: 8px; }
+    pre { margin: 0; white-space: pre-wrap; word-break: break-word; }
+  </style>
+</head>
+<body>
+  <header>
+    <select id="syntax">
+      <option value="css" selected>css</option>
+      <option value="scss">scss</option>
+      <option value="sass">sass</option>
+      <option value="less">less</option>
+    </select>
+    <select id="mode">
+      <option value="stylesheet" selected>Stylesheet</option>
+      <option value="qualified_rule">QualifiedRule</option>
+      <option value="declaration">Declaration</option>
+    </select>
+    <label><input type="checkbox" id="comments" checked /> comments</label>
+    <label><input type="checkbox" id="blockContents" /> block_contents</label>
+    <label><input type="checkbox" id="rawMode" /> raw JSON</label>
+    <span id="status"></span>
+  </header>
+
+  <main>
+    <textarea id="src" spellcheck="false">a { color: green; }</textarea>
+    <div id="out">
+      <div id="errors" class="err"></div>
+      <div id="tree"></div>
+      <pre id="raw" hidden></pre>
+    </div>
+  </main>
+
+  <script>
+    const src = document.getElementById("src");
+    const syntax = document.getElementById("syntax");
+    const mode = document.getElementById("mode");
+    const comments = document.getElementById("comments");
+    const blockContents = document.getElementById("blockContents");
+    const rawMode = document.getElementById("rawMode");
+    const status = document.getElementById("status");
+    const errors = document.getElementById("errors");
+    const tree = document.getElementById("tree");
+    const raw = document.getElementById("raw");
+
+    const enc = new TextEncoder();
+    let timer = null;
+    let indexedNodes = [];
+    let activeEl = null;
+    let suppressCursorSync = false;
+
+    function byteToUtf16(text, byteOffset) {
+      let bytes = 0;
+      let u16 = 0;
+      for (const ch of text) {
+        const b = enc.encode(ch).length;
+        if (bytes + b > byteOffset) break;
+        bytes += b;
+        u16 += ch.length;
+      }
+      return u16;
+    }
+
+    function utf16ToByte(text, u16Offset) {
+      return enc.encode(text.slice(0, u16Offset)).length;
+    }
+
+    function selectSpan(span, targetEl) {
+      if (!span) return;
+      const s = byteToUtf16(src.value, span.start);
+      const e = byteToUtf16(src.value, span.end);
+      suppressCursorSync = true;
+      src.focus();
+      src.setSelectionRange(s, e);
+      suppressCursorSync = false;
+      setActiveElement(targetEl, false);
+    }
+
+    function setActiveElement(el, scroll = true) {
+      if (activeEl) activeEl.classList.remove("active");
+      activeEl = el || null;
+      if (!activeEl) return;
+
+      let cur = activeEl.parentElement;
+      while (cur && cur !== tree) {
+        if (cur.tagName === "DETAILS") cur.open = true;
+        cur = cur.parentElement;
+      }
+      activeEl.classList.add("active");
+      if (scroll) activeEl.scrollIntoView({ block: "nearest" });
+    }
+
+    function highlightAtCursor() {
+      if (suppressCursorSync || rawMode.checked || indexedNodes.length === 0) return;
+
+      const bStart = utf16ToByte(src.value, src.selectionStart || 0);
+      const bEnd = utf16ToByte(src.value, src.selectionEnd || 0);
+      const isCollapsed = bStart === bEnd;
+
+      let best = null;
+      for (const item of indexedNodes) {
+        const { start, end } = item.span;
+        const contains = isCollapsed
+          ? (start <= bStart && bStart <= end)
+          : (start <= bStart && bEnd <= end);
+        if (!contains) continue;
+
+        const strict = isCollapsed && start <= bStart && bStart < end;
+        const len = end - start;
+
+        if (
+          !best ||
+          (strict && !best.strict) ||
+          (strict === best.strict && (len < best.len || (len === best.len && item.depth > best.depth)))
+        ) {
+          best = { ...item, len, strict };
+        }
+      }
+
+      setActiveElement(best ? best.el : null, true);
+    }
+
+    function isSpan(v) {
+      return v && typeof v === "object" && !Array.isArray(v)
+        && typeof v.start === "number" && typeof v.end === "number"
+        && Object.keys(v).length === 2;
+    }
+
+    function renderNode(val, key, depth = 0) {
+      if (val === null || typeof val !== "object") {
+        const div = document.createElement("div");
+        div.className = "kv";
+        div.textContent = (key != null ? `${key}: ` : "") + JSON.stringify(val);
+        return div;
+      }
+
+      const isArr = Array.isArray(val);
+      const entries = isArr
+        ? val.map((v, i) => [String(i), v])
+        : Object.entries(val).filter(([k]) => !(k === "type" && typeof val.type === "string"));
+
+      const span = !isArr && isSpan(val.span) ? val.span : null;
+      const typeLabel = !isArr && typeof val.type === "string" ? val.type : (isArr ? `[${entries.length}]` : "{}");
+      const label = (key != null ? `${key}: ` : "") + typeLabel;
+
+      if (entries.length === 0) {
+        const div = document.createElement("div");
+        div.className = "kv";
+        div.textContent = label + (isArr ? "" : " {}");
+        if (span) indexedNodes.push({ el: div, span, depth });
+        return div;
+      }
+
+      const details = document.createElement("details");
+      if (depth < 3) details.open = true;
+
+      const summary = document.createElement("summary");
+      summary.textContent = label;
+      if (span) {
+        indexedNodes.push({ el: summary, span, depth });
+        const s = document.createElement("span");
+        s.className = "span";
+        s.textContent = `${span.start}..${span.end}`;
+        s.onclick = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          selectSpan(span, summary);
+        };
+        summary.appendChild(s);
+      }
+      details.appendChild(summary);
+
+      for (const [k, v] of entries) {
+        details.appendChild(renderNode(v, k, depth + 1));
+      }
+      return details;
+    }
+
+    async function parse() {
+      const resp = await fetch("/api/parse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source: src.value,
+          syntax: syntax.value,
+          mode: mode.value,
+          collectComments: comments.checked,
+          blockContents: blockContents.checked,
+        }),
+      });
+      const data = await resp.json();
+
+      status.textContent = `${data.ok ? "ok" : "error"} · ${data.parseTimeUs} µs`;
+
+      const errs = [];
+      if (data.fatalError) errs.push(`Fatal [${data.fatalError.span.start}..${data.fatalError.span.end}]: ${data.fatalError.message}`);
+      for (const e of data.recoverableErrors || []) {
+        errs.push(`Recoverable [${e.span.start}..${e.span.end}]: ${e.message}`);
+      }
+      errors.textContent = errs.join("\n");
+
+      const outObj = comments.checked && (data.comments?.length)
+        ? { ast: data.ast, comments: data.comments }
+        : data.ast;
+
+      raw.textContent = JSON.stringify(outObj, null, 2);
+      tree.innerHTML = "";
+      indexedNodes = [];
+      activeEl = null;
+      if (outObj !== null && outObj !== undefined) {
+        tree.appendChild(renderNode(outObj, null, 0));
+        highlightAtCursor();
+      }
+    }
+
+    function syncView() {
+      tree.hidden = rawMode.checked;
+      raw.hidden = !rawMode.checked;
+    }
+
+    src.addEventListener("input", () => {
+      clearTimeout(timer);
+      timer = setTimeout(parse, 80);
+    });
+    ["click", "keyup", "select"].forEach((ev) => src.addEventListener(ev, highlightAtCursor));
+    src.addEventListener("keydown", (e) => {
+      if (e.key === "Tab") {
+        e.preventDefault();
+        src.setRangeText("  ", src.selectionStart, src.selectionEnd, "end");
+        src.dispatchEvent(new Event("input"));
+      }
+    });
+    [syntax, mode, comments, blockContents].forEach((el) => el.addEventListener("change", parse));
+    rawMode.addEventListener("change", syncView);
+
+    syncView();
+    parse();
+  </script>
+</body>
+</html>
