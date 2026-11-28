@@ -1,6 +1,37 @@
-//! Rule: `at-charset-rule-no-invalid`
+//! Disallows invalid `@charset` rules (`at-charset-rule-no-invalid`).
 //!
-//! Disallow invalid `@charset` rules.
+//! # Specification & Behavior
+//!
+//! According to [CSS Syntax Module Level 3](https://www.w3.org/TR/css-syntax-3/#charset-rule),
+//! a `@charset` rule is only valid if it matches the exact byte sequence:
+//!
+//! ```css
+//! @charset "<charset>";
+//! ```
+//!
+//! Specifically, every `@charset` rule is checked for six invariants (in order):
+//!
+//! 1. **No leading BOM** (`expected no byte order mark before it`).
+//! 2. **Position** (`expected it to be at the very start of the stylesheet`):
+//!    must be the very first node in the stylesheet at byte offset `0` with no
+//!    preceding whitespace, comments, or rules.
+//! 3. **Case** (`expected it to be lowercase`): the at-rule name must be
+//!    written as lowercase `charset`.
+//! 4. **Spacing** (`expected a single space after it`): `raws.afterName` must
+//!    be a single ASCII space (`" "`) with no comments, tabs, or newlines.
+//! 5. **Quotes** (`expected double quotes around the encoding label`): the
+//!    parameter must begin with a double-quoted string (`/^"[^"]*"/`).
+//! 6. **Termination** (`expected a semicolon directly after the closing quote`):
+//!    must end with `;` immediately after the closing `"`, with no extra
+//!    tokens, trailing spaces/comments before `;`, or `{ ... }` block.
+//!
+//!
+//! `oxc-css-parser` rejects several malformed `@charset` constructs (such as
+//! `@charset utf-8;`, `@charset;`, or `@charset "utf-8" {}`) as fatal syntax
+//! errors and invokes rules on an empty [`Stylesheet`] AST. To preserve 100%
+//! parity with PostCSS + Stylelint, this rule tokenizes `ctx.source` using
+//! PostCSS's tokenizer and `AtRule` boundary rules (`raws.afterName`,
+//! `raws.between`, `params`) directly inside [`Rule::check_stylesheet`].
 
 use std::borrow::Cow;
 
@@ -15,6 +46,7 @@ const REASON_SPACE: &str = "expected a single space after it";
 const REASON_QUOTES: &str = "expected double quotes around the encoding label";
 const REASON_SEMICOLON: &str = "expected a semicolon directly after the closing quote";
 
+/// Formats the diagnostic message matching Stylelint's `messages.rejected`.
 fn invalid_at_charset_diagnostic(reason: &str) -> String {
     format!("Invalid \"@charset\" rule, {reason}")
 }
@@ -32,7 +64,8 @@ crate::define_stx_lint! {
     /// ```css
     /// @charset "utf-8";
     /// ```
-    "at-charset-rule-no-invalid", correctness;
+    "at-charset-rule-no-invalid", correctness,
+    short_description = "Disallow invalid `@charset` rules.";
     #[derive(Debug, Default, Clone, Copy)]
     pub struct AtCharsetRuleNoInvalid;
 }
@@ -46,11 +79,10 @@ impl Rule for AtCharsetRuleNoInvalid {
         if !ctx.source.contains('@') {
             return;
         }
-
         let css = ctx.source;
         let has_bom = ctx.has_bom;
-
         let tokens = tokenize_css(css);
+
         let mut idx = 0;
         let mut at_stmt_start = true;
         let mut bracket_depth: usize = 0;
@@ -93,6 +125,8 @@ impl Rule for AtCharsetRuleNoInvalid {
                     let mut j = idx + 1;
                     let mut params_end = j;
 
+                    // Scan the at-rule prelude up to a top-level `;`, `{`, `}`, or EOF,
+                    // matching PostCSS's `Parser.atRule` loop.
                     while j < tokens.len() {
                         let t = tokens[j];
                         j += 1;
@@ -146,6 +180,7 @@ impl Rule for AtCharsetRuleNoInvalid {
                         }
                     }
 
+                    // Extract `node.raws.between` (`spacesAndCommentsFromEnd(params)` in PostCSS).
                     let mut params = &tokens[idx + 1..params_end];
                     let mut has_between = false;
                     while let Some((last, rest)) = params.split_last() {
@@ -156,6 +191,7 @@ impl Rule for AtCharsetRuleNoInvalid {
                         params = rest;
                     }
 
+                    // Extract `node.raws.afterName` (`spacesAndCommentsFromStart(params)` in PostCSS).
                     let mut after_name = "";
                     if let Some(last) = params.last() {
                         if ended_without_semi {
@@ -177,6 +213,7 @@ impl Rule for AtCharsetRuleNoInvalid {
                         has_between = false;
                     }
 
+                    // Compute `node.params` with comments stripped (`Parser.raw(node, 'params', params)`).
                     let params_str: Cow<'_, str> =
                         if params.iter().any(|p| p.kind == TokenKind::Comment) {
                             params
@@ -195,7 +232,6 @@ impl Rule for AtCharsetRuleNoInvalid {
                         start: rule_start as u32,
                         end: rule_end as u32,
                     };
-
                     let mut report_reason = |reason: &str| {
                         ctx.report(Self::NAME, span, invalid_at_charset_diagnostic(reason));
                     };
@@ -220,7 +256,6 @@ impl Rule for AtCharsetRuleNoInvalid {
 
                     let has_extra_content_in_prelude =
                         label.is_some_and(|l| l.len() != params_str.len());
-
                     if has_between
                         || has_extra_content_in_prelude
                         || open_block
@@ -242,6 +277,7 @@ impl Rule for AtCharsetRuleNoInvalid {
 }
 
 /// Matches `/^"[^"]*"/` at the beginning of `params`.
+#[inline]
 fn match_encoding_label(params: &str) -> Option<&str> {
     let rest = params.strip_prefix('"')?;
     let closing_quote = rest.find('"')?;
@@ -263,6 +299,7 @@ enum TokenKind {
     Other,
 }
 
+/// A single PostCSS token with its byte offsets in the source stylesheet.
 #[derive(Debug, Clone, Copy)]
 struct CssToken<'a> {
     kind: TokenKind,
@@ -403,7 +440,6 @@ fn tokenize_css(css: &str) -> Vec<CssToken<'_>> {
                 TokenKind::Other
             }
         };
-
         tokens.push(CssToken {
             kind,
             raw: &css[start..i],
@@ -411,7 +447,6 @@ fn tokenize_css(css: &str) -> Vec<CssToken<'_>> {
             end: i,
         });
     }
-
     tokens
 }
 
@@ -420,15 +455,29 @@ mod tests {
     use serde_json::json;
 
     use super::{AtCharsetRuleNoInvalid, invalid_at_charset_diagnostic as rejected};
-    use crate::tester::{Tester, reject, reject_warnings};
+    use crate::{
+        Syntax,
+        config::Config,
+        lint_once,
+        rules::build_rules,
+        tester::{Tester, reject, reject_warnings},
+    };
 
     #[test]
     fn default_config() {
         let pass = &[
             "@charset \"utf-8\";",
+            "@charset \"utf-8\";\na { color: red; }",
             "@charset \"UTF-8\";",
+            "@charset \"windows-1252\";",
             "@charset \"iso-8859-15\";",
+            "@charset \"\";",
+            "@charset \"not-an-encoding\";",
             "@charset \"utf-8\";\na {}",
+            "a { color: red; }",
+            "\u{FEFF}a { color: red; }",
+            "/* @charset 'utf-8'; */\na { color: red; }",
+            "a { content: \"@charset 'utf-8';\"; }",
         ];
 
         let fail = &[
@@ -437,6 +486,20 @@ mod tests {
                 None,
                 rejected("expected no byte order mark before it"),
                 (1, 1, 1, 18),
+            ),
+            reject_warnings(
+                "\u{FEFF}@charset 'utf-8';",
+                None,
+                vec![
+                    (
+                        rejected("expected no byte order mark before it"),
+                        (1, 1, 1, 18),
+                    ),
+                    (
+                        rejected("expected double quotes around the encoding label"),
+                        (1, 1, 1, 18),
+                    ),
+                ],
             ),
             reject(
                 " @charset \"utf-8\";",
@@ -457,7 +520,25 @@ mod tests {
                 (2, 1, 2, 18),
             ),
             reject(
+                "a { color: red; }\n@charset \"utf-8\";",
+                None,
+                rejected("expected it to be at the very start of the stylesheet"),
+                (2, 1, 2, 18),
+            ),
+            reject(
                 "/* comment */\n@charset \"utf-8\";",
+                None,
+                rejected("expected it to be at the very start of the stylesheet"),
+                (2, 1, 2, 18),
+            ),
+            reject(
+                "/* foo */\n@charset \"utf-8\";",
+                None,
+                rejected("expected it to be at the very start of the stylesheet"),
+                (2, 1, 2, 18),
+            ),
+            reject(
+                "@charset \"utf-8\";\n@charset \"utf-8\";",
                 None,
                 rejected("expected it to be at the very start of the stylesheet"),
                 (2, 1, 2, 18),
@@ -497,6 +578,12 @@ mod tests {
                 None,
                 rejected("expected a single space after it"),
                 (1, 1, 1, 17),
+            ),
+            reject(
+                "@charset /* foo */ \"utf-8\";",
+                None,
+                rejected("expected a single space after it"),
+                (1, 1, 1, 28),
             ),
             reject(
                 "@charset 'utf-8';",
@@ -546,6 +633,14 @@ mod tests {
                 ],
             ),
             reject_warnings(
+                "@CHARSET  \"utf-8\";",
+                None,
+                vec![
+                    (rejected("expected it to be lowercase"), (1, 1, 1, 19)),
+                    (rejected("expected a single space after it"), (1, 1, 1, 19)),
+                ],
+            ),
+            reject_warnings(
                 " @CHARSET\t'utf-8' ;",
                 None,
                 vec![
@@ -568,5 +663,54 @@ mod tests {
         ];
 
         Tester::new(AtCharsetRuleNoInvalid::NAME, json!([true]), pass, fail).test();
+    }
+
+    #[test]
+    fn stylelint_unparsable_charset_cases() {
+        let config =
+            Config::from_json_str(r#"{"rules":{"at-charset-rule-no-invalid":true}}"#).unwrap();
+        let rules = build_rules(&config);
+
+        for (code, expected_msg, expected_span) in [
+            (
+                "@charset \"utf-8\" {}\na { color: red; }",
+                rejected("expected a semicolon directly after the closing quote"),
+                (1, 1, 1, 20),
+            ),
+            (
+                "@charset \"utf-8\"{}\na { color: red; }",
+                rejected("expected a semicolon directly after the closing quote"),
+                (1, 1, 1, 19),
+            ),
+            (
+                "@charset \"utf-8\"\n@import \"foo.css\";",
+                rejected("expected a semicolon directly after the closing quote"),
+                (1, 1, 2, 19),
+            ),
+            (
+                "@charset \"utf-8\" foo;",
+                rejected("expected a semicolon directly after the closing quote"),
+                (1, 1, 1, 22),
+            ),
+            (
+                "@media all {\n  @charset \"utf-8\";\n}",
+                rejected("expected it to be at the very start of the stylesheet"),
+                (2, 3, 2, 20),
+            ),
+        ] {
+            let pass = lint_once(code, Syntax::Css, &rules, false);
+            assert_eq!(pass.warnings.len(), 1, "code: {code:?}");
+            let w = &pass.warnings[0];
+            assert_eq!(
+                w.text,
+                format!("{expected_msg} ({})", AtCharsetRuleNoInvalid::NAME),
+                "code: {code:?}"
+            );
+            assert_eq!(
+                (w.line, w.column, w.end_line, w.end_column),
+                expected_span,
+                "code: {code:?}"
+            );
+        }
     }
 }

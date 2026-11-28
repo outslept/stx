@@ -1,6 +1,17 @@
-//! Rule `at-rule-empty-line-before`: require or disallow an empty line before at-rules.
+//! Requires or disallows an empty line before at-rules (`at-rule-empty-line-before`).
 //!
-//! Reference: <https://stylelint.io/user-guide/rules/at-rule-empty-line-before>
+//! # Checked Constructs
+//!
+//! 1. Standard-syntax CSS and SCSS at-rules at the root level or nested inside style and
+//!    at-rule blocks.
+//! 2. The very first node of the root stylesheet is always ignored (`isFirstNodeOfRoot`).
+//! 3. Non-standard preprocessor constructs—such as Less variable definitions (`@var: 10px`),
+//!    Less mixin calls (`@mixin()`), parameterless blockless directives (`@content;`), and
+//!    at-rules with interpolated names (`@#{$var}`)—are ignored via `isStandardSyntaxAtRule`.
+//! 4. Shared-line comments preceding an at-rule are skipped when determining the previous
+//!    sibling node (`getPreviousNonSharedLineCommentNode`).
+//! 5. Both `fix` and `computeEditInfo` (`EditInfo`) are supported, preserving the file's
+//!    newline style (`\n` vs `\r\n`) and indentation.
 
 use std::ops::Deref;
 
@@ -11,9 +22,7 @@ use crate::config::RuleSetting;
 use crate::context::LintContext;
 use crate::fix::Fix;
 use crate::rules::Rule;
-use crate::utils::{
-    OptionMatcher, has_interpolation, options_matches, parse_option_matchers, secondary_has_flag,
-};
+use crate::utils::{OptionMatcher, options_matches, parse_option_matchers, secondary_has_flag};
 
 /// Primary expectation mode for [`AtRuleEmptyLineBefore`].
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -27,7 +36,8 @@ pub enum EmptyLineMode {
 
 type Expectation = EmptyLineMode;
 
-#[derive(Default)]
+/// Parsed configuration for [`AtRuleEmptyLineBefore`].
+#[derive(Debug, Default)]
 pub struct AtRuleEmptyLineBeforeConfig {
     expectation: Expectation,
     except_after_same_name: bool,
@@ -44,27 +54,15 @@ pub struct AtRuleEmptyLineBeforeConfig {
 }
 
 crate::define_stx_lint! {
-    /// Require or forbid a blank line before at-rules.
+    /// Requires or disallows an empty line before at-rules.
     ///
-    /// Set the primary option to `"always"` to require a blank line or `"never"`
-    /// to forbid one. The first top-level node and nonstandard at-rules are skipped.
-    /// Autofix changes the whitespace before the at-rule.
-    ///
-    /// - `except` reverses the expectation for `after-same-name`, `inside-block`,
-    ///   `first-nested`, `blockless-after-blockless`, or `blockless-after-same-name-blockless`.
-    /// - `ignore` skips `after-comment`, `inside-block`, `first-nested`,
-    ///   `blockless-after-blockless`, or `blockless-after-same-name-blockless`.
-    /// - `ignoreAtRules` skips names or slash-delimited regex matches without `@`.
-    ///
-    /// With `"always"`, the blank line before `@media` is required here:
-    ///
-    /// ```css
-    /// @import "base.css";
-    ///
-    /// @media print { a { color: black; } }
-    /// ```
-    "at-rule-empty-line-before", style, fix = fix;
-    #[derive(Default)]
+    /// Enforces consistent vertical spacing before standard-syntax at-rules (`"always"` or
+    /// `"never"`), with configurable `except`, `ignore`, and `ignoreAtRules` secondary
+    /// options and full autofix support.
+    "at-rule-empty-line-before", style, fix = fix,
+    short_description = "Require or disallow an empty line before at-rules.";
+
+    #[derive(Debug, Default)]
     pub struct AtRuleEmptyLineBefore(AtRuleEmptyLineBeforeConfig);
 }
 
@@ -84,13 +82,18 @@ impl AtRuleEmptyLineBefore {
 
     /// Creates a new [`AtRuleEmptyLineBefore`] rule instance from the given
     /// [`RuleSetting`].
+    ///
+    /// Returns `None` if the primary option is neither `"always"` nor `"never"`.
+    #[must_use]
     pub fn from_setting(setting: &RuleSetting) -> Option<Self> {
         let expectation = match setting.primary.as_str()? {
             "always" => Expectation::Always,
             "never" => Expectation::Never,
             _ => return None,
         };
+
         let sec = setting.secondary.as_ref();
+
         Some(Self(AtRuleEmptyLineBeforeConfig {
             expectation,
             except_after_same_name: secondary_has_flag(sec, "except", "after-same-name"),
@@ -125,8 +128,9 @@ impl AtRuleEmptyLineBefore {
 }
 
 /// Classification of a child node within a root stylesheet or `{ ... }` block.
+#[derive(Debug)]
 enum ChildNodeKind<'a> {
-    /// A block or line comment.
+    /// A block (`/* ... */`) or single-line (`// ...`) comment.
     Comment,
     /// An at-rule statement (`@name ...;` or `@name ... { ... }`).
     AtRule {
@@ -137,23 +141,24 @@ enum ChildNodeKind<'a> {
         /// `true` if the at-rule uses standard CSS/SCSS syntax (not a Less mixin/variable).
         is_standard: bool,
         /// Byte range `(inner_start, inner_end)` of the `{ ... }` body if not blockless.
-        body_range: Option<(u32, u32)>,
+        body_range: Option<(usize, usize)>,
     },
     /// A qualified rule or declaration, optionally containing a `{ ... }` body.
     Other {
         /// Byte range `(inner_start, inner_end)` of the `{ ... }` body if present.
-        body_range: Option<(u32, u32)>,
+        body_range: Option<(usize, usize)>,
     },
 }
 
 /// A parsed child node inside a container block or root stylesheet.
+#[derive(Debug)]
 struct ChildNode<'a> {
-    /// Start offset of the whitespace (`raws.before`) preceding this node.
-    before_start: u32,
-    /// Start offset of the node itself (e.g. `@` for an at-rule).
-    node_start: u32,
-    /// End offset of the node.
-    node_end: u32,
+    /// Start byte offset of the whitespace (`raws.before`) preceding this node.
+    before_start: usize,
+    /// Start byte offset of the node itself (e.g. `@` for an at-rule).
+    node_start: usize,
+    /// End byte offset of the node.
+    node_end: usize,
     /// Kind of child node.
     kind: ChildNodeKind<'a>,
 }
@@ -164,7 +169,7 @@ impl Rule for AtRuleEmptyLineBefore {
     }
 
     fn check_stylesheet<'a>(&self, _ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {
-        let len = u32::try_from(ctx.source.len()).unwrap_or(u32::MAX);
+        let len = ctx.source.len();
         let newline = detect_newline(ctx.source);
         self.check_container(ctx, 0, len, false, newline);
     }
@@ -176,12 +181,13 @@ impl AtRuleEmptyLineBefore {
     fn check_container<'a>(
         &self,
         ctx: &mut LintContext<'a>,
-        start: u32,
-        end: u32,
+        start: usize,
+        end: usize,
         is_nested: bool,
         newline: &str,
     ) {
         let nodes = parse_container_nodes(ctx, start, end);
+
         for (idx, node) in nodes.iter().enumerate() {
             if let ChildNodeKind::AtRule {
                 name,
@@ -201,6 +207,7 @@ impl AtRuleEmptyLineBefore {
                     newline,
                 );
             }
+
             // Recurse into nested block body if present.
             let body_range = match node.kind {
                 ChildNodeKind::AtRule { body_range, .. } | ChildNodeKind::Other { body_range } => {
@@ -208,6 +215,7 @@ impl AtRuleEmptyLineBefore {
                 }
                 ChildNodeKind::Comment => None,
             };
+
             if let Some((body_start, body_end)) = body_range {
                 self.check_container(ctx, body_start, body_end, true, newline);
             }
@@ -231,13 +239,17 @@ impl AtRuleEmptyLineBefore {
         if !is_nested && idx == 0 {
             return;
         }
+
         if !is_standard {
             return;
         }
+
         if options_matches(&self.ignore_at_rules, name) {
             return;
         }
+
         let prev_non_shared = get_previous_non_shared_line_comment_node(ctx, nodes, idx);
+
         let is_after_blockless = matches!(
             prev_non_shared,
             Some(ChildNode {
@@ -249,6 +261,7 @@ impl AtRuleEmptyLineBefore {
             })
         );
         let is_blockless_after_blockless = is_blockless && is_after_blockless;
+
         let is_after_same_name = matches!(
             prev_non_shared,
             Some(ChildNode {
@@ -259,9 +272,12 @@ impl AtRuleEmptyLineBefore {
                 ..
             }) if *prev_name == name
         );
+
         let is_blockless_after_same_name_blockless =
             is_blockless_after_blockless && is_after_same_name;
+
         let first_nested = is_nested && is_first_nested(ctx, nodes, idx);
+
         let after_comment = matches!(
             prev_non_shared,
             Some(ChildNode {
@@ -269,6 +285,7 @@ impl AtRuleEmptyLineBefore {
                 ..
             })
         );
+
         // Apply `ignore` conditions.
         if self.ignore_blockless_after_blockless && is_blockless_after_blockless {
             return;
@@ -286,10 +303,17 @@ impl AtRuleEmptyLineBefore {
         if self.ignore_after_comment && after_comment {
             return;
         }
+
         let node = &nodes[idx];
-        let raws_before = ctx.slice_range(node.before_start, node.node_start);
+        let before_start_u32 = u32::try_from(node.before_start).unwrap_or(u32::MAX);
+        let node_start_u32 = u32::try_from(node.node_start).unwrap_or(u32::MAX);
+        let node_end_u32 = u32::try_from(node.node_end).unwrap_or(u32::MAX);
+
+        let raws_before = ctx.slice_range(before_start_u32, node_start_u32);
         let has_empty_line_before = has_empty_line(raws_before);
+
         let mut expect_empty_line_before = self.expectation == Expectation::Always;
+
         // Apply `except` conditions.
         if (self.except_after_same_name && is_after_same_name)
             || (self.except_inside_block && is_nested)
@@ -300,31 +324,36 @@ impl AtRuleEmptyLineBefore {
         {
             expect_empty_line_before = !expect_empty_line_before;
         }
+
         if expect_empty_line_before == has_empty_line_before {
             return;
         }
+
         let message = if expect_empty_line_before {
             Self::EXPECTED_MSG
         } else {
             Self::REJECTED_MSG
         };
+
         let fixed_before = if expect_empty_line_before {
             add_empty_line(raws_before, newline)
         } else {
             remove_empty_lines(raws_before)
         };
+
         let fix = Fix::single(
             Span {
-                start: node.before_start,
-                end: node.node_start,
+                start: before_start_u32,
+                end: node_start_u32,
             },
             fixed_before,
         );
+
         ctx.report_with_fix(
             Self::NAME,
             Span {
-                start: node.node_start,
-                end: node.node_end,
+                start: node_start_u32,
+                end: node_end_u32,
             },
             message.to_string(),
             Some(fix),
@@ -333,22 +362,30 @@ impl AtRuleEmptyLineBefore {
 }
 
 /// Parses `[start, end)` into immediate child nodes (`Comment`, `AtRule`, `Other`).
-fn parse_container_nodes<'a>(ctx: &LintContext<'a>, start: u32, end: u32) -> Vec<ChildNode<'a>> {
+#[must_use]
+fn parse_container_nodes<'a>(
+    ctx: &LintContext<'a>,
+    start: usize,
+    end: usize,
+) -> Vec<ChildNode<'a>> {
+    let bytes = ctx.source.as_bytes();
+    let end = end.min(bytes.len());
     let mut nodes = Vec::new();
     let mut pos = start;
+
     while pos < end {
         let before_start = pos;
-        pos = skip_whitespace(ctx, pos, end);
+        pos = skip_whitespace(bytes, pos, end);
         if pos >= end {
             break;
         }
+
         let node_start = pos;
-        let Some(b) = byte_at(ctx, node_start) else {
-            break;
-        };
+        let b = bytes[node_start];
+
         // Block comment `/* ... */`.
-        if b == b'/' && byte_at(ctx, node_start + 1) == Some(b'*') {
-            let comment_end = skip_block_comment(ctx, node_start + 2, end);
+        if b == b'/' && pos + 1 < end && bytes[pos + 1] == b'*' {
+            let comment_end = skip_block_comment(bytes, node_start + 2, end);
             nodes.push(ChildNode {
                 before_start,
                 node_start,
@@ -358,9 +395,11 @@ fn parse_container_nodes<'a>(ctx: &LintContext<'a>, start: u32, end: u32) -> Vec
             pos = comment_end;
             continue;
         }
-        // Single-line comment `// ...`.
-        if b == b'/' && byte_at(ctx, node_start + 1) == Some(b'/') {
-            let comment_end = skip_line_comment(ctx, node_start + 2, end);
+
+        // Single-line comment `// ...` (stops before `\r\n` or `\n` so the line break
+        // remains part of `raws.before` of the following node).
+        if b == b'/' && pos + 1 < end && bytes[pos + 1] == b'/' {
+            let comment_end = skip_line_comment_text(bytes, node_start + 2, end);
             nodes.push(ChildNode {
                 before_start,
                 node_start,
@@ -370,18 +409,19 @@ fn parse_container_nodes<'a>(ctx: &LintContext<'a>, start: u32, end: u32) -> Vec
             pos = comment_end;
             continue;
         }
+
         // Scan statement up to `;`, `{`, or `end`.
-        let terminator = scan_statement_terminator(ctx, node_start, end);
+        let terminator = scan_statement_terminator(bytes, node_start, end);
         let (node_end, is_blockless, body_range) = match terminator {
             StmtTerminator::OpenBrace(open_brace) => {
-                let close_brace = find_matching_brace(ctx, open_brace + 1, end);
+                let close_brace = find_matching_brace(bytes, open_brace + 1, end);
                 let mut stmt_end = if close_brace < end {
                     close_brace + 1
                 } else {
                     end
                 };
                 // Consume a trailing `;` immediately after `}` (e.g. `@media {};`).
-                if byte_at(ctx, stmt_end) == Some(b';') {
+                if stmt_end < end && bytes[stmt_end] == b';' {
                     stmt_end += 1;
                 }
                 (stmt_end, false, Some((open_brace + 1, close_brace)))
@@ -389,13 +429,18 @@ fn parse_container_nodes<'a>(ctx: &LintContext<'a>, start: u32, end: u32) -> Vec
             StmtTerminator::Semicolon(semi_pos) => (semi_pos + 1, true, None),
             StmtTerminator::End(end_pos) => (end_pos, true, None),
         };
+
         if b == b'@' {
             let name_start = node_start + 1;
-            let name_end = scan_ident_end(ctx, name_start, node_end);
+            let name_end = scan_ident_end(bytes, name_start, node_end);
             if name_end > name_start {
-                let name = ctx.slice_range(name_start, name_end);
+                let name_start_u32 = u32::try_from(name_start).unwrap_or(u32::MAX);
+                let name_end_u32 = u32::try_from(name_end).unwrap_or(u32::MAX);
+                let name = ctx.slice_range(name_start_u32, name_end_u32);
                 let prelude_end = body_range.map_or(node_end, |(bs, _)| bs.saturating_sub(1));
-                let is_standard = is_standard_at_rule(ctx, name_end, prelude_end, is_blockless);
+                let is_standard =
+                    is_standard_at_rule(ctx, bytes, name_end, prelude_end, is_blockless);
+
                 nodes.push(ChildNode {
                     before_start,
                     node_start,
@@ -411,6 +456,7 @@ fn parse_container_nodes<'a>(ctx: &LintContext<'a>, start: u32, end: u32) -> Vec
                 continue;
             }
         }
+
         nodes.push(ChildNode {
             before_start,
             node_start,
@@ -419,38 +465,62 @@ fn parse_container_nodes<'a>(ctx: &LintContext<'a>, start: u32, end: u32) -> Vec
         });
         pos = node_end;
     }
+
     nodes
 }
 
-/// Checks whether an at-rule is standard syntax (ignoring Less variables and
-/// Less mixin calls such as `@mixin()`).
+/// Checks whether an at-rule uses standard CSS/SCSS syntax (ignoring Less
+/// variables, Less mixin calls such as `@mixin()`, parameterless `@content;`,
+/// and at-rules with interpolation in their name).
+///
+/// Mirrors Stylelint's `isStandardSyntaxAtRule(atRule)`.
+#[must_use]
 fn is_standard_at_rule(
     ctx: &LintContext<'_>,
-    name_end: u32,
-    prelude_end: u32,
+    bytes: &[u8],
+    name_end: usize,
+    prelude_end: usize,
     is_blockless: bool,
 ) -> bool {
-    let after_name = byte_at(ctx, name_end);
+    let after_name = bytes.get(name_end).copied();
+
     // Less variable `@var: value;`.
     if after_name == Some(b':') {
         return false;
     }
-    // Less blockless mixin call `@mixin();` (`!node.nodes && node.raws.afterName === '' && node.params[0] === '('`).
+
+    // Interpolation attached directly to the at-rule name (`@prefix-#{$var}`, `@prefix@{var}`).
+    if after_name == Some(b'$')
+        || (after_name == Some(b'#') && bytes.get(name_end + 1) == Some(&b'{'))
+        || (after_name == Some(b'@') && bytes.get(name_end + 1) == Some(&b'{'))
+    {
+        return false;
+    }
+
+    // Less blockless mixin / detached ruleset call `@mixin();`
+    // (`!node.nodes && node.raws.afterName === '' && node.params[0] === '('`).
     if is_blockless && after_name == Some(b'(') {
         return false;
     }
-    let prelude = ctx.slice_range(name_end, prelude_end).trim();
+
+    let name_end_u32 = u32::try_from(name_end).unwrap_or(u32::MAX);
+    let prelude_end_u32 = u32::try_from(prelude_end).unwrap_or(u32::MAX);
+    let prelude = ctx.slice_range(name_end_u32, prelude_end_u32).trim();
+
     if is_blockless && prelude.trim_end_matches(';').trim().is_empty() {
         return false;
     }
-    if prelude.starts_with(':') || has_interpolation(prelude) {
+
+    if prelude.starts_with(':') {
         return false;
     }
+
     true
 }
 
 /// Returns the previous sibling node, skipping any comment that shares a line
 /// with the node preceding it.
+#[must_use]
 fn get_previous_non_shared_line_comment_node<'a, 'b>(
     ctx: &LintContext<'a>,
     nodes: &'b [ChildNode<'a>],
@@ -461,7 +531,9 @@ fn get_previous_non_shared_line_comment_node<'a, 'b>(
         cur -= 1;
         let candidate = &nodes[cur];
         if matches!(candidate.kind, ChildNodeKind::Comment) && cur > 0 {
-            let comment_before = ctx.slice_range(candidate.before_start, candidate.node_start);
+            let before_u32 = u32::try_from(candidate.before_start).unwrap_or(u32::MAX);
+            let start_u32 = u32::try_from(candidate.node_start).unwrap_or(u32::MAX);
+            let comment_before = ctx.slice_range(before_u32, start_u32);
             if !comment_before.contains('\n') {
                 continue;
             }
@@ -473,23 +545,29 @@ fn get_previous_non_shared_line_comment_node<'a, 'b>(
 
 /// Returns `true` if `nodes[idx]` is the first nested node in a block, or is
 /// only preceded by a comment on the same line as the block's opening `{`.
+#[must_use]
 fn is_first_nested(ctx: &LintContext<'_>, nodes: &[ChildNode<'_>], idx: usize) -> bool {
     if idx == 0 {
         return true;
     }
     if idx == 1 && matches!(nodes[0].kind, ChildNodeKind::Comment) {
-        let comment_before = ctx.slice_range(nodes[0].before_start, nodes[0].node_start);
+        let before_u32 = u32::try_from(nodes[0].before_start).unwrap_or(u32::MAX);
+        let start_u32 = u32::try_from(nodes[0].node_start).unwrap_or(u32::MAX);
+        let comment_before = ctx.slice_range(before_u32, start_u32);
         return !comment_before.contains('\n');
     }
     false
 }
 
 /// Checks whether `raws_before` contains at least one empty line (two or more `\n`s).
+#[inline]
+#[must_use]
 fn has_empty_line(raws_before: &str) -> bool {
     raws_before.bytes().filter(|&b| b == b'\n').count() >= 2
 }
 
 /// Detects the newline sequence (`"\r\n"` or `"\n"`) used in `source`.
+#[must_use]
 fn detect_newline(source: &str) -> &'static str {
     let bytes = source.as_bytes();
     for (i, &b) in bytes.iter().enumerate() {
@@ -504,6 +582,7 @@ fn detect_newline(source: &str) -> &'static str {
 }
 
 /// Inserts an empty line into `raws_before` using `newline`.
+#[must_use]
 fn add_empty_line(raws_before: &str, newline: &str) -> String {
     if let Some(last_nl) = raws_before.rfind('\n') {
         format!(
@@ -518,6 +597,7 @@ fn add_empty_line(raws_before: &str, newline: &str) -> String {
 
 /// Removes empty lines from `raws_before`, preserving a single line break and
 /// trailing indentation.
+#[must_use]
 fn remove_empty_lines(raws_before: &str) -> String {
     let Some(first_nl) = raws_before.find('\n') else {
         return raws_before.to_string();
@@ -531,30 +611,38 @@ fn remove_empty_lines(raws_before: &str) -> String {
 }
 
 /// How a statement inside a container was terminated.
+#[derive(Debug)]
 enum StmtTerminator {
-    OpenBrace(u32),
-    Semicolon(u32),
-    End(u32),
+    OpenBrace(usize),
+    Semicolon(usize),
+    End(usize),
 }
 
 /// Scans from `start` up to `end` to find the top-level `{`, `;`, or `end`
 /// terminating the statement.
-fn scan_statement_terminator(ctx: &LintContext<'_>, start: u32, end: u32) -> StmtTerminator {
+#[must_use]
+fn scan_statement_terminator(bytes: &[u8], start: usize, end: usize) -> StmtTerminator {
     let mut pos = start;
     let mut paren_depth: u32 = 0;
+
     while pos < end {
-        let Some(b) = byte_at(ctx, pos) else {
-            break;
-        };
+        let b = bytes[pos];
         match b {
-            b'/' if byte_at(ctx, pos + 1) == Some(b'*') => {
-                pos = skip_block_comment(ctx, pos + 2, end);
+            b'/' if pos + 1 < end && bytes[pos + 1] == b'*' => {
+                pos = skip_block_comment(bytes, pos + 2, end);
             }
-            b'/' if byte_at(ctx, pos + 1) == Some(b'/') => {
-                pos = skip_line_comment(ctx, pos + 2, end);
+            b'/' if pos + 1 < end
+                && bytes[pos + 1] == b'/'
+                && (pos == 0 || bytes[pos - 1] != b':') =>
+            {
+                pos = skip_line_comment(bytes, pos + 2, end);
             }
             b'"' | b'\'' => {
-                pos = skip_quoted_string(ctx, pos + 1, end, b);
+                pos = skip_quoted_string(bytes, pos + 1, end, b);
+            }
+            b'#' if pos + 1 < end && bytes[pos + 1] == b'{' => {
+                let close = find_matching_brace(bytes, pos + 2, end);
+                pos = if close < end { close + 1 } else { end };
             }
             b'(' => {
                 paren_depth += 1;
@@ -575,26 +663,30 @@ fn scan_statement_terminator(ctx: &LintContext<'_>, start: u32, end: u32) -> Stm
             }
         }
     }
+
     StmtTerminator::End(end)
 }
 
 /// Finds the matching `}` for a block body starting at `start` (immediately after `{`).
-fn find_matching_brace(ctx: &LintContext<'_>, start: u32, end: u32) -> u32 {
+#[must_use]
+fn find_matching_brace(bytes: &[u8], start: usize, end: usize) -> usize {
     let mut pos = start;
     let mut depth: u32 = 1;
+
     while pos < end {
-        let Some(b) = byte_at(ctx, pos) else {
-            break;
-        };
+        let b = bytes[pos];
         match b {
-            b'/' if byte_at(ctx, pos + 1) == Some(b'*') => {
-                pos = skip_block_comment(ctx, pos + 2, end);
+            b'/' if pos + 1 < end && bytes[pos + 1] == b'*' => {
+                pos = skip_block_comment(bytes, pos + 2, end);
             }
-            b'/' if byte_at(ctx, pos + 1) == Some(b'/') => {
-                pos = skip_line_comment(ctx, pos + 2, end);
+            b'/' if pos + 1 < end
+                && bytes[pos + 1] == b'/'
+                && (pos == 0 || bytes[pos - 1] != b':') =>
+            {
+                pos = skip_line_comment(bytes, pos + 2, end);
             }
             b'"' | b'\'' => {
-                pos = skip_quoted_string(ctx, pos + 1, end, b);
+                pos = skip_quoted_string(bytes, pos + 1, end, b);
             }
             b'{' => {
                 depth += 1;
@@ -612,16 +704,17 @@ fn find_matching_brace(ctx: &LintContext<'_>, start: u32, end: u32) -> u32 {
             }
         }
     }
+
     end
 }
 
 /// Scans an ASCII identifier (`[a-zA-Z0-9_-]+`) starting at `start`.
-fn scan_ident_end(ctx: &LintContext<'_>, start: u32, end: u32) -> u32 {
+#[inline]
+#[must_use]
+fn scan_ident_end(bytes: &[u8], start: usize, end: usize) -> usize {
     let mut pos = start;
     while pos < end {
-        let Some(b) = byte_at(ctx, pos) else {
-            break;
-        };
+        let b = bytes[pos];
         if b.is_ascii_alphanumeric() || b == b'-' || b == b'_' {
             pos += 1;
         } else {
@@ -632,23 +725,23 @@ fn scan_ident_end(ctx: &LintContext<'_>, start: u32, end: u32) -> u32 {
 }
 
 /// Skips ASCII whitespace starting from `start` up to `end`.
-fn skip_whitespace(ctx: &LintContext<'_>, start: u32, end: u32) -> u32 {
+#[inline]
+#[must_use]
+fn skip_whitespace(bytes: &[u8], start: usize, end: usize) -> usize {
     let mut pos = start;
-    while pos < end {
-        if byte_at(ctx, pos).is_some_and(|b| b.is_ascii_whitespace()) {
-            pos += 1;
-        } else {
-            break;
-        }
+    while pos < end && bytes[pos].is_ascii_whitespace() {
+        pos += 1;
     }
     pos
 }
 
 /// Skips past the closing `*/` of a block comment.
-fn skip_block_comment(ctx: &LintContext<'_>, start: u32, end: u32) -> u32 {
+#[inline]
+#[must_use]
+fn skip_block_comment(bytes: &[u8], start: usize, end: usize) -> usize {
     let mut pos = start;
     while pos < end {
-        if byte_at(ctx, pos) == Some(b'*') && byte_at(ctx, pos + 1) == Some(b'/') {
+        if bytes[pos] == b'*' && pos + 1 < end && bytes[pos + 1] == b'/' {
             return pos + 2;
         }
         pos += 1;
@@ -656,11 +749,31 @@ fn skip_block_comment(ctx: &LintContext<'_>, start: u32, end: u32) -> u32 {
     end
 }
 
-/// Skips past the end of a single-line `// ...` comment.
-fn skip_line_comment(ctx: &LintContext<'_>, start: u32, end: u32) -> u32 {
+/// Skips to the end of a single-line `// ...` comment's text, stopping before
+/// `\r\n` or `\n` so that the line break belongs to the next node's `raws.before`.
+#[inline]
+#[must_use]
+fn skip_line_comment_text(bytes: &[u8], start: usize, end: usize) -> usize {
     let mut pos = start;
     while pos < end {
-        if byte_at(ctx, pos) == Some(b'\n') {
+        if bytes[pos] == b'\n' {
+            if pos > start && bytes[pos - 1] == b'\r' {
+                return pos - 1;
+            }
+            return pos;
+        }
+        pos += 1;
+    }
+    end
+}
+
+/// Skips past the end of a single-line `// ...` comment (including `\n`).
+#[inline]
+#[must_use]
+fn skip_line_comment(bytes: &[u8], start: usize, end: usize) -> usize {
+    let mut pos = start;
+    while pos < end {
+        if bytes[pos] == b'\n' {
             return pos + 1;
         }
         pos += 1;
@@ -669,12 +782,12 @@ fn skip_line_comment(ctx: &LintContext<'_>, start: u32, end: u32) -> u32 {
 }
 
 /// Skips past the closing `quote` character of a string literal, respecting `\` escapes.
-fn skip_quoted_string(ctx: &LintContext<'_>, start: u32, end: u32, quote: u8) -> u32 {
+#[inline]
+#[must_use]
+fn skip_quoted_string(bytes: &[u8], start: usize, end: usize, quote: u8) -> usize {
     let mut pos = start;
     while pos < end {
-        let Some(b) = byte_at(ctx, pos) else {
-            break;
-        };
+        let b = bytes[pos];
         if b == b'\\' {
             pos = (pos + 2).min(end);
         } else if b == quote {
@@ -686,15 +799,6 @@ fn skip_quoted_string(ctx: &LintContext<'_>, start: u32, end: u32, quote: u8) ->
     end
 }
 
-/// Returns the byte at `offset` in `ctx.source` using `u32` span indexing.
-#[inline]
-fn byte_at(ctx: &LintContext<'_>, offset: u32) -> Option<u8> {
-    ctx.slice_range(offset, offset.saturating_add(1))
-        .as_bytes()
-        .first()
-        .copied()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -704,38 +808,16 @@ mod tests {
     const EXPECTED: &str = "Expected empty line before at-rule";
     const REJECTED: &str = "Expected no empty line before at-rule";
 
-    #[allow(clippy::type_complexity)]
-    fn assert_fix_and_edits(
-        config: Value,
-        pass: &[&str],
-        cases: &[(
-            &'static str,
-            &'static str,
-            &'static str,
-            (usize, usize, usize, usize),
-            (u32, u32, &'static str),
-        )],
-    ) {
-        let fail: Vec<_> = cases
-            .iter()
-            .map(|&(code, fixed, msg, span, _)| reject(code, fixed, msg, span))
-            .collect();
-        Tester::new(AtRuleEmptyLineBefore::NAME, config.clone(), pass, &fail)
-            .with_fix(true)
-            .test();
+    type RejectCase = (
+        &'static str,
+        &'static str,
+        &'static str,
+        (usize, usize, usize, usize),
+        (u32, u32, &'static str),
+    );
 
-        let fail_edits: Vec<_> = cases
-            .iter()
-            .map(|&(code, _, msg, span, edit)| reject_edit(code, msg, span, edit))
-            .collect();
-        Tester::new(AtRuleEmptyLineBefore::NAME, config, [], &fail_edits)
-            .with_compute_edit_info(true)
-            .test();
-    }
-
-    #[test]
-    fn always_default() {
-        let pass = vec![
+    fn shared_always_accept() -> Vec<&'static str> {
+        vec![
             "a {} b {}",
             "@font-face {}",
             "a {}\n\n@media {}",
@@ -748,10 +830,11 @@ mod tests {
             "@-webkit-keyframes foo {}\n\n@-webkit-keyframes bar {}",
             "a {}\r\n\r\n@media {}",
             "a {}\n\r\n@media {}",
-            "a {\n\n  @mixin foo;\n}",
-        ];
+        ]
+    }
 
-        let cases = vec![
+    fn shared_always_reject() -> Vec<RejectCase> {
+        vec![
             (
                 "a {} @media {}",
                 "a {}\n\n @media {}",
@@ -822,310 +905,22 @@ mod tests {
                 (4, 1, 4, 10),
                 (22, 23, "\n\r\n"),
             ),
-        ];
-
-        assert_fix_and_edits(json!("always"), &pass, &cases);
+        ]
     }
 
-    #[test]
-    fn always_except_blockless_after_blockless_1() {
-        let pass = vec![
-            "a {} b {}",
-            "@font-face {}",
-            "a {}\n\n@media {}",
-            "a {\n\n  @mixin foo;\n}",
-            "@keyframes foo {}\n\n@import 'x.css'",
-            "@import 'x.css';\n@import 'y.css'",
-            "@import 'x.css';",
-        ];
-
-        let cases = vec![
-            (
-                "@keyframes foo {}\n@import 'x.css'",
-                "@keyframes foo {}\n\n@import 'x.css'",
-                EXPECTED,
-                (2, 1, 2, 16),
-                (17, 18, "\n\n"),
-            ),
-            (
-                "@import 'x.css';\n\n@import 'y.css'",
-                "@import 'x.css';\n@import 'y.css'",
-                REJECTED,
-                (3, 1, 3, 16),
-                (17, 18, ""),
-            ),
-        ];
-
-        assert_fix_and_edits(
-            json!(["always", { "except": ["blockless-after-blockless"] }]),
-            &pass,
-            &cases,
-        );
-    }
-
-    #[test]
-    fn always_except_blockless_after_blockless_2() {
-        let pass = vec![
-            "@import 'y.css'; @import 'x.css';",
-            "@charset \"UTF-8\";\n@import url(x.css); /* comment */\n@import url(y.css);",
-        ];
-
-        let cases = vec![
-            (
-                "@keyframes foo {}\n@import 'x.css'",
-                "@keyframes foo {}\n\n@import 'x.css'",
-                EXPECTED,
-                (2, 1, 2, 16),
-                (17, 18, "\n\n"),
-            ),
-            (
-                "@import 'x.css';\n\n@import 'y.css'",
-                "@import 'x.css';\n@import 'y.css'",
-                REJECTED,
-                (3, 1, 3, 16),
-                (17, 18, ""),
-            ),
-        ];
-
-        assert_fix_and_edits(
-            json!(["always", { "except": ["blockless-after-blockless"] }]),
-            &pass,
-            &cases,
-        );
-    }
-
-    #[test]
-    fn always_ignore_blockless_after_blockless() {
-        let pass = vec!["@charset 'UTF-8'; @import 'x.css';"];
-
-        let cases = vec![
-            (
-                "@import 'x.css'; @media {};",
-                "@import 'x.css';\n\n @media {};",
-                EXPECTED,
-                (1, 18, 1, 28),
-                (15, 16, ";\n\n"),
-            ),
-            (
-                "@import 'test'; @include mixin(1) { @content; };",
-                "@import 'test';\n\n @include mixin(1) { @content; };",
-                EXPECTED,
-                (1, 17, 1, 49),
-                (14, 15, ";\n\n"),
-            ),
-        ];
-
-        assert_fix_and_edits(
-            json!(["always", { "ignore": ["blockless-after-blockless"] }]),
-            &pass,
-            &cases,
-        );
-    }
-
-    #[test]
-    fn always_ignore_after_comment() {
-        let pass = vec![
-            "/* foo */\n@media {}",
-            "/* foo */\n\n@media{}",
-            "/* foo */\r\n\r\n@media {}",
-        ];
-
-        let cases = vec![
-            (
-                "a {} @media {}",
-                "a {}\n\n @media {}",
-                EXPECTED,
-                (1, 6, 1, 15),
-                (3, 4, "}\n\n"),
-            ),
-            (
-                "bar {} /* foo */\n@media {}",
-                "bar {} /* foo */\n\n@media {}",
-                EXPECTED,
-                (2, 1, 2, 10),
-                (16, 17, "\n\n"),
-            ),
-        ];
-
-        assert_fix_and_edits(
-            json!(["always", { "ignore": ["after-comment"] }]),
-            &pass,
-            &cases,
-        );
-    }
-
-    #[test]
-    fn always_ignore_first_nested() {
-        let pass = vec![
-            "@supports {\n  @media {}\n}",
-            "@supports {\n\n  @media {}\n}",
-        ];
-
-        let cases = vec![(
-            "@supports {\n  @media {}\n  @media{}\n}",
-            "@supports {\n  @media {}\n\n  @media{}\n}",
-            EXPECTED,
-            (3, 3, 3, 11),
-            (23, 24, "\n\n"),
-        )];
-
-        assert_fix_and_edits(
-            json!(["always", { "ignore": ["first-nested"] }]),
-            &pass,
-            &cases,
-        );
-    }
-
-    #[test]
-    fn always_except_inside_block() {
-        let pass = vec![
-            "a {}\n\n@media {}",
-            "a {\n  @mixin foo;\n  color: pink;\n}",
-            "a {\n  color: pink;\n  @mixin foo;\n}",
-        ];
-
-        let cases = vec![
-            (
-                "a {\n\n  @mixin foo;\n  color: pink;\n}",
-                "a {\n  @mixin foo;\n  color: pink;\n}",
-                REJECTED,
-                (3, 3, 3, 14),
-                (4, 5, ""),
-            ),
-            (
-                "a {\n\n  color: pink;\n\n  @mixin foo;\n}",
-                "a {\n\n  color: pink;\n  @mixin foo;\n}",
-                REJECTED,
-                (5, 3, 5, 14),
-                (20, 21, ""),
-            ),
-        ];
-
-        assert_fix_and_edits(
-            json!(["always", { "except": ["inside-block"] }]),
-            &pass,
-            &cases,
-        );
-    }
-
-    #[test]
-    fn always_except_first_nested() {
-        let pass = vec![
-            "a {}\n\n@media {}",
-            "a {\n  @mixin foo;\n  color: pink;\n}",
-            "a { /* comment */\n  @mixin foo;\n  color: pink;\n}",
-        ];
-
-        let cases = vec![
-            (
-                "a {\n  color: pink;\n  @mixin foo;\n}",
-                "a {\n  color: pink;\n\n  @mixin foo;\n}",
-                EXPECTED,
-                (3, 3, 3, 14),
-                (18, 19, "\n\n"),
-            ),
-            (
-                "a {\n\n  @mixin foo;\n  color: pink;\n}",
-                "a {\n  @mixin foo;\n  color: pink;\n}",
-                REJECTED,
-                (3, 3, 3, 14),
-                (4, 5, ""),
-            ),
-            (
-                "a {/* comment */\n\n  @mixin foo;\n  color: pink;\n}",
-                "a {/* comment */\n  @mixin foo;\n  color: pink;\n}",
-                REJECTED,
-                (3, 3, 3, 14),
-                (17, 18, ""),
-            ),
-        ];
-
-        assert_fix_and_edits(
-            json!(["always", { "except": ["first-nested"] }]),
-            &pass,
-            &cases,
-        );
-    }
-
-    #[test]
-    fn always_ignore_inside_block() {
-        let pass = vec![
-            "a {}\n\n@media {}",
-            "a {\n  @mixin foo;\n  color: pink;\n}",
-            "a {\n  color: pink;\n  @mixin foo;\n}",
-            "a {\n\n  @mixin foo;\n  color: pink;\n}",
-            "a {\n\n  color: pink;\n\n  @mixin foo;\n}",
-        ];
-
-        assert_fix_and_edits(
-            json!(["always", { "ignore": ["inside-block"] }]),
-            &pass,
-            &[],
-        );
-    }
-
-    #[test]
-    fn always_except_blockless_and_inside_block() {
-        let pass = vec![
-            "a {\n  @mixin foo;\n  color: pink;\n}",
-            "a {\n  color: pink;\n  @mixin foo;\n}",
-            "@keyframes foo {}\n\n@import 'x.css'",
-            "@import 'x.css';\n@import 'y.css'",
-            "@import 'x.css';",
-            "a {\n  @mixin foo;\n  @mixin bar;\n}",
-        ];
-
-        let cases = vec![
-            (
-                "@keyframes foo {}\n@import 'x.css'",
-                "@keyframes foo {}\n\n@import 'x.css'",
-                EXPECTED,
-                (2, 1, 2, 16),
-                (17, 18, "\n\n"),
-            ),
-            (
-                "@import 'x.css';\n\n@import 'y.css'",
-                "@import 'x.css';\n@import 'y.css'",
-                REJECTED,
-                (3, 1, 3, 16),
-                (17, 18, ""),
-            ),
-            (
-                "a {\n\n  @mixin foo;\n  color: pink;\n}",
-                "a {\n  @mixin foo;\n  color: pink;\n}",
-                REJECTED,
-                (3, 3, 3, 14),
-                (4, 5, ""),
-            ),
-            (
-                "a {\n\n  color: pink;\n\n  @mixin foo;\n}",
-                "a {\n\n  color: pink;\n  @mixin foo;\n}",
-                REJECTED,
-                (5, 3, 5, 14),
-                (20, 21, ""),
-            ),
-        ];
-
-        assert_fix_and_edits(
-            json!(["always", { "except": ["blockless-after-blockless", "inside-block"] }]),
-            &pass,
-            &cases,
-        );
-    }
-
-    #[test]
-    fn never_default() {
-        let pass = vec![
+    fn shared_never_accept() -> Vec<&'static str> {
+        vec![
             "a {}\n\nb {}",
             "\n\n@font-face {}",
             "a {}\n@media {}",
             "a {} @media {}",
             "@keyframes foo {}\n@media {}",
             "@keyframes foo {} @media {}",
-            "a {\n  @mixin foo;\n}",
-        ];
+        ]
+    }
 
-        let cases = vec![
+    fn shared_never_reject() -> Vec<RejectCase> {
+        vec![
             (
                 "a {}\n\n@media {}",
                 "a {}\n@media {}",
@@ -1154,21 +949,329 @@ mod tests {
                 (4, 1, 4, 10),
                 (34, 36, ""),
             ),
-        ];
+        ]
+    }
 
-        assert_fix_and_edits(json!("never"), &pass, &cases);
+    fn assert_fix_and_edits(config: Value, pass: &[&str], cases: &[RejectCase]) {
+        let fail: Vec<_> = cases
+            .iter()
+            .map(|&(code, fixed, msg, span, _)| reject(code, fixed, msg, span))
+            .collect();
+        Tester::new(AtRuleEmptyLineBefore::NAME, config.clone(), pass, &fail)
+            .with_fix(true)
+            .test();
+
+        let fail_edits: Vec<_> = cases
+            .iter()
+            .map(|&(code, _, msg, span, edit)| reject_edit(code, msg, span, edit))
+            .collect();
+        Tester::new(AtRuleEmptyLineBefore::NAME, config, [], &fail_edits)
+            .with_compute_edit_info(true)
+            .test();
+    }
+
+    fn assert_merged_always(
+        config: Value,
+        extra_pass: &[&'static str],
+        extra_cases: &[RejectCase],
+    ) {
+        let mut pass = shared_always_accept();
+        pass.extend_from_slice(extra_pass);
+        let mut cases = shared_always_reject();
+        cases.extend_from_slice(extra_cases);
+        assert_fix_and_edits(config, &pass, &cases);
+    }
+
+    fn assert_merged_never(config: Value, extra_pass: &[&'static str], extra_cases: &[RejectCase]) {
+        let mut pass = shared_never_accept();
+        pass.extend_from_slice(extra_pass);
+        let mut cases = shared_never_reject();
+        cases.extend_from_slice(extra_cases);
+        assert_fix_and_edits(config, &pass, &cases);
+    }
+
+    #[test]
+    fn always_default() {
+        assert_merged_always(json!("always"), &["a {\n\n  @mixin foo;\n}"], &[]);
+    }
+
+    #[test]
+    fn always_except_blockless_after_blockless_1() {
+        let pass = [
+            "a {\n\n  @mixin foo;\n}",
+            "@keyframes foo {}\n\n@import 'x.css'",
+            "@import 'x.css';\n@import 'y.css'",
+            "@import 'x.css';",
+        ];
+        let cases = [
+            (
+                "@keyframes foo {}\n@import 'x.css'",
+                "@keyframes foo {}\n\n@import 'x.css'",
+                EXPECTED,
+                (2, 1, 2, 16),
+                (17, 18, "\n\n"),
+            ),
+            (
+                "@import 'x.css';\n\n@import 'y.css'",
+                "@import 'x.css';\n@import 'y.css'",
+                REJECTED,
+                (3, 1, 3, 16),
+                (17, 18, ""),
+            ),
+        ];
+        assert_merged_always(
+            json!(["always", { "except": ["blockless-after-blockless"] }]),
+            &pass,
+            &cases,
+        );
+    }
+
+    #[test]
+    fn always_except_blockless_after_blockless_2() {
+        let pass = vec![
+            "@import 'y.css'; @import 'x.css';",
+            "@charset \"UTF-8\";\n@import url(x.css); /* comment */\n@import url(y.css);",
+        ];
+        let cases = vec![
+            (
+                "@keyframes foo {}\n@import 'x.css'",
+                "@keyframes foo {}\n\n@import 'x.css'",
+                EXPECTED,
+                (2, 1, 2, 16),
+                (17, 18, "\n\n"),
+            ),
+            (
+                "@import 'x.css';\n\n@import 'y.css'",
+                "@import 'x.css';\n@import 'y.css'",
+                REJECTED,
+                (3, 1, 3, 16),
+                (17, 18, ""),
+            ),
+        ];
+        assert_fix_and_edits(
+            json!(["always", { "except": ["blockless-after-blockless"] }]),
+            &pass,
+            &cases,
+        );
+    }
+
+    #[test]
+    fn always_ignore_blockless_after_blockless() {
+        let pass = vec!["@charset 'UTF-8'; @import 'x.css';"];
+        let cases = vec![
+            (
+                "@import 'x.css'; @media {};",
+                "@import 'x.css';\n\n @media {};",
+                EXPECTED,
+                (1, 18, 1, 28),
+                (15, 16, ";\n\n"),
+            ),
+            (
+                "@import 'test'; @include mixin(1) { @content; };",
+                "@import 'test';\n\n @include mixin(1) { @content; };",
+                EXPECTED,
+                (1, 17, 1, 49),
+                (14, 15, ";\n\n"),
+            ),
+        ];
+        assert_fix_and_edits(
+            json!(["always", { "ignore": ["blockless-after-blockless"] }]),
+            &pass,
+            &cases,
+        );
+    }
+
+    #[test]
+    fn always_ignore_after_comment() {
+        let pass = vec![
+            "/* foo */\n@media {}",
+            "/* foo */\n\n@media{}",
+            "/* foo */\r\n\r\n@media {}",
+        ];
+        let cases = vec![
+            (
+                "a {} @media {}",
+                "a {}\n\n @media {}",
+                EXPECTED,
+                (1, 6, 1, 15),
+                (3, 4, "}\n\n"),
+            ),
+            (
+                "bar {} /* foo */\n@media {}",
+                "bar {} /* foo */\n\n@media {}",
+                EXPECTED,
+                (2, 1, 2, 10),
+                (16, 17, "\n\n"),
+            ),
+        ];
+        assert_fix_and_edits(
+            json!(["always", { "ignore": ["after-comment"] }]),
+            &pass,
+            &cases,
+        );
+    }
+
+    #[test]
+    fn always_ignore_first_nested() {
+        let pass = vec![
+            "@supports {\n  @media {}\n}",
+            "@supports {\n\n  @media {}\n}",
+        ];
+        let cases = vec![(
+            "@supports {\n  @media {}\n  @media{}\n}",
+            "@supports {\n  @media {}\n\n  @media{}\n}",
+            EXPECTED,
+            (3, 3, 3, 11),
+            (23, 24, "\n\n"),
+        )];
+        assert_fix_and_edits(
+            json!(["always", { "ignore": ["first-nested"] }]),
+            &pass,
+            &cases,
+        );
+    }
+
+    #[test]
+    fn always_except_inside_block() {
+        let pass = [
+            "a {\n  @mixin foo;\n  color: pink;\n}",
+            "a {\n  color: pink;\n  @mixin foo;\n}",
+        ];
+        let cases = [
+            (
+                "a {\n\n  @mixin foo;\n  color: pink;\n}",
+                "a {\n  @mixin foo;\n  color: pink;\n}",
+                REJECTED,
+                (3, 3, 3, 14),
+                (4, 5, ""),
+            ),
+            (
+                "a {\n\n  color: pink;\n\n  @mixin foo;\n}",
+                "a {\n\n  color: pink;\n  @mixin foo;\n}",
+                REJECTED,
+                (5, 3, 5, 14),
+                (20, 21, ""),
+            ),
+        ];
+        assert_merged_always(
+            json!(["always", { "except": ["inside-block"] }]),
+            &pass,
+            &cases,
+        );
+    }
+
+    #[test]
+    fn always_except_first_nested() {
+        let pass = [
+            "a {\n  @mixin foo;\n  color: pink;\n}",
+            "a { /* comment */\n  @mixin foo;\n  color: pink;\n}",
+        ];
+        let cases = [
+            (
+                "a {\n  color: pink;\n  @mixin foo;\n}",
+                "a {\n  color: pink;\n\n  @mixin foo;\n}",
+                EXPECTED,
+                (3, 3, 3, 14),
+                (18, 19, "\n\n"),
+            ),
+            (
+                "a {\n\n  @mixin foo;\n  color: pink;\n}",
+                "a {\n  @mixin foo;\n  color: pink;\n}",
+                REJECTED,
+                (3, 3, 3, 14),
+                (4, 5, ""),
+            ),
+            (
+                "a {/* comment */\n\n  @mixin foo;\n  color: pink;\n}",
+                "a {/* comment */\n  @mixin foo;\n  color: pink;\n}",
+                REJECTED,
+                (3, 3, 3, 14),
+                (17, 18, ""),
+            ),
+        ];
+        assert_merged_always(
+            json!(["always", { "except": ["first-nested"] }]),
+            &pass,
+            &cases,
+        );
+    }
+
+    #[test]
+    fn always_ignore_inside_block() {
+        let pass = [
+            "a {\n  @mixin foo;\n  color: pink;\n}",
+            "a {\n  color: pink;\n  @mixin foo;\n}",
+            "a {\n\n  @mixin foo;\n  color: pink;\n}",
+            "a {\n\n  color: pink;\n\n  @mixin foo;\n}",
+        ];
+        assert_merged_always(
+            json!(["always", { "ignore": ["inside-block"] }]),
+            &pass,
+            &[],
+        );
+    }
+
+    #[test]
+    fn always_except_blockless_and_inside_block() {
+        let pass = [
+            "a {\n  @mixin foo;\n  color: pink;\n}",
+            "a {\n  color: pink;\n  @mixin foo;\n}",
+            "@keyframes foo {}\n\n@import 'x.css'",
+            "@import 'x.css';\n@import 'y.css'",
+            "@import 'x.css';",
+            "a {\n  @mixin foo;\n  @mixin bar;\n}",
+        ];
+        let cases = [
+            (
+                "@keyframes foo {}\n@import 'x.css'",
+                "@keyframes foo {}\n\n@import 'x.css'",
+                EXPECTED,
+                (2, 1, 2, 16),
+                (17, 18, "\n\n"),
+            ),
+            (
+                "@import 'x.css';\n\n@import 'y.css'",
+                "@import 'x.css';\n@import 'y.css'",
+                REJECTED,
+                (3, 1, 3, 16),
+                (17, 18, ""),
+            ),
+            (
+                "a {\n\n  @mixin foo;\n  color: pink;\n}",
+                "a {\n  @mixin foo;\n  color: pink;\n}",
+                REJECTED,
+                (3, 3, 3, 14),
+                (4, 5, ""),
+            ),
+            (
+                "a {\n\n  color: pink;\n\n  @mixin foo;\n}",
+                "a {\n\n  color: pink;\n  @mixin foo;\n}",
+                REJECTED,
+                (5, 3, 5, 14),
+                (20, 21, ""),
+            ),
+        ];
+        assert_merged_always(
+            json!(["always", { "except": ["blockless-after-blockless", "inside-block"] }]),
+            &pass,
+            &cases,
+        );
+    }
+
+    #[test]
+    fn never_default() {
+        assert_merged_never(json!("never"), &["a {\n  @mixin foo;\n}"], &[]);
     }
 
     #[test]
     fn never_except_blockless_after_blockless() {
-        let pass = vec![
+        let pass = [
             "a {\n  @mixin foo;\n}",
             "@keyframes foo {}\n@import 'x.css'",
             "@import 'x.css';\n\n@import 'y.css'",
             "@import 'x.css';",
         ];
-
-        let cases = vec![
+        let cases = [
             (
                 "@keyframes foo {}\n\n@import 'x.css'",
                 "@keyframes foo {}\n@import 'x.css'",
@@ -1184,8 +1287,7 @@ mod tests {
                 (16, 17, "\n\n"),
             ),
         ];
-
-        assert_fix_and_edits(
+        assert_merged_never(
             json!(["never", { "except": ["blockless-after-blockless"] }]),
             &pass,
             &cases,
@@ -1194,12 +1296,11 @@ mod tests {
 
     #[test]
     fn never_except_inside_block() {
-        let pass = vec![
+        let pass = [
             "a {\n\n  @mixin foo;\n  color: pink;\n}",
             "a {\n  color: pink;\n\n  @mixin foo;\n}",
         ];
-
-        let cases = vec![
+        let cases = [
             (
                 "a {\n  @mixin foo;\n  color: pink;\n}",
                 "a {\n\n  @mixin foo;\n  color: pink;\n}",
@@ -1215,8 +1316,7 @@ mod tests {
                 (19, 20, "\n\n"),
             ),
         ];
-
-        assert_fix_and_edits(
+        assert_merged_never(
             json!(["never", { "except": ["inside-block"] }]),
             &pass,
             &cases,
@@ -1225,9 +1325,8 @@ mod tests {
 
     #[test]
     fn never_except_first_nested() {
-        let pass = vec!["a {\n\n  @mixin foo;\n  color: pink;\n}"];
-
-        let cases = vec![
+        let pass = ["a {\n\n  @mixin foo;\n  color: pink;\n}"];
+        let cases = [
             (
                 "a {\n  color: pink;\n\n  @mixin foo;\n}",
                 "a {\n  color: pink;\n  @mixin foo;\n}",
@@ -1243,8 +1342,7 @@ mod tests {
                 (3, 4, "\n\n"),
             ),
         ];
-
-        assert_fix_and_edits(
+        assert_merged_never(
             json!(["never", { "except": ["first-nested"] }]),
             &pass,
             &cases,
@@ -1258,7 +1356,6 @@ mod tests {
             "\n      @import 'x.css';\n      @import 'y.css';\n    ",
             "\n      @import 'x.css';\n\n      @import 'y.css';\n    ",
         ];
-
         let cases = vec![(
             "\n      @import 'x.css';\n\n      @media {};\n    ",
             "\n      @import 'x.css';\n      @media {};\n    ",
@@ -1266,7 +1363,6 @@ mod tests {
             (4, 7, 4, 17),
             (24, 25, ""),
         )];
-
         assert_fix_and_edits(
             json!(["never", { "ignore": ["blockless-after-blockless"] }]),
             &pass,
@@ -1281,7 +1377,6 @@ mod tests {
             "/* foo */\r\n\r\n@media {}",
             "/* foo */\n\n@media {}",
         ];
-
         let cases = vec![
             (
                 "b {}\n\n@media {}",
@@ -1305,7 +1400,6 @@ mod tests {
                 (19, 20, ""),
             ),
         ];
-
         assert_fix_and_edits(
             json!(["never", { "ignore": ["after-comment"] }]),
             &pass,
@@ -1315,14 +1409,13 @@ mod tests {
 
     #[test]
     fn never_ignore_inside_block() {
-        let pass = vec![
+        let pass = [
             "a {\n  @mixin foo;\n  color: pink;\n}",
             "a {\n  color: pink;\n  @mixin foo;\n}",
             "a {\n\n  @mixin foo;\n  color: pink;\n}",
             "a {\n\n  color: pink;\n\n  @mixin foo;\n}",
         ];
-
-        assert_fix_and_edits(json!(["never", { "ignore": ["inside-block"] }]), &pass, &[]);
+        assert_merged_never(json!(["never", { "ignore": ["inside-block"] }]), &pass, &[]);
     }
 
     #[test]
@@ -1332,7 +1425,6 @@ mod tests {
             "\n      @if(true) {\n      }\n      @else {\n      }\n    ",
             "\n      @if(true) {}\n\n      @else if(true) {\n      }  @else {\n      }\n    ",
         ];
-
         let cases = vec![
             (
                 "\n      @if(true) {\n      } @else-mixin {\n      }\n    ",
@@ -1349,7 +1441,6 @@ mod tests {
                 (20, 21, "\n\n"),
             ),
         ];
-
         assert_fix_and_edits(
             json!(["always", { "ignoreAtRules": ["else"] }]),
             &pass,
@@ -1360,7 +1451,6 @@ mod tests {
     #[test]
     fn always_ignore_at_rules_regex_prefix() {
         let pass = vec!["\n\t\t\ta {}\n\t\t\t@--my-at-rule {}\n\t\t"];
-
         Tester::new(
             AtRuleEmptyLineBefore::NAME,
             json!(["always", { "ignoreAtRules": "/^--my-/" }]),
@@ -1376,7 +1466,6 @@ mod tests {
             "@keyframes {}; @an-element-mixin();",
             "\n      @if true {}\n      @else {\n      }\n    ",
         ];
-
         let cases = vec![(
             "\n      @else {\n        color: pink;\n      }\n      @if true {}\n    ",
             "\n      @else {\n        color: pink;\n      }\n\n      @if true {}\n    ",
@@ -1384,7 +1473,6 @@ mod tests {
             (5, 7, 5, 18),
             (43, 44, "\n\n"),
         )];
-
         assert_fix_and_edits(
             json!(["always", { "ignoreAtRules": "/el/" }]),
             &pass,
@@ -1399,7 +1487,6 @@ mod tests {
             "\n      @if(true) {\n      }\n\n      @else {\n      }\n    ",
             "\n      @if(true) {}\n\n      @else if(true) {}\n\n      @else {}\n    ",
         ];
-
         let cases = vec![
             (
                 "\n      @if(true) {\n      }\n\n      @else-mixin {}\n    ",
@@ -1416,7 +1503,6 @@ mod tests {
                 (27, 28, ""),
             ),
         ];
-
         assert_fix_and_edits(
             json!(["never", { "ignoreAtRules": ["else"] }]),
             &pass,
@@ -1430,7 +1516,6 @@ mod tests {
             "\n      @keyframes {}\n\n      @someelement-mixin();\n    ",
             "\n      @if true {}\n\n      @else {\n      }\n    ",
         ];
-
         let cases = vec![(
             "\n      @else {\n        color: pink;\n      }\n\n      @if true {}\n    ",
             "\n      @else {\n        color: pink;\n      }\n      @if true {}\n    ",
@@ -1438,19 +1523,17 @@ mod tests {
             (6, 7, 6, 18),
             (44, 45, ""),
         )];
-
         assert_fix_and_edits(json!(["never", { "ignoreAtRules": "/el/" }]), &pass, &cases);
     }
 
     #[test]
     fn always_ignore_blockless_after_same_name_blockless() {
-        let pass = vec![
+        let pass = [
             "@charset \"UTF-8\";\n\n@import url(x.css);\n@import url(y.css);",
             "a {\n\n  @extends .foo;\n  @extends .bar;\n\n  @include loop;\n  @include doo;\n}",
             "@charset \"UTF-8\";\n\n@import url(x.css); /* comment */\n@import url(y.css);",
         ];
-
-        let cases = vec![
+        let cases = [
             (
                 "@charset \"UTF-8\";\n@import url(x.css);\n@import url(y.css);",
                 "@charset \"UTF-8\";\n\n@import url(x.css);\n@import url(y.css);",
@@ -1466,8 +1549,7 @@ mod tests {
                 (38, 39, "\n\n"),
             ),
         ];
-
-        assert_fix_and_edits(
+        assert_merged_always(
             json!(["always", { "ignore": ["blockless-after-same-name-blockless"] }]),
             &pass,
             &cases,
@@ -1476,13 +1558,12 @@ mod tests {
 
     #[test]
     fn always_except_blockless_after_same_name_blockless() {
-        let pass = vec![
+        let pass = [
             "@charset \"UTF-8\";\n\n@import url(x.css);\n@import url(y.css);",
             "a {\n\n  @extends .foo;\n  @extends .bar;\n\n  @include loop;\n  @include doo;\n}",
             "@charset \"UTF-8\";\n\n@import url(x.css); /* comment */\n@import url(y.css);",
         ];
-
-        let cases = vec![
+        let cases = [
             (
                 "@charset \"UTF-8\";\n@import url(x.css);\n@import url(y.css);",
                 "@charset \"UTF-8\";\n\n@import url(x.css);\n@import url(y.css);",
@@ -1498,8 +1579,7 @@ mod tests {
                 (38, 39, "\n\n"),
             ),
         ];
-
-        assert_fix_and_edits(
+        assert_merged_always(
             json!(["always", { "except": ["blockless-after-same-name-blockless"] }]),
             &pass,
             &cases,
@@ -1508,12 +1588,11 @@ mod tests {
 
     #[test]
     fn never_except_blockless_after_same_name_blockless() {
-        let pass = vec![
+        let pass = [
             "@charset \"UTF-8\";\n@import url(x.css);\n\n@import url(y.css);",
             "a {\n  @extends .foo;\n\n  @extends .bar;\n  @include loop;\n\n  @include doo;\n}",
         ];
-
-        let cases = vec![
+        let cases = [
             (
                 "@charset \"UTF-8\";\n@import url(x.css);\n@import url(y.css);",
                 "@charset \"UTF-8\";\n@import url(x.css);\n\n@import url(y.css);",
@@ -1529,8 +1608,7 @@ mod tests {
                 (37, 38, "\n\n"),
             ),
         ];
-
-        assert_fix_and_edits(
+        assert_merged_never(
             json!(["never", { "except": ["blockless-after-same-name-blockless"] }]),
             &pass,
             &cases,
@@ -1543,7 +1621,6 @@ mod tests {
             "@charset \"UTF-8\";\n\n@include x;\n@include y {}",
             "a {\n\n  @extends .foo;\n  @extends .bar;\n\n  @include y {}\n  @include x;\n}",
         ];
-
         let cases = vec![
             (
                 "@charset \"UTF-8\";\n@include x;\n@include y {}",
@@ -1560,7 +1637,6 @@ mod tests {
                 (38, 39, "\n\n"),
             ),
         ];
-
         assert_fix_and_edits(
             json!(["always", { "except": ["after-same-name"] }]),
             &pass,
@@ -1570,12 +1646,11 @@ mod tests {
 
     #[test]
     fn never_except_after_same_name() {
-        let pass = vec![
+        let pass = [
             "@charset \"UTF-8\";\n@include x;\n\n@include y {}",
             "a {\n  @extends .foo;\n\n  @extends .bar;\n  @include y {}\n\n  @include x;\n}",
         ];
-
-        let cases = vec![
+        let cases = [
             (
                 "@charset \"UTF-8\";\n@include x;\n@include y {}",
                 "@charset \"UTF-8\";\n@include x;\n\n@include y {}",
@@ -1591,8 +1666,7 @@ mod tests {
                 (34, 35, "\n\n"),
             ),
         ];
-
-        assert_fix_and_edits(
+        assert_merged_never(
             json!(["never", { "except": ["after-same-name"] }]),
             &pass,
             &cases,
@@ -1605,10 +1679,36 @@ mod tests {
             "\n        .someMixin() { margin: 0; }\n        span { .someMixin(); }\n      ",
             "\n        @myVariable: #f7f8f9;\n        span { background-color: @myVariable; }\n      ",
         ];
-
         Tester::new(AtRuleEmptyLineBefore::NAME, json!("always"), &pass, &[])
             .with_custom_syntax("postcss-less")
             .with_compute_edit_info(true)
+            .test();
+    }
+
+    #[test]
+    fn scss_line_comments_interpolation_and_utf8() {
+        let pass = vec![
+            "/* Привет мир 🎨 */\n\n@media (min-width: 700px) {}",
+            "// комментарий\n\n@media #{$query} {}",
+            "a {}\n@#{$interpolated} {}",
+        ];
+        let fail = vec![
+            reject(
+                "/* Привет */\n@media (min-width: 700px) {}",
+                "/* Привет */\n\n@media (min-width: 700px) {}",
+                EXPECTED,
+                (2, 1, 2, 29),
+            ),
+            reject(
+                "// комментарий\n@media #{$query} {}",
+                "// комментарий\n\n@media #{$query} {}",
+                EXPECTED,
+                (2, 1, 2, 20),
+            ),
+        ];
+        Tester::new(AtRuleEmptyLineBefore::NAME, json!("always"), &pass, &fail)
+            .with_custom_syntax("postcss-scss")
+            .with_fix(true)
             .test();
     }
 }

@@ -1,6 +1,21 @@
-//! Rule: `at-rule-descriptor-no-unknown`
+//! Disallows unknown descriptors for at-rules (`at-rule-descriptor-no-unknown`).
 //!
-//! Disallow unknown descriptors for at-rules.
+//! # Checked Constructs
+//!
+//! 1. Standard-syntax declarations inside any enclosing at-rule that does not support
+//!    general selector nesting (`NESTING_SUPPORTED_AT_KEYWORDS`) and has a defined
+//!    descriptor set in `at_rule_descriptors` (such as `@font-face`, `@property`,
+//!    `@counter-style`, `@page`, `@view-transition`, `@position-try`,
+//!    `@font-palette-values`, `@color-profile`, and `@font-feature-values`).
+//! 2. Inside `@page`, page-context properties (`PAGE_CONTEXT_PROPERTIES`) are permitted in
+//!    addition to `@page` descriptors.
+//! 3. Inside a `@page` margin at-rule (`PAGE_MARGIN_AT_KEYWORDS`), margin-context
+//!    properties (`MARGIN_CONTEXT_PROPERTIES`) are permitted.
+//! 4. Inside a `@font-feature-values` feature-value type at-rule
+//!    (`FONT_FEATURE_VALUE_TYPES`, such as `@styleset` or `@swash`), arbitrary custom
+//!    identifier names are permitted.
+//! 5. Non-standard declarations (such as SCSS `$var` or Less `@var` declarations and
+//!    interpolated `#{$prop}` names) are ignored via `isStandardSyntaxDeclaration`.
 
 use oxc_css_parser::{Span, ast::Stylesheet};
 
@@ -15,23 +30,22 @@ use crate::{
     },
 };
 
+/// Formats the diagnostic message matching Stylelint's `messages.rejected`.
+#[inline]
+#[must_use]
 fn unknown_at_rule_descriptor_diagnostic(at_rule: &str, descriptor: &str) -> String {
     format!("Unknown descriptor \"{descriptor}\" for at-rule \"@{at_rule}\"")
 }
 
 crate::define_stx_lint! {
-    /// Flag descriptor names that are not recognized in their enclosing at-rule.
+    /// Disallows unknown descriptors for at-rules.
     ///
-    /// Enable with `true`; there are no rule-specific secondary options. The
-    /// name check uses the rule's descriptor table and accounts for page and
-    /// page-margin properties and custom names in font-feature-value blocks.
-    /// It does not validate values or check at-rules that support general nesting.
-    ///
-    /// ```css
-    /// @font-face { font-famliy: Body; } /* reported */
-    /// @font-face { font-family: Body; } /* accepted */
-    /// ```
-    "at-rule-descriptor-no-unknown", correctness, recommended = true;
+    /// Reports any standard-syntax declaration inside a descriptor-bearing at-rule whose
+    /// property name is not a recognized descriptor (or valid page, margin, or font-feature
+    /// context property) for that at-rule.
+    "at-rule-descriptor-no-unknown", correctness, recommended = true,
+    short_description = "Disallow unknown descriptors for at-rules.";
+
     #[derive(Debug, Default, Clone, Copy)]
     pub struct AtRuleDescriptorNoUnknown;
 }
@@ -39,14 +53,15 @@ crate::define_stx_lint! {
 impl AtRuleDescriptorNoUnknown {
     /// Creates a new [`AtRuleDescriptorNoUnknown`] rule instance from the given
     /// [`RuleSetting`].
-    pub fn from_setting(_setting: &RuleSetting) -> Option<Self> {
+    #[must_use]
+    pub const fn from_setting(_setting: &RuleSetting) -> Option<Self> {
         Some(Self)
     }
 }
 
 /// Represents an enclosing CSS block in the ancestry stack while scanning a
 /// stylesheet.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 enum BlockKind<'a> {
     /// An at-rule block (e.g. `@page { ... }`) with its raw name without `@`.
     AtRule { name: &'a str },
@@ -63,6 +78,7 @@ impl Rule for AtRuleDescriptorNoUnknown {
         if !ctx.source.contains('@') {
             return;
         }
+
         let mut ancestors = Vec::new();
         scan_block(ctx, 0, ctx.source.len(), &mut ancestors);
     }
@@ -96,9 +112,11 @@ fn scan_block<'a>(
                     Some(at_name) => BlockKind::AtRule { name: at_name },
                     None => BlockKind::QualifiedRule,
                 };
+
                 ancestors.push(block_kind);
                 scan_block(ctx, open_brace + 1, close_brace, ancestors);
                 ancestors.pop();
+
                 pos = (close_brace + 1).min(end);
             }
             StmtTerminator::Semicolon(semi_pos) => {
@@ -136,7 +154,7 @@ fn check_statement_decl<'a>(
         return;
     }
 
-    let prop = ctx.source[stmt_start..colon_pos].trim_end();
+    let prop = trim_trailing_ws_and_comments(&ctx.source[stmt_start..colon_pos]);
     if !is_standard_decl_prop(prop) {
         return;
     }
@@ -147,8 +165,8 @@ fn check_statement_decl<'a>(
     }
 
     let prop_span = Span {
-        start: stmt_start as u32,
-        end: (stmt_start + prop.len()) as u32,
+        start: u32::try_from(stmt_start).unwrap_or(u32::MAX),
+        end: u32::try_from(stmt_start + prop.len()).unwrap_or(u32::MAX),
     };
 
     let immediate_parent = ancestors.last().copied();
@@ -189,13 +207,34 @@ fn check_statement_decl<'a>(
     }
 }
 
+/// Strips trailing ASCII whitespace and `/* ... */` comments between a
+/// declaration's property name and `:`, matching PostCSS's `decl.prop` vs
+/// `decl.raws.between`.
+#[must_use]
+fn trim_trailing_ws_and_comments(mut s: &str) -> &str {
+    loop {
+        s = s.trim_end_matches(|c: char| c.is_ascii_whitespace());
+        if let Some(before_close) = s.strip_suffix("*/")
+            && let Some(open_idx) = before_close.rfind("/*")
+        {
+            s = &before_close[..open_idx];
+            continue;
+        }
+        return s;
+    }
+}
+
 /// Checks whether `prop` is a valid page context property inside `@page`.
+#[inline]
+#[must_use]
 fn is_page_context_property_in_page_at_rule(at_rule_name: &str, prop: &str) -> bool {
     at_rule_name.eq_ignore_ascii_case("page") && in_set(PAGE_CONTEXT_PROPERTIES, prop)
 }
 
 /// Checks whether `prop` is a valid margin context property inside a page-margin
 /// at-rule nested within `@page`.
+#[inline]
+#[must_use]
 fn is_margin_context_property_in_margin_at_rule(
     at_rule_name: &str,
     prop: &str,
@@ -208,12 +247,15 @@ fn is_margin_context_property_in_margin_at_rule(
 
 /// Checks whether `parent_name` is a font-feature-value type at-rule nested inside
 /// `@font-feature-values`.
+#[inline]
+#[must_use]
 fn is_font_feature_value_type(at_rule_name: &str, parent_name: &str) -> bool {
     at_rule_name.eq_ignore_ascii_case("font-feature-values")
         && in_set_ignore_case(FONT_FEATURE_VALUE_TYPES, parent_name)
 }
 
 /// Extracts a standard-syntax at-rule name from a block header starting with `@`.
+#[must_use]
 fn parse_standard_at_rule_name(header: &str) -> Option<&str> {
     let rest = header.strip_prefix('@')?;
     if has_interpolation(header) {
@@ -229,10 +271,9 @@ fn parse_standard_at_rule_name(header: &str) -> Option<&str> {
     }
 
     let name = &rest[..name_len];
-    let after_name = &rest[name_len..];
-
-    // Ignore Less mixin definitions/calls such as `@mixin()` or `@foo: { ... }`.
-    if after_name.starts_with('(') || after_name.starts_with(':') {
+    let after_name = rest[name_len..].trim_start();
+    // Ignore Less detached ruleset definitions such as `@foo: { ... };`.
+    if after_name.starts_with(':') {
         return None;
     }
 
@@ -240,6 +281,8 @@ fn parse_standard_at_rule_name(header: &str) -> Option<&str> {
 }
 
 /// Checks whether `prop` is a standard-syntax CSS property/descriptor identifier.
+#[inline]
+#[must_use]
 fn is_standard_decl_prop(prop: &str) -> bool {
     if prop.is_empty() || prop.starts_with('$') || prop.starts_with('@') || has_interpolation(prop)
     {
@@ -258,6 +301,7 @@ enum StmtTerminator {
 
 /// Scans from `start` up to `end` to find the end of the current statement (`{`,
 /// `;`, or `end`) and records the position of the first top-level `:`.
+#[must_use]
 fn scan_statement(
     bytes: &[u8],
     start: usize,
@@ -272,8 +316,18 @@ fn scan_statement(
             b'/' if pos + 1 < end && bytes[pos + 1] == b'*' => {
                 pos = skip_block_comment(bytes, pos + 2, end);
             }
+            b'/' if pos + 1 < end
+                && bytes[pos + 1] == b'/'
+                && (pos == 0 || bytes[pos - 1] != b':') =>
+            {
+                pos = skip_line_comment(bytes, pos + 2, end);
+            }
             b'"' | b'\'' => {
                 pos = skip_quoted_string(bytes, pos + 1, end, bytes[pos]);
+            }
+            b'#' if pos + 1 < end && bytes[pos + 1] == b'{' => {
+                let close = find_matching_brace(bytes, pos + 2, end);
+                pos = (close + 1).min(end);
             }
             b'(' => {
                 paren_depth += 1;
@@ -303,6 +357,7 @@ fn scan_statement(
 }
 
 /// Finds the matching `}` for a block body starting at `start` (immediately after `{`).
+#[must_use]
 fn find_matching_brace(bytes: &[u8], start: usize, end: usize) -> usize {
     let mut pos = start;
     let mut depth: usize = 1;
@@ -311,6 +366,12 @@ fn find_matching_brace(bytes: &[u8], start: usize, end: usize) -> usize {
         match bytes[pos] {
             b'/' if pos + 1 < end && bytes[pos + 1] == b'*' => {
                 pos = skip_block_comment(bytes, pos + 2, end);
+            }
+            b'/' if pos + 1 < end
+                && bytes[pos + 1] == b'/'
+                && (pos == 0 || bytes[pos - 1] != b':') =>
+            {
+                pos = skip_line_comment(bytes, pos + 2, end);
             }
             b'"' | b'\'' => {
                 pos = skip_quoted_string(bytes, pos + 1, end, bytes[pos]);
@@ -335,13 +396,21 @@ fn find_matching_brace(bytes: &[u8], start: usize, end: usize) -> usize {
     end
 }
 
-/// Skips whitespace and `/* ... */` comments starting from `start` up to `end`.
+/// Skips whitespace, `/* ... */` block comments, and `// ...` line comments
+/// starting from `pos` up to `end`.
+#[must_use]
 fn skip_ws_and_comments(bytes: &[u8], mut pos: usize, end: usize) -> usize {
     while pos < end {
         if bytes[pos].is_ascii_whitespace() {
             pos += 1;
         } else if bytes[pos] == b'/' && pos + 1 < end && bytes[pos + 1] == b'*' {
             pos = skip_block_comment(bytes, pos + 2, end);
+        } else if bytes[pos] == b'/'
+            && pos + 1 < end
+            && bytes[pos + 1] == b'/'
+            && (pos == 0 || bytes[pos - 1] != b':')
+        {
+            pos = skip_line_comment(bytes, pos + 2, end);
         } else {
             break;
         }
@@ -350,6 +419,8 @@ fn skip_ws_and_comments(bytes: &[u8], mut pos: usize, end: usize) -> usize {
 }
 
 /// Skips past the closing `*/` of a block comment.
+#[inline]
+#[must_use]
 fn skip_block_comment(bytes: &[u8], mut pos: usize, end: usize) -> usize {
     while pos + 1 < end {
         if bytes[pos] == b'*' && bytes[pos + 1] == b'/' {
@@ -360,7 +431,19 @@ fn skip_block_comment(bytes: &[u8], mut pos: usize, end: usize) -> usize {
     end
 }
 
+/// Skips past the newline terminating a `//` single-line comment.
+#[inline]
+#[must_use]
+fn skip_line_comment(bytes: &[u8], mut pos: usize, end: usize) -> usize {
+    while pos < end && bytes[pos] != b'\n' {
+        pos += 1;
+    }
+    pos
+}
+
 /// Skips past the closing `quote` character of a string literal, respecting `\` escapes.
+#[inline]
+#[must_use]
 fn skip_quoted_string(bytes: &[u8], mut pos: usize, end: usize, quote: u8) -> usize {
     while pos < end {
         match bytes[pos] {
@@ -489,5 +572,50 @@ mod tests {
         )];
 
         Tester::new(AtRuleDescriptorNoUnknown::NAME, json!(true), [], fail).test();
+    }
+
+    #[test]
+    fn edge_cases_and_preprocessors() {
+        let pass = &[
+            "@font-face { font-family: 'Inter'; src: url('inter.woff2'); font-display: swap; }",
+            "@FONT-FACE { FONT-FAMILY: 'Inter'; }",
+            "@font-palette-values --foo { font-family: 'Inter'; base-palette: 1; }",
+            "@color-profile --swop5c { src: url('swop5c.icc'); rendering-intent: relative-colorimetric; }",
+            "@keyframes fade { from { opacity: 0; } to { opacity: 1; } }",
+        ];
+
+        let fail = &[
+            reject(
+                "@FONT-FACE { foo: normal; }",
+                None,
+                rejected("@FONT-FACE", "foo"),
+                (1, 14, 1, 17),
+            ),
+            reject(
+                "@property --foo { bar /* comment */ : 0; }",
+                None,
+                rejected("@property", "bar"),
+                (1, 19, 1, 22),
+            ),
+        ];
+
+        Tester::new(AtRuleDescriptorNoUnknown::NAME, json!(true), pass, fail).test();
+
+        Tester::new(
+            AtRuleDescriptorNoUnknown::NAME,
+            json!(true),
+            &[
+                "@font-face {\n  $family: 'Inter';\n  // unknown: 0;\n  font-family: $family;\n}",
+                "@font-face { #{$prop}: normal; }",
+            ],
+            &[reject(
+                "@font-face {\n  // comment\n  foo: normal;\n}",
+                None,
+                rejected("@font-face", "foo"),
+                (3, 3, 3, 6),
+            )],
+        )
+        .with_custom_syntax("postcss-scss")
+        .test();
     }
 }

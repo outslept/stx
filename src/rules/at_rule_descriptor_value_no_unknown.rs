@@ -1,16 +1,34 @@
-//! Rule `at-rule-descriptor-value-no-unknown`: disallow unknown values for descriptors within at-rules.
+//! Disallows unknown values for descriptors within at-rules
+//! (`at-rule-descriptor-value-no-unknown`).
 //!
-//! Reference: <https://stylelint.io/user-guide/rules/at-rule-descriptor-value-no-unknown>
+//! # Checked Constructs
+//!
+//! 1. Standard-syntax declarations inside any enclosing at-rule that does not support
+//!    general selector nesting (`NESTING_SUPPORTED_AT_KEYWORDS`), provided the declaration's
+//!    property is a known descriptor for that at-rule.
+//! 2. Unknown descriptor names are ignored by this rule (they are reported by
+//!    `at-rule-descriptor-no-unknown`).
+//! 3. Declarations whose immediate parent is a `@page` margin at-rule
+//!    (`PAGE_MARGIN_AT_KEYWORDS`) or a `@font-feature-values` sub-block
+//!    (`FONT_FEATURE_VALUE_TYPES`) are ignored.
+//! 4. CSS custom property and environment variable substitutions (`var()`, `env()`) are
+//!    rejected inside descriptor values unless the enclosing at-rule is in
+//!    `VAR_FUNCTION_ACCEPTING_AT_KEYWORDS` (`@function`, `@position-try`).
+//! 5. Descriptor values in `@property`, `@counter-style`, `@view-transition`, `@font-face`,
+//!    `@font-feature-values`, and `@page` are validated against their W3C CSS specification
+//!    grammars.
 
-use crate::config::RuleSetting;
-use crate::context::LintContext;
-use crate::rules::Rule;
-use crate::utils::{
-    FONT_FEATURE_VALUE_TYPES, LENGTH_UNITS, NESTING_SUPPORTED_AT_KEYWORDS, PAGE_MARGIN_AT_KEYWORDS,
-    at_rule_descriptors, has_interpolation, in_set_ignore_case,
+use oxc_css_parser::{Span, ast::Stylesheet};
+
+use crate::{
+    config::RuleSetting,
+    context::LintContext,
+    rules::Rule,
+    utils::{
+        FONT_FEATURE_VALUE_TYPES, LENGTH_UNITS, NESTING_SUPPORTED_AT_KEYWORDS,
+        PAGE_MARGIN_AT_KEYWORDS, at_rule_descriptors, has_interpolation, in_set_ignore_case,
+    },
 };
-use oxc_css_parser::Span;
-use oxc_css_parser::ast::Stylesheet;
 
 /// At-rules whose declarations accept `var()` / `env()` substitutions even though
 /// their properties are modeled as descriptors.
@@ -54,40 +72,39 @@ const COUNTER_STYLE_SYSTEM_KEYWORDS: &[&str] = &[
 const COUNTER_STYLE_SPEAK_AS_KEYWORDS: &[&str] =
     &["auto", "bullets", "numbers", "spell-out", "words"];
 
+/// Formats the diagnostic message when `value` is invalid for `descriptor`.
+#[inline]
+#[must_use]
+fn unknown_descriptor_value_diagnostic(descriptor: &str, value: &str) -> String {
+    format!("Unknown value \"{value}\" for descriptor \"{descriptor}\"")
+}
+
 crate::define_stx_lint! {
-    /// Flag invalid values for supported at-rule descriptors.
+    /// Disallows unknown values for descriptors within at-rules.
     ///
-    /// Enable with `true`; there are no rule-specific secondary options. Value
-    /// grammar checks cover selected descriptors in `@property`, `@counter-style`,
-    /// `@view-transition`, `@font-face`, `@font-feature-values`, and `@page`.
-    /// Unknown descriptor names and declarations in page-margin or font-feature-value
-    /// sub-blocks are skipped. For checked descriptors, `var()` and `env()` are
-    /// rejected except in `@function` and `@position-try`.
-    ///
-    /// ```css
-    /// @font-face { font-display: fast; } /* reported */
-    /// @font-face { font-display: swap; } /* accepted */
-    /// ```
-    "at-rule-descriptor-value-no-unknown", correctness, recommended = true;
+    /// Validates descriptor values inside `@property`, `@counter-style`, `@view-transition`,
+    /// `@font-face`, `@font-feature-values`, and `@page` against their W3C grammars, and
+    /// rejects `var()` / `env()` substitutions in descriptors outside `@function` and
+    /// `@position-try`.
+    "at-rule-descriptor-value-no-unknown", correctness, recommended = true,
+    short_description = "Disallow unknown values for descriptors within at-rules.";
+
+    #[derive(Debug, Default, Clone, Copy)]
     pub struct AtRuleDescriptorValueNoUnknown;
 }
 
 impl AtRuleDescriptorValueNoUnknown {
     /// Creates a new [`AtRuleDescriptorValueNoUnknown`] rule instance from the
     /// given [`RuleSetting`].
-    pub fn from_setting(_setting: &RuleSetting) -> Option<Self> {
+    #[must_use]
+    pub const fn from_setting(_setting: &RuleSetting) -> Option<Self> {
         Some(Self)
-    }
-
-    /// Formats the diagnostic message when `value` is invalid for `descriptor`.
-    fn rejected_message(descriptor: &str, value: &str) -> String {
-        format!("Unknown value \"{value}\" for descriptor \"{descriptor}\"")
     }
 }
 
 /// Represents an enclosing CSS block in the ancestry stack while scanning a
 /// stylesheet.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 enum BlockKind<'a> {
     /// An at-rule block (e.g. `@font-face { ... }`) with its raw name without `@`.
     AtRule { name: &'a str },
@@ -101,9 +118,12 @@ impl Rule for AtRuleDescriptorValueNoUnknown {
     }
 
     fn check_stylesheet<'a>(&self, _ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {
-        let len = u32::try_from(ctx.source.len()).unwrap_or(u32::MAX);
+        if !ctx.source.contains('@') {
+            return;
+        }
+
         let mut ancestors = Vec::new();
-        self.scan_block(ctx, 0, len, &mut ancestors);
+        self.scan_block(ctx, 0, ctx.source.len(), &mut ancestors);
     }
 }
 
@@ -113,26 +133,26 @@ impl AtRuleDescriptorValueNoUnknown {
     fn scan_block<'a>(
         &self,
         ctx: &mut LintContext<'a>,
-        start: u32,
-        end: u32,
+        start: usize,
+        end: usize,
         ancestors: &mut Vec<BlockKind<'a>>,
     ) {
+        let bytes = ctx.source.as_bytes();
         let mut pos = start;
 
         while pos < end {
-            pos = skip_ws_and_comments(ctx, pos, end);
+            pos = skip_ws_and_comments(bytes, pos, end);
             if pos >= end {
                 break;
             }
 
             let stmt_start = pos;
-            let (stmt_end, terminator, first_colon) = scan_statement(ctx, stmt_start, end);
+            let (stmt_end, terminator, first_colon) = scan_statement(bytes, stmt_start, end);
 
             match terminator {
                 StmtTerminator::OpenBrace(open_brace) => {
-                    let close_brace = find_matching_brace(ctx, open_brace + 1, end);
-                    let header = ctx.slice_range(stmt_start, open_brace).trim();
-
+                    let close_brace = find_matching_brace(bytes, open_brace + 1, end);
+                    let header = ctx.source[stmt_start..open_brace].trim();
                     let block_kind = if let Some(at_name) = parse_standard_at_rule_name(header) {
                         BlockKind::AtRule { name: at_name }
                     } else {
@@ -143,11 +163,7 @@ impl AtRuleDescriptorValueNoUnknown {
                     self.scan_block(ctx, open_brace + 1, close_brace, ancestors);
                     ancestors.pop();
 
-                    pos = if close_brace < end {
-                        close_brace + 1
-                    } else {
-                        end
-                    };
+                    pos = (close_brace + 1).min(end);
                 }
                 StmtTerminator::Semicolon(semi_pos) => {
                     self.check_statement_decl(ctx, stmt_start, semi_pos, first_colon, ancestors);
@@ -166,9 +182,9 @@ impl AtRuleDescriptorValueNoUnknown {
     fn check_statement_decl<'a>(
         &self,
         ctx: &mut LintContext<'a>,
-        stmt_start: u32,
-        stmt_end: u32,
-        first_colon: Option<u32>,
+        stmt_start: usize,
+        stmt_end: usize,
+        first_colon: Option<usize>,
         ancestors: &[BlockKind<'a>],
     ) {
         if ancestors.is_empty() {
@@ -179,27 +195,26 @@ impl AtRuleDescriptorValueNoUnknown {
             return;
         };
 
-        if byte_at(ctx, stmt_start) == Some(b'@') {
+        let bytes = ctx.source.as_bytes();
+        if bytes.get(stmt_start) == Some(&b'@') {
             return;
         }
 
-        let raw_prop = ctx.slice_range(stmt_start, colon_pos);
-        let prop = raw_prop.trim_end();
+        let prop = trim_trailing_ws_and_comments(&ctx.source[stmt_start..colon_pos]);
         if !is_standard_decl_prop(prop) {
             return;
         }
 
-        let val_start = skip_ws_and_comments(ctx, colon_pos + 1, stmt_end);
-        let raw_after_ws = ctx.slice_range(val_start, stmt_end);
-        let value = raw_after_ws.trim_end();
+        let val_start = skip_ws_and_comments(bytes, colon_pos + 1, stmt_end);
+        let value = ctx.source[val_start..stmt_end].trim_end();
         if value.is_empty() {
             return;
         }
 
-        let val_len = u32::try_from(value.len()).unwrap_or(0);
+        let val_end = val_start + value.len();
         let val_span = Span {
-            start: val_start,
-            end: val_start + val_len,
+            start: u32::try_from(val_start).unwrap_or(u32::MAX),
+            end: u32::try_from(val_end).unwrap_or(u32::MAX),
         };
 
         let immediate_parent = ancestors.last().copied();
@@ -229,170 +244,233 @@ impl AtRuleDescriptorValueNoUnknown {
             }
 
             // Check `var()` / `env()` function calls outside string literals.
-            if contains_var_or_env_function(ctx, val_start, val_start + val_len) {
+            if contains_var_or_env_function(&ctx.source[val_start..val_end]) {
                 if !in_set_ignore_case(VAR_FUNCTION_ACCEPTING_AT_KEYWORDS, at_rule_name) {
-                    ctx.report(self.name(), val_span, Self::rejected_message(prop, value));
+                    ctx.report(
+                        Self::NAME,
+                        val_span,
+                        unknown_descriptor_value_diagnostic(prop, value),
+                    );
                 }
                 continue;
             }
 
             if !is_valid_descriptor_value(at_rule_name, prop, value) {
-                ctx.report(self.name(), val_span, Self::rejected_message(prop, value));
+                ctx.report(
+                    Self::NAME,
+                    val_span,
+                    unknown_descriptor_value_diagnostic(prop, value),
+                );
             }
         }
     }
 }
 
-/// Checks whether `value` matches the W3C specification grammar for `descriptor`
-/// inside `at_rule_name`.
-fn is_valid_descriptor_value(at_rule_name: &str, descriptor: &str, value: &str) -> bool {
-    let at_lower = at_rule_name.to_ascii_lowercase();
-    let desc_lower = descriptor.to_ascii_lowercase();
-
-    match (at_lower.as_str(), desc_lower.as_str()) {
-        // @property
-        ("property", "syntax") => is_single_quoted_string(value),
-        ("property", "inherits") => {
-            value.eq_ignore_ascii_case("true") || value.eq_ignore_ascii_case("false")
-        }
-        ("property", "initial-value") => !value.is_empty(),
-
-        // @counter-style
-        ("counter-style", "system") => is_valid_counter_style_system(value),
-        ("counter-style", "symbols") => value.split_whitespace().all(is_valid_counter_style_symbol),
-        ("counter-style", "prefix" | "suffix") => is_valid_counter_style_symbol(value),
-        ("counter-style", "negative") => {
-            let parts: Vec<&str> = value.split_whitespace().collect();
-            (1..=2).contains(&parts.len()) && parts.into_iter().all(is_valid_counter_style_symbol)
-        }
-        ("counter-style", "fallback") => {
-            !value.eq_ignore_ascii_case("none") && is_custom_ident(value)
-        }
-        ("counter-style", "speak-as") => {
-            in_set_ignore_case(COUNTER_STYLE_SPEAK_AS_KEYWORDS, value) || is_custom_ident(value)
-        }
-
-        // @view-transition
-        ("view-transition", "navigation") => {
-            value.eq_ignore_ascii_case("auto") || value.eq_ignore_ascii_case("none")
-        }
-        ("view-transition", "types") => {
-            value.eq_ignore_ascii_case("none") || value.split_whitespace().all(is_custom_ident)
-        }
-
-        // @font-face & @font-feature-values
-        ("font-face" | "font-feature-values", "font-display") => {
-            in_set_ignore_case(FONT_DISPLAY_KEYWORDS, value)
-        }
-        ("font-face", "ascent-override" | "descent-override" | "line-gap-override") => {
-            let parts: Vec<&str> = value.split_whitespace().collect();
-            (1..=2).contains(&parts.len())
-                && parts
-                    .into_iter()
-                    .all(|p| p.eq_ignore_ascii_case("normal") || is_non_negative_percentage(p))
-        }
-        ("font-face", "size-adjust") => is_non_negative_percentage(value),
-        ("font-face", "font-weight") => is_valid_font_weight_descriptor(value),
-        ("font-face", "font-stretch" | "font-width") => {
-            let parts: Vec<&str> = value.split_whitespace().collect();
-            (1..=2).contains(&parts.len())
-                && parts.into_iter().all(|p| {
-                    in_set_ignore_case(FONT_STRETCH_DESCRIPTOR_KEYWORDS, p)
-                        || is_non_negative_percentage(p)
-                })
-        }
-        ("font-face", "font-style") => {
-            value.eq_ignore_ascii_case("auto")
-                || value.eq_ignore_ascii_case("normal")
-                || value.eq_ignore_ascii_case("italic")
-                || value.to_ascii_lowercase().starts_with("oblique")
-        }
-        ("font-face", "font-named-instance") => {
-            value.eq_ignore_ascii_case("auto") || is_single_quoted_string(value)
-        }
-        ("font-face", "font-language-override") => {
-            value.eq_ignore_ascii_case("normal") || is_single_quoted_string(value)
-        }
-        ("font-face", "font-family") => {
-            is_single_quoted_string(value) || value.split_whitespace().all(is_custom_ident)
-        }
-
-        // @page
-        ("page", "size") => is_valid_page_size(value),
-        ("page", "orientation" | "page-orientation") => matches!(
-            value.to_ascii_lowercase().as_str(),
-            "upright" | "rotate-left" | "rotate-right" | "portrait" | "landscape"
-        ),
-        ("page", "marks") => {
-            value.eq_ignore_ascii_case("none")
-                || value
-                    .split_whitespace()
-                    .all(|p| p.eq_ignore_ascii_case("crop") || p.eq_ignore_ascii_case("cross"))
-        }
-        ("page", "bleed") => value.eq_ignore_ascii_case("auto") || is_length(value),
-
-        _ => true,
+/// Checks whether `value` contains 1 or 2 whitespace-separated tokens that all
+/// satisfy `pred`, without allocating a `Vec`.
+#[inline]
+#[must_use]
+fn check_one_or_two_tokens(value: &str, mut pred: impl FnMut(&str) -> bool) -> bool {
+    let mut iter = value.split_ascii_whitespace();
+    let Some(first) = iter.next() else {
+        return false;
+    };
+    if !pred(first) {
+        return false;
+    }
+    match (iter.next(), iter.next()) {
+        (None, _) => true,
+        (Some(second), None) => pred(second),
+        (Some(_), Some(_)) => false,
     }
 }
 
+/// Checks whether `value` matches the W3C specification grammar for `descriptor`
+/// inside `at_rule_name`.
+#[must_use]
+fn is_valid_descriptor_value(at_rule_name: &str, descriptor: &str, value: &str) -> bool {
+    if at_rule_name.eq_ignore_ascii_case("property") {
+        if descriptor.eq_ignore_ascii_case("syntax") {
+            return is_single_quoted_string(value);
+        }
+        if descriptor.eq_ignore_ascii_case("inherits") {
+            return value.eq_ignore_ascii_case("true") || value.eq_ignore_ascii_case("false");
+        }
+        if descriptor.eq_ignore_ascii_case("initial-value") {
+            return !value.is_empty();
+        }
+    } else if at_rule_name.eq_ignore_ascii_case("counter-style") {
+        if descriptor.eq_ignore_ascii_case("system") {
+            return is_valid_counter_style_system(value);
+        }
+        if descriptor.eq_ignore_ascii_case("symbols") {
+            return value
+                .split_ascii_whitespace()
+                .all(is_valid_counter_style_symbol);
+        }
+        if descriptor.eq_ignore_ascii_case("prefix") || descriptor.eq_ignore_ascii_case("suffix") {
+            return is_valid_counter_style_symbol(value);
+        }
+        if descriptor.eq_ignore_ascii_case("negative") {
+            return check_one_or_two_tokens(value, is_valid_counter_style_symbol);
+        }
+        if descriptor.eq_ignore_ascii_case("fallback") {
+            return !value.eq_ignore_ascii_case("none") && is_custom_ident(value);
+        }
+        if descriptor.eq_ignore_ascii_case("speak-as") {
+            return in_set_ignore_case(COUNTER_STYLE_SPEAK_AS_KEYWORDS, value)
+                || is_custom_ident(value);
+        }
+    } else if at_rule_name.eq_ignore_ascii_case("view-transition") {
+        if descriptor.eq_ignore_ascii_case("navigation") {
+            return value.eq_ignore_ascii_case("auto") || value.eq_ignore_ascii_case("none");
+        }
+        if descriptor.eq_ignore_ascii_case("types") {
+            return value.eq_ignore_ascii_case("none")
+                || value.split_ascii_whitespace().all(is_custom_ident);
+        }
+    } else if at_rule_name.eq_ignore_ascii_case("font-face") {
+        if descriptor.eq_ignore_ascii_case("font-display") {
+            return in_set_ignore_case(FONT_DISPLAY_KEYWORDS, value);
+        }
+        if descriptor.eq_ignore_ascii_case("ascent-override")
+            || descriptor.eq_ignore_ascii_case("descent-override")
+            || descriptor.eq_ignore_ascii_case("line-gap-override")
+        {
+            return check_one_or_two_tokens(value, |p| {
+                p.eq_ignore_ascii_case("normal") || is_non_negative_percentage(p)
+            });
+        }
+        if descriptor.eq_ignore_ascii_case("size-adjust") {
+            return is_non_negative_percentage(value);
+        }
+        if descriptor.eq_ignore_ascii_case("font-weight") {
+            return is_valid_font_weight_descriptor(value);
+        }
+        if descriptor.eq_ignore_ascii_case("font-stretch")
+            || descriptor.eq_ignore_ascii_case("font-width")
+        {
+            return check_one_or_two_tokens(value, |p| {
+                in_set_ignore_case(FONT_STRETCH_DESCRIPTOR_KEYWORDS, p)
+                    || is_non_negative_percentage(p)
+            });
+        }
+        if descriptor.eq_ignore_ascii_case("font-style") {
+            return value.eq_ignore_ascii_case("auto")
+                || value.eq_ignore_ascii_case("normal")
+                || value.eq_ignore_ascii_case("italic")
+                || value
+                    .get(..7)
+                    .is_some_and(|prefix| prefix.eq_ignore_ascii_case("oblique"));
+        }
+        if descriptor.eq_ignore_ascii_case("font-named-instance") {
+            return value.eq_ignore_ascii_case("auto") || is_single_quoted_string(value);
+        }
+        if descriptor.eq_ignore_ascii_case("font-language-override") {
+            return value.eq_ignore_ascii_case("normal") || is_single_quoted_string(value);
+        }
+        if descriptor.eq_ignore_ascii_case("font-family") {
+            return is_single_quoted_string(value)
+                || value.split_ascii_whitespace().all(is_custom_ident);
+        }
+    } else if at_rule_name.eq_ignore_ascii_case("font-feature-values") {
+        if descriptor.eq_ignore_ascii_case("font-display") {
+            return in_set_ignore_case(FONT_DISPLAY_KEYWORDS, value);
+        }
+    } else if at_rule_name.eq_ignore_ascii_case("page") {
+        if descriptor.eq_ignore_ascii_case("size") {
+            return is_valid_page_size(value);
+        }
+        if descriptor.eq_ignore_ascii_case("orientation")
+            || descriptor.eq_ignore_ascii_case("page-orientation")
+        {
+            return in_set_ignore_case(
+                &[
+                    "upright",
+                    "rotate-left",
+                    "rotate-right",
+                    "portrait",
+                    "landscape",
+                ],
+                value,
+            );
+        }
+        if descriptor.eq_ignore_ascii_case("marks") {
+            return value.eq_ignore_ascii_case("none")
+                || value
+                    .split_ascii_whitespace()
+                    .all(|p| p.eq_ignore_ascii_case("crop") || p.eq_ignore_ascii_case("cross"));
+        }
+        if descriptor.eq_ignore_ascii_case("bleed") {
+            return value.eq_ignore_ascii_case("auto") || is_length(value);
+        }
+    }
+
+    true
+}
+
 /// Validates the `system` descriptor value in `@counter-style`.
+#[must_use]
 fn is_valid_counter_style_system(value: &str) -> bool {
-    let parts: Vec<&str> = value.split_whitespace().collect();
-    match parts.as_slice() {
-        [single] => in_set_ignore_case(COUNTER_STYLE_SYSTEM_KEYWORDS, single),
-        [first, second] if first.eq_ignore_ascii_case("fixed") => second.parse::<i64>().is_ok(),
-        [first, second] if first.eq_ignore_ascii_case("extends") => is_custom_ident(second),
+    let mut iter = value.split_ascii_whitespace();
+    match (iter.next(), iter.next(), iter.next()) {
+        (Some(single), None, _) => in_set_ignore_case(COUNTER_STYLE_SYSTEM_KEYWORDS, single),
+        (Some(first), Some(second), None) if first.eq_ignore_ascii_case("fixed") => {
+            second.parse::<i64>().is_ok()
+        }
+        (Some(first), Some(second), None) if first.eq_ignore_ascii_case("extends") => {
+            is_custom_ident(second)
+        }
         _ => false,
     }
 }
 
 /// Validates a `<symbol>` token (`<string> | <image> | <custom-ident>`) in
 /// `@counter-style`.
+#[must_use]
 fn is_valid_counter_style_symbol(token: &str) -> bool {
     if is_single_quoted_string(token) {
         return true;
     }
-    let lower = token.to_ascii_lowercase();
-    if lower.starts_with("url(") && lower.ends_with(')') {
+    if token
+        .get(..4)
+        .is_some_and(|p| p.eq_ignore_ascii_case("url("))
+        && token.ends_with(')')
+    {
         return true;
     }
     is_custom_ident(token)
 }
 
 /// Validates the `font-weight` descriptor in `@font-face`.
+#[must_use]
 fn is_valid_font_weight_descriptor(value: &str) -> bool {
     if value.eq_ignore_ascii_case("auto") {
         return true;
     }
-    let parts: Vec<&str> = value.split_whitespace().collect();
-    (1..=2).contains(&parts.len())
-        && parts.into_iter().all(|p| {
-            p.eq_ignore_ascii_case("normal")
-                || p.eq_ignore_ascii_case("bold")
-                || p.parse::<f64>().is_ok_and(|n| (1.0..=1000.0).contains(&n))
-        })
+    check_one_or_two_tokens(value, |p| {
+        p.eq_ignore_ascii_case("normal")
+            || p.eq_ignore_ascii_case("bold")
+            || p.parse::<f64>().is_ok_and(|n| (1.0..=1000.0).contains(&n))
+    })
 }
 
 /// Validates the `size` descriptor in `@page`.
+#[must_use]
 fn is_valid_page_size(value: &str) -> bool {
     if value.eq_ignore_ascii_case("auto") {
         return true;
     }
-    let parts: Vec<&str> = value.split_whitespace().collect();
-    if parts.is_empty() || parts.len() > 2 {
-        return false;
-    }
-    if parts.iter().all(|p| is_length(p)) {
-        return true;
-    }
-    parts.iter().all(|p| {
-        p.eq_ignore_ascii_case("portrait")
-            || p.eq_ignore_ascii_case("landscape")
-            || in_set_ignore_case(PAGE_SIZE_KEYWORDS, p)
-    })
+    check_one_or_two_tokens(value, is_length)
+        || check_one_or_two_tokens(value, |p| {
+            p.eq_ignore_ascii_case("portrait")
+                || p.eq_ignore_ascii_case("landscape")
+                || in_set_ignore_case(PAGE_SIZE_KEYWORDS, p)
+        })
 }
 
 /// Checks whether `s` is a single quoted CSS string literal (`"..."` or `'...'`).
+#[must_use]
 fn is_single_quoted_string(s: &str) -> bool {
     let bytes = s.as_bytes();
     if bytes.len() < 2 {
@@ -416,6 +494,8 @@ fn is_single_quoted_string(s: &str) -> bool {
 }
 
 /// Checks whether `s` is a non-negative `<percentage>` token (e.g. `0%`, `100%`).
+#[inline]
+#[must_use]
 fn is_non_negative_percentage(s: &str) -> bool {
     let Some(num_part) = s.strip_suffix('%') else {
         return false;
@@ -424,6 +504,7 @@ fn is_non_negative_percentage(s: &str) -> bool {
 }
 
 /// Checks whether `s` is a `<length>` token or `0`.
+#[must_use]
 fn is_length(s: &str) -> bool {
     if s == "0" {
         return true;
@@ -440,6 +521,8 @@ fn is_length(s: &str) -> bool {
 }
 
 /// Checks whether `s` is a valid CSS `<custom-ident>`.
+#[inline]
+#[must_use]
 fn is_custom_ident(s: &str) -> bool {
     if s.is_empty() {
         return false;
@@ -448,53 +531,64 @@ fn is_custom_ident(s: &str) -> bool {
         .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
-/// Scans `[start, end)` in `ctx.source` and returns `true` if a `var(` or `env(`
-/// function call occurs outside of string literals and comments.
-fn contains_var_or_env_function(ctx: &LintContext<'_>, start: u32, end: u32) -> bool {
-    let mut pos = start;
+/// Scans `value` and returns `true` if a `var(` or `env(` function call occurs
+/// outside of string literals and comments.
+#[must_use]
+fn contains_var_or_env_function(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    let end = bytes.len();
+    let mut pos = 0;
+
     while pos < end {
-        let Some(b) = byte_at(ctx, pos) else {
-            break;
-        };
-
-        if b == b'/' && byte_at(ctx, pos + 1) == Some(b'*') {
-            pos = skip_block_comment(ctx, pos + 2, end);
+        let b = bytes[pos];
+        if b == b'/' && pos + 1 < end && bytes[pos + 1] == b'*' {
+            pos = skip_block_comment(bytes, pos + 2, end);
             continue;
         }
-
         if b == b'"' || b == b'\'' {
-            pos = skip_quoted_string(ctx, pos + 1, end, b);
+            pos = skip_quoted_string(bytes, pos + 1, end, b);
             continue;
         }
-
         if b.is_ascii_alphabetic() || b == b'-' || b == b'_' {
             let ident_start = pos;
             pos += 1;
-            while pos < end {
-                let Some(ch) = byte_at(ctx, pos) else {
-                    break;
-                };
-                if ch.is_ascii_alphanumeric() || ch == b'-' || ch == b'_' {
-                    pos += 1;
-                } else {
-                    break;
-                }
+            while pos < end
+                && (bytes[pos].is_ascii_alphanumeric() || bytes[pos] == b'-' || bytes[pos] == b'_')
+            {
+                pos += 1;
             }
-            if byte_at(ctx, pos) == Some(b'(') {
-                let ident = ctx.slice_range(ident_start, pos);
+            if pos < end && bytes[pos] == b'(' {
+                let ident = &value[ident_start..pos];
                 if ident.eq_ignore_ascii_case("var") || ident.eq_ignore_ascii_case("env") {
                     return true;
                 }
             }
             continue;
         }
-
         pos += 1;
     }
+
     false
 }
 
+/// Strips trailing ASCII whitespace and `/* ... */` comments between a
+/// declaration's property name and `:`.
+#[must_use]
+fn trim_trailing_ws_and_comments(mut s: &str) -> &str {
+    loop {
+        s = s.trim_end_matches(|c: char| c.is_ascii_whitespace());
+        if let Some(before_close) = s.strip_suffix("*/")
+            && let Some(open_idx) = before_close.rfind("/*")
+        {
+            s = &before_close[..open_idx];
+            continue;
+        }
+        return s;
+    }
+}
+
 /// Extracts a standard-syntax at-rule name from a block header starting with `@`.
+#[must_use]
 fn parse_standard_at_rule_name(header: &str) -> Option<&str> {
     let rest = header.strip_prefix('@')?;
     if has_interpolation(header) {
@@ -510,12 +604,9 @@ fn parse_standard_at_rule_name(header: &str) -> Option<&str> {
     }
 
     let name = &rest[..name_len];
-    let after_name = &rest[name_len..];
-
-    // Ignore Less mixin definitions/calls unless it is CSS `@function --foo()`.
-    if !name.eq_ignore_ascii_case("function")
-        && (after_name.starts_with('(') || after_name.starts_with(':'))
-    {
+    let after_name = rest[name_len..].trim_start();
+    // Ignore Less detached ruleset definitions such as `@foo: { ... };`.
+    if after_name.starts_with(':') {
         return None;
     }
 
@@ -523,6 +614,8 @@ fn parse_standard_at_rule_name(header: &str) -> Option<&str> {
 }
 
 /// Checks whether `prop` is a standard-syntax CSS property/descriptor identifier.
+#[inline]
+#[must_use]
 fn is_standard_decl_prop(prop: &str) -> bool {
     if prop.is_empty() || prop.starts_with('$') || prop.starts_with('@') || has_interpolation(prop)
     {
@@ -534,33 +627,40 @@ fn is_standard_decl_prop(prop: &str) -> bool {
 
 /// How a statement inside a block was terminated.
 enum StmtTerminator {
-    OpenBrace(u32),
-    Semicolon(u32),
+    OpenBrace(usize),
+    Semicolon(usize),
     End,
 }
 
 /// Scans from `start` up to `end` to find the end of the current statement (`{`,
 /// `;`, or `end`) and records the position of the first top-level `:`.
+#[must_use]
 fn scan_statement(
-    ctx: &LintContext<'_>,
-    start: u32,
-    end: u32,
-) -> (u32, StmtTerminator, Option<u32>) {
+    bytes: &[u8],
+    start: usize,
+    end: usize,
+) -> (usize, StmtTerminator, Option<usize>) {
     let mut pos = start;
-    let mut paren_depth: u32 = 0;
-    let mut first_colon: Option<u32> = None;
+    let mut paren_depth: usize = 0;
+    let mut first_colon: Option<usize> = None;
 
     while pos < end {
-        let Some(b) = byte_at(ctx, pos) else {
-            break;
-        };
-
-        match b {
-            b'/' if byte_at(ctx, pos + 1) == Some(b'*') => {
-                pos = skip_block_comment(ctx, pos + 2, end);
+        match bytes[pos] {
+            b'/' if pos + 1 < end && bytes[pos + 1] == b'*' => {
+                pos = skip_block_comment(bytes, pos + 2, end);
+            }
+            b'/' if pos + 1 < end
+                && bytes[pos + 1] == b'/'
+                && (pos == 0 || bytes[pos - 1] != b':') =>
+            {
+                pos = skip_line_comment(bytes, pos + 2, end);
             }
             b'"' | b'\'' => {
-                pos = skip_quoted_string(ctx, pos + 1, end, b);
+                pos = skip_quoted_string(bytes, pos + 1, end, bytes[pos]);
+            }
+            b'#' if pos + 1 < end && bytes[pos + 1] == b'{' => {
+                let close = find_matching_brace(bytes, pos + 2, end);
+                pos = (close + 1).min(end);
             }
             b'(' => {
                 paren_depth += 1;
@@ -590,21 +690,24 @@ fn scan_statement(
 }
 
 /// Finds the matching `}` for a block body starting at `start` (immediately after `{`).
-fn find_matching_brace(ctx: &LintContext<'_>, start: u32, end: u32) -> u32 {
+#[must_use]
+fn find_matching_brace(bytes: &[u8], start: usize, end: usize) -> usize {
     let mut pos = start;
-    let mut depth: u32 = 1;
+    let mut depth: usize = 1;
 
     while pos < end {
-        let Some(b) = byte_at(ctx, pos) else {
-            break;
-        };
-
-        match b {
-            b'/' if byte_at(ctx, pos + 1) == Some(b'*') => {
-                pos = skip_block_comment(ctx, pos + 2, end);
+        match bytes[pos] {
+            b'/' if pos + 1 < end && bytes[pos + 1] == b'*' => {
+                pos = skip_block_comment(bytes, pos + 2, end);
+            }
+            b'/' if pos + 1 < end
+                && bytes[pos + 1] == b'/'
+                && (pos == 0 || bytes[pos - 1] != b':') =>
+            {
+                pos = skip_line_comment(bytes, pos + 2, end);
             }
             b'"' | b'\'' => {
-                pos = skip_quoted_string(ctx, pos + 1, end, b);
+                pos = skip_quoted_string(bytes, pos + 1, end, bytes[pos]);
             }
             b'{' => {
                 depth += 1;
@@ -626,17 +729,21 @@ fn find_matching_brace(ctx: &LintContext<'_>, start: u32, end: u32) -> u32 {
     end
 }
 
-/// Skips whitespace and `/* ... */` comments starting from `start` up to `end`.
-fn skip_ws_and_comments(ctx: &LintContext<'_>, start: u32, end: u32) -> u32 {
-    let mut pos = start;
+/// Skips whitespace, `/* ... */` block comments, and `// ...` line comments
+/// starting from `pos` up to `end`.
+#[must_use]
+fn skip_ws_and_comments(bytes: &[u8], mut pos: usize, end: usize) -> usize {
     while pos < end {
-        let Some(b) = byte_at(ctx, pos) else {
-            break;
-        };
-        if b.is_ascii_whitespace() {
+        if bytes[pos].is_ascii_whitespace() {
             pos += 1;
-        } else if b == b'/' && byte_at(ctx, pos + 1) == Some(b'*') {
-            pos = skip_block_comment(ctx, pos + 2, end);
+        } else if bytes[pos] == b'/' && pos + 1 < end && bytes[pos + 1] == b'*' {
+            pos = skip_block_comment(bytes, pos + 2, end);
+        } else if bytes[pos] == b'/'
+            && pos + 1 < end
+            && bytes[pos + 1] == b'/'
+            && (pos == 0 || bytes[pos - 1] != b':')
+        {
+            pos = skip_line_comment(bytes, pos + 2, end);
         } else {
             break;
         }
@@ -645,10 +752,11 @@ fn skip_ws_and_comments(ctx: &LintContext<'_>, start: u32, end: u32) -> u32 {
 }
 
 /// Skips past the closing `*/` of a block comment.
-fn skip_block_comment(ctx: &LintContext<'_>, start: u32, end: u32) -> u32 {
-    let mut pos = start;
-    while pos < end {
-        if byte_at(ctx, pos) == Some(b'*') && byte_at(ctx, pos + 1) == Some(b'/') {
+#[inline]
+#[must_use]
+fn skip_block_comment(bytes: &[u8], mut pos: usize, end: usize) -> usize {
+    while pos + 1 < end {
+        if bytes[pos] == b'*' && bytes[pos + 1] == b'/' {
             return pos + 2;
         }
         pos += 1;
@@ -656,29 +764,196 @@ fn skip_block_comment(ctx: &LintContext<'_>, start: u32, end: u32) -> u32 {
     end
 }
 
+/// Skips past the newline terminating a `//` single-line comment.
+#[inline]
+#[must_use]
+fn skip_line_comment(bytes: &[u8], mut pos: usize, end: usize) -> usize {
+    while pos < end && bytes[pos] != b'\n' {
+        pos += 1;
+    }
+    pos
+}
+
 /// Skips past the closing `quote` character of a string literal, respecting `\` escapes.
-fn skip_quoted_string(ctx: &LintContext<'_>, start: u32, end: u32, quote: u8) -> u32 {
-    let mut pos = start;
+#[inline]
+#[must_use]
+fn skip_quoted_string(bytes: &[u8], mut pos: usize, end: usize, quote: u8) -> usize {
     while pos < end {
-        let Some(b) = byte_at(ctx, pos) else {
-            break;
-        };
-        if b == b'\\' {
-            pos = (pos + 2).min(end);
-        } else if b == quote {
-            return pos + 1;
-        } else {
-            pos += 1;
+        match bytes[pos] {
+            b'\\' => pos = (pos + 2).min(end),
+            b if b == quote => return pos + 1,
+            _ => pos += 1,
         }
     }
     end
 }
 
-/// Returns the byte at `offset` in `ctx.source` using `u32` span indexing.
-#[inline]
-fn byte_at(ctx: &LintContext<'_>, offset: u32) -> Option<u8> {
-    ctx.slice_range(offset, offset.saturating_add(1))
-        .as_bytes()
-        .first()
-        .copied()
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{AtRuleDescriptorValueNoUnknown, unknown_descriptor_value_diagnostic as rejected};
+    use crate::tester::{Tester, reject, reject_warnings};
+
+    #[test]
+    fn default_config() {
+        let pass = &[
+            "a { color: 0; }",
+            "@counter-style foo { system: cyclic; symbols: url(bar.svg); suffix: \" \"; }",
+            "@property --foo { syntax: \"<integer>\"; inherits: false; initial-value: 0; }",
+            "@view-transition { navigation: auto; }",
+            "@foo { bar: 0 }",
+            "@media (width > 400px) { a { color: red; } }",
+            "a { @media (width > 400px) { color: red; } }",
+            "@property --foo { system: bar; }",
+            "@page { margin: var(--foo); }",
+            "@function --foo() { result: var(--bar); }",
+            "@font-face { font-family: \"var(--foo)\"; }",
+        ];
+
+        let fail = &[
+            reject(
+                "@counter-style foo { system: bar; }",
+                None,
+                rejected("system", "bar"),
+                (1, 30, 1, 33),
+            ),
+            reject(
+                "@property --foo { syntax: bar; }",
+                None,
+                rejected("syntax", "bar"),
+                (1, 27, 1, 30),
+            ),
+            reject_warnings(
+                "@property --foo { syntax: bar; inherits: baz; }",
+                None,
+                vec![
+                    (rejected("syntax", "bar"), (1, 27, 1, 30)),
+                    (rejected("inherits", "baz"), (1, 42, 1, 45)),
+                ],
+            ),
+            reject(
+                "@property --foo { syntax: cyclic; }",
+                None,
+                rejected("syntax", "cyclic"),
+                (1, 27, 1, 33),
+            ),
+            reject(
+                "@font-face { font-weight: var(--foo); }",
+                None,
+                rejected("font-weight", "var(--foo)"),
+                (1, 27, 1, 37),
+            ),
+            reject(
+                "@page { size: var(--foo); }",
+                None,
+                rejected("size", "var(--foo)"),
+                (1, 15, 1, 25),
+            ),
+            reject(
+                "@font-face { @supports (foo: 0) { ascent-override: baz } }",
+                None,
+                rejected("ascent-override", "baz"),
+                (1, 52, 1, 55),
+            ),
+            reject(
+                "@mixin --qux-baz(@contents) {\n\t@supports (overflow-anchor: auto) {\n\t\t@contents;\n\t}\n}\n\nbody {\n\t@apply --qux-baz {\n\t\t@font-face {\n\t\t  ascent-override: foo;\n\t\t}\n\t}\n}",
+                None,
+                rejected("ascent-override", "foo"),
+                (10, 22, 10, 25),
+            ),
+        ];
+
+        Tester::new(
+            AtRuleDescriptorValueNoUnknown::NAME,
+            json!(true),
+            pass,
+            fail,
+        )
+        .test();
+    }
+
+    #[test]
+    #[ignore = "indirection via @mixin/@apply not supported"]
+    fn with_indirection() {
+        let fail = &[reject(
+            "@mixin --qux-baz(@contents) {\n\t@supports (overflow-anchor: auto) {\n\t\t@font-face {\n\t\t\t@contents;\n\t\t}\n\t}\n}\n\nbody {\n\t@apply --qux-baz {\n\t\tascent-override: foo;\n\t}\n}",
+            None,
+            rejected("ascent-override", "foo"),
+            (11, 20, 11, 23),
+        )];
+
+        Tester::new(AtRuleDescriptorValueNoUnknown::NAME, json!(true), [], fail).test();
+    }
+
+    #[test]
+    fn edge_cases_and_utf8_safety() {
+        let pass = &[
+            "@counter-style foo { system: fixed 1; negative: \"(\" \")\"; fallback: decimal; speak-as: numbers; }",
+            "@counter-style foo { system: extends decimal; }",
+            "@font-face { font-display: swap; font-weight: 100 900; font-stretch: 50% 200%; font-style: oblique 10deg; size-adjust: 100%; }",
+            "@page { size: a4 landscape; marks: crop cross; bleed: 6pt; page-orientation: rotate-left; }",
+            "@position-try --foo { top: var(--offset); }",
+            "@view-transition { navigation: none; types: slide fade; }",
+        ];
+
+        let fail = &[
+            reject(
+                "@counter-style foo { symbols: \"★\" \"☆\"; system: bar; }",
+                None,
+                rejected("system", "bar"),
+                (1, 48, 1, 51),
+            ),
+            reject(
+                "@font-face { font-display: fast; }",
+                None,
+                rejected("font-display", "fast"),
+                (1, 28, 1, 32),
+            ),
+            reject(
+                "@font-face { font-weight: 0; }",
+                None,
+                rejected("font-weight", "0"),
+                (1, 27, 1, 28),
+            ),
+            reject(
+                "@font-face { size-adjust: -10%; }",
+                None,
+                rejected("size-adjust", "-10%"),
+                (1, 27, 1, 31),
+            ),
+            reject(
+                "@counter-style foo { fallback: none; }",
+                None,
+                rejected("fallback", "none"),
+                (1, 32, 1, 36),
+            ),
+            reject(
+                "@view-transition { navigation: invalid; }",
+                None,
+                rejected("navigation", "invalid"),
+                (1, 32, 1, 39),
+            ),
+            reject(
+                "@page { marks: invalid; }",
+                None,
+                rejected("marks", "invalid"),
+                (1, 16, 1, 23),
+            ),
+            reject(
+                "@page { bleed: 10%; }",
+                None,
+                rejected("bleed", "10%"),
+                (1, 16, 1, 19),
+            ),
+        ];
+
+        Tester::new(
+            AtRuleDescriptorValueNoUnknown::NAME,
+            json!(true),
+            pass,
+            fail,
+        )
+        .test();
+    }
 }

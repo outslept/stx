@@ -1,6 +1,31 @@
-//! Rule `at-rule-prelude-no-invalid`: disallow invalid preludes for at-rules.
+//! Disallows invalid preludes for at-rules (`at-rule-prelude-no-invalid`).
 //!
-//! Reference: <https://stylelint.io/user-guide/rules/at-rule-prelude-no-invalid>
+//! This rule is a 1:1 behavioral port of Stylelint's official
+//! [`at-rule-prelude-no-invalid`](https://stylelint.io/user-guide/rules/at-rule-prelude-no-invalid)
+//! rule.
+//!
+//! # Checked Constructs
+//!
+//! Standard CSS at-rules with non-empty preludes are validated against their
+//! W3C / `css-tree` specification grammars (`lexer.matchAtrulePrelude(name, params)`):
+//!
+//! 1. **Validated at-rules** (case-insensitive):
+//!    - `@layer`: `<layer-name>#` where `<layer-name> = <custom-ident> ('.' <custom-ident>)*`
+//!    - `@property`: `<custom-property-name>#` (`<dashed-ident>#`)
+//!    - `@scope`: `[ ( <scope-start> ) ]? [ to ( <scope-end> ) ]?`
+//!    - `@font-palette-values`, `@position-try`: `<dashed-ident>`
+//!    - `@color-profile`: `<dashed-ident> | device-cmyk`
+//!    - `@counter-style`: `<counter-style-name>` (`<custom-ident>` excluding `none`)
+//!    - `@font-feature-values`: `<family-name>#` (`<string> | <custom-ident>+`)
+//!    - `@keyframes` (and vendor-prefixed variants): `<keyframes-name>` (`<custom-ident> | <string>`)
+//!    - `@charset`: `<string>`
+//!
+//! 2. **Ignored constructs**:
+//!    - Unknown or custom at-rules without a prelude grammar in `css-tree`
+//!      (where `lexer.matchAtrulePrelude` returns `SyntaxReferenceError` rather
+//!      than `SyntaxMatchError`).
+//!    - Non-standard preprocessor constructs (`isStandardSyntaxAtRule`) and
+//!      preludes containing SCSS/Less interpolation (`#{$var}`, `@{var}`).
 
 use std::ops::Deref;
 
@@ -13,29 +38,22 @@ use crate::utils::has_interpolation;
 use crate::utils::options::{OptionMatcher, options_matches, parse_option_matchers};
 use crate::utils::reference::is_css_wide_keyword;
 
-#[derive(Default)]
+/// Configuration for [`AtRulePreludeNoInvalid`].
+#[derive(Debug, Default)]
 pub struct AtRulePreludeNoInvalidConfig {
-    /// Compiled matchers for the `ignoreAtRules` secondary option.
+    /// Compiled matchers from `{ "ignoreAtRules": [...] }`.
     ignore_at_rules: Vec<OptionMatcher>,
 }
 
 crate::define_stx_lint! {
-    /// Check the text between selected at-rule names and their opening brace or semicolon.
+    /// Disallow invalid preludes for at-rules.
     ///
-    /// Enable with `true`. The secondary `ignoreAtRules` list accepts names or
-    /// slash-delimited regexes matched without `@`.
-    ///
-    /// This checks `@layer`, `@property`, `@scope`, `@font-palette-values`,
-    /// `@position-try`, `@color-profile`, `@counter-style`, and `@font-feature-values`.
-    /// It also requires empty preludes for `@font-face`, `@starting-style`,
-    /// `@view-transition`, and `@viewport`. Other at-rules and interpolated preludes are skipped.
-    ///
-    /// ```css
-    /// @font-face Body { font-family: Body; } /* reported */
-    /// @font-face { font-family: Body; }      /* accepted */
-    /// ```
-    "at-rule-prelude-no-invalid", correctness, recommended = true;
-    #[derive(Default)]
+    /// Validates at-rule preludes against W3C / `css-tree` grammars (such as
+    /// `@layer`, `@property`, `@scope`, `@font-palette-values`, `@position-try`,
+    /// `@color-profile`, `@counter-style`, and `@font-feature-values`).
+    "at-rule-prelude-no-invalid", correctness, recommended = true,
+    short_description = "Disallow invalid preludes for at-rules.";
+    #[derive(Debug, Default)]
     pub struct AtRulePreludeNoInvalid(AtRulePreludeNoInvalidConfig);
 }
 
@@ -47,19 +65,22 @@ impl Deref for AtRulePreludeNoInvalid {
     }
 }
 
+/// Formats the diagnostic message matching Stylelint's `messages.rejected`.
+#[inline]
+#[must_use]
+fn rejected(at_rule: &str, prelude: &str) -> String {
+    format!("Invalid prelude \"{prelude}\" for at-rule \"{at_rule}\"")
+}
+
 impl AtRulePreludeNoInvalid {
-    /// Creates a new `at-rule-prelude-no-invalid` rule instance from secondary options.
+    /// Constructs a configured [`AtRulePreludeNoInvalid`] rule instance from raw
+    /// Stylelint secondary options.
+    #[must_use]
     pub fn new(secondary: Option<&Map<String, Value>>) -> Self {
         Self(AtRulePreludeNoInvalidConfig {
             ignore_at_rules: parse_option_matchers(secondary, "ignoreAtRules"),
         })
     }
-}
-
-/// Formats the diagnostic message when an invalid at-rule prelude is found.
-#[inline]
-fn rejected_message(at_rule: &str, prelude: &str) -> String {
-    format!("Invalid prelude \"{prelude}\" for at-rule \"{at_rule}\"")
 }
 
 impl Rule for AtRulePreludeNoInvalid {
@@ -68,97 +89,167 @@ impl Rule for AtRulePreludeNoInvalid {
     }
 
     fn check_stylesheet<'a>(&self, _ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {
-        let len = u32::try_from(ctx.source.len()).unwrap_or(u32::MAX);
-        let mut i: u32 = 0;
-        // Track whether the scanner is at a position where a statement / at-rule can start.
+        let bytes = ctx.source.as_bytes();
+        let len = bytes.len();
+        let mut pos: usize = 0;
+        // Track whether the scanner is at a position where a statement / at-rule can start
+        // (start of file, or after `{`, `}`, `;` at top-level parenthesis depth).
         let mut at_statement_start = true;
-        while i < len {
-            let b = byte_at(ctx, i);
+        let mut paren_depth: u32 = 0;
+
+        while pos < len {
+            let b = bytes[pos];
+
             // Whitespace preserves `at_statement_start`.
             if b.is_ascii_whitespace() {
-                i += 1;
+                pos += 1;
                 continue;
             }
+
             // Skip block comments `/* ... */` (preserving `at_statement_start`).
-            if b == b'/' && i + 1 < len && byte_at(ctx, i + 1) == b'*' {
-                i += 2;
-                while i + 1 < len && !(byte_at(ctx, i) == b'*' && byte_at(ctx, i + 1) == b'/') {
-                    i += 1;
-                }
-                i = if i + 1 < len { i + 2 } else { len };
+            if b == b'/' && bytes.get(pos + 1) == Some(&b'*') {
+                pos = skip_block_comment(bytes, pos + 2);
                 continue;
             }
+
             // Skip single-line comments `// ...` when not part of a URL scheme (`://`).
             if b == b'/'
-                && i + 1 < len
-                && byte_at(ctx, i + 1) == b'/'
-                && (i == 0 || byte_at(ctx, i - 1) != b':')
+                && bytes.get(pos + 1) == Some(&b'/')
+                && (pos == 0 || bytes[pos - 1] != b':')
             {
-                i += 2;
-                while i < len && byte_at(ctx, i) != b'\n' {
-                    i += 1;
-                }
+                pos = skip_line_comment(bytes, pos + 2);
                 continue;
             }
+
             // Skip quoted string literals.
             if b == b'"' || b == b'\'' {
                 at_statement_start = false;
-                i = skip_string(ctx, i, len);
+                pos = skip_quoted_string(bytes, pos + 1, b);
                 continue;
             }
-            // Statement delimiters allow an at-rule to follow.
-            if matches!(b, b'{' | b'}' | b';') {
-                at_statement_start = true;
-                i += 1;
-                continue;
-            }
-            // Check for an at-rule at the start of a statement.
-            if b == b'@' && at_statement_start {
-                let at_start = i;
-                let name_start = i + 1;
-                if name_start < len && is_ident_start(byte_at(ctx, name_start)) {
-                    let mut name_end = name_start + 1;
-                    while name_end < len && is_ident_char(byte_at(ctx, name_end)) {
-                        name_end += 1;
-                    }
-                    let header_end = find_at_rule_header_end(ctx, name_end, len);
-                    // Ignore Less variable declarations (`@var: ...`) and Less mixin calls (`@mixin(...)`).
-                    let next_non_ws = skip_spaces_and_tabs(ctx, name_end, len);
-                    let is_less_construct = next_non_ws < len
-                        && (byte_at(ctx, next_non_ws) == b':'
-                            || (next_non_ws == name_end && byte_at(ctx, next_non_ws) == b'('));
-                    if !is_less_construct {
-                        let name = ctx.slice_range(name_start, name_end);
-                        let (prelude_start, prelude_end) =
-                            trim_prelude_range(ctx, name_end, header_end);
-                        let prelude = ctx.slice_range(prelude_start, prelude_end);
-                        if !has_interpolation(name)
-                            && !has_interpolation(prelude)
-                            && !options_matches(&self.ignore_at_rules, name)
-                            && !is_valid_at_rule_prelude(&name.to_ascii_lowercase(), prelude)
-                        {
-                            let at_name = ctx.slice_range(at_start, name_end);
-                            let span = Span {
-                                start: prelude_start,
-                                end: prelude_end,
-                            };
-                            ctx.report(Self::NAME, span, rejected_message(at_name, prelude));
-                        }
-                    }
+
+            match b {
+                b'(' => {
+                    paren_depth += 1;
                     at_statement_start = false;
-                    i = header_end;
-                    continue;
+                    pos += 1;
+                }
+                b')' => {
+                    paren_depth = paren_depth.saturating_sub(1);
+                    at_statement_start = false;
+                    pos += 1;
+                }
+                b'{' | b'}' | b';' if paren_depth == 0 => {
+                    at_statement_start = true;
+                    pos += 1;
+                }
+                b'@' if at_statement_start && paren_depth == 0 => {
+                    let at_start = pos;
+                    let name_start = pos + 1;
+                    if name_start < len && is_ident_start(bytes[name_start]) {
+                        let mut name_end = name_start + 1;
+                        while name_end < len && is_ident_char(bytes[name_end]) {
+                            name_end += 1;
+                        }
+                        let header_end = find_at_rule_header_end(bytes, name_end);
+                        let has_block = bytes.get(header_end) == Some(&b'{');
+
+                        if is_standard_at_rule_header(bytes, name_end, header_end, has_block) {
+                            let at_start_u32 = u32::try_from(at_start).unwrap_or(u32::MAX);
+                            let name_start_u32 = u32::try_from(name_start).unwrap_or(u32::MAX);
+                            let name_end_u32 = u32::try_from(name_end).unwrap_or(u32::MAX);
+                            let name = ctx.slice_range(name_start_u32, name_end_u32);
+
+                            let (prelude_start, prelude_end) =
+                                trim_prelude_range(bytes, name_end, header_end);
+                            let prelude_start_u32 =
+                                u32::try_from(prelude_start).unwrap_or(u32::MAX);
+                            let prelude_end_u32 = u32::try_from(prelude_end).unwrap_or(u32::MAX);
+                            let raw_params = ctx.slice_range(prelude_start_u32, prelude_end_u32);
+                            let clean_params = strip_comments(raw_params);
+                            let clean_prelude = clean_params.trim();
+
+                            // In Stylelint, `lexer.matchAtrulePrelude(name, params)` only reports
+                            // `SyntaxMatchError` when `params` is non-empty; an empty prelude either
+                            // matches or returns a non-`SyntaxMatchError` error.
+                            if !clean_prelude.is_empty()
+                                && !has_interpolation(name)
+                                && !has_interpolation(raw_params)
+                                && !options_matches(&self.ignore_at_rules, name)
+                                && !is_valid_at_rule_prelude(
+                                    &name.to_ascii_lowercase(),
+                                    clean_prelude,
+                                )
+                            {
+                                let at_name = ctx.slice_range(at_start_u32, name_end_u32);
+                                let span = Span {
+                                    start: prelude_start_u32,
+                                    end: prelude_end_u32,
+                                };
+                                ctx.report(Self::NAME, span, rejected(at_name, raw_params));
+                            }
+                        }
+
+                        at_statement_start = false;
+                        pos = header_end;
+                    } else {
+                        at_statement_start = false;
+                        pos += 1;
+                    }
+                }
+                _ => {
+                    at_statement_start = false;
+                    pos += 1;
                 }
             }
-            at_statement_start = false;
-            i += 1;
         }
     }
 }
 
-/// Validates `prelude` against the W3C specification grammar for `at_rule_lower`.
+/// Checks whether the at-rule header in `name_end..header_end` belongs to a
+/// standard-syntax CSS/SCSS at-rule (`isStandardSyntaxAtRule` in Stylelint).
+#[must_use]
+fn is_standard_at_rule_header(
+    bytes: &[u8],
+    name_end: usize,
+    header_end: usize,
+    has_block: bool,
+) -> bool {
+    // `@name:` is a Less variable definition (`atRule.variable`), not a standard at-rule.
+    if bytes.get(name_end) == Some(&b':') {
+        return false;
+    }
+
+    // Interpolation attached directly to the at-rule name (`@layer-#{$var}`).
+    if bytes.get(name_end) == Some(&b'$')
+        || (bytes.get(name_end) == Some(&b'#') && bytes.get(name_end + 1) == Some(&b'{'))
+        || (bytes.get(name_end) == Some(&b'@') && bytes.get(name_end + 1) == Some(&b'{'))
+    {
+        return false;
+    }
+
+    let has_immediate_paren = bytes.get(name_end) == Some(&b'(');
+    let (prelude_start, prelude_end) = trim_prelude_range(bytes, name_end, header_end);
+    let has_params = prelude_end > prelude_start;
+
+    if has_params && bytes.get(prelude_start) == Some(&b':') {
+        return false;
+    }
+
+    if !has_block && (!has_params || has_immediate_paren) {
+        return false;
+    }
+
+    true
+}
+
+/// Validates a non-empty `prelude` against the W3C / `css-tree` specification
+/// grammar for `at_rule_lower`.
 ///
-/// Returns `true` if valid or if `at_rule_lower` is an unknown/custom at-rule.
+/// Returns `true` if valid or if `at_rule_lower` has no prelude grammar in
+/// `css-tree` (in which case `css-tree` returns `SyntaxReferenceError` rather
+/// than `SyntaxMatchError`).
+#[must_use]
 fn is_valid_at_rule_prelude(at_rule_lower: &str, prelude: &str) -> bool {
     match at_rule_lower {
         "layer" => is_valid_layer_prelude(prelude),
@@ -168,12 +259,16 @@ fn is_valid_at_rule_prelude(at_rule_lower: &str, prelude: &str) -> bool {
         "color-profile" => prelude.eq_ignore_ascii_case("device-cmyk") || is_dashed_ident(prelude),
         "counter-style" => is_custom_ident(prelude) && !prelude.eq_ignore_ascii_case("none"),
         "font-feature-values" => is_valid_font_feature_values_prelude(prelude),
-        "font-face" | "starting-style" | "view-transition" | "viewport" => prelude.is_empty(),
+        "keyframes" | "-webkit-keyframes" | "-moz-keyframes" | "-o-keyframes" => {
+            is_custom_ident(prelude) || is_quoted_string(prelude)
+        }
+        "charset" => is_quoted_string(prelude),
         _ => true,
     }
 }
 
 /// `@layer`: empty prelude or `<layer-name>#`, where `<layer-name> = <custom-ident> ('.' <custom-ident>)*`.
+#[must_use]
 fn is_valid_layer_prelude(prelude: &str) -> bool {
     if prelude.is_empty() {
         return true;
@@ -193,6 +288,7 @@ fn is_valid_layer_prelude(prelude: &str) -> bool {
 }
 
 /// `@property`: `<custom-property-name>#` (one or more comma-separated `<dashed-ident>`s).
+#[must_use]
 fn is_valid_property_prelude(prelude: &str) -> bool {
     if prelude.is_empty() {
         return false;
@@ -206,11 +302,13 @@ fn is_valid_property_prelude(prelude: &str) -> bool {
 }
 
 /// `@scope`: `[ ( <scope-start> ) ]? [ to ( <scope-end> ) ]?`.
+#[must_use]
 fn is_valid_scope_prelude(prelude: &str) -> bool {
     let mut s = prelude.trim();
     if s.is_empty() {
         return true;
     }
+
     // Optional `(<scope-start>)`
     if s.starts_with('(') {
         let Some(after_first) = consume_parenthesized_group(s) else {
@@ -221,6 +319,7 @@ fn is_valid_scope_prelude(prelude: &str) -> bool {
             return true;
         }
     }
+
     // Optional `to (<scope-end>)`
     if s.len() >= 2 && s[..2].eq_ignore_ascii_case("to") {
         let after_to = s[2..].trim_start();
@@ -230,10 +329,12 @@ fn is_valid_scope_prelude(prelude: &str) -> bool {
             return rest.trim().is_empty();
         }
     }
+
     false
 }
 
 /// Consumes a balanced `(...)` group from the start of `s`, returning the remaining slice.
+#[must_use]
 fn consume_parenthesized_group(s: &str) -> Option<&str> {
     let bytes = s.as_bytes();
     if bytes.first().copied() != Some(b'(') {
@@ -244,19 +345,7 @@ fn consume_parenthesized_group(s: &str) -> Option<&str> {
     while i < bytes.len() {
         let b = bytes[i];
         if b == b'"' || b == b'\'' {
-            let quote = b;
-            i += 1;
-            while i < bytes.len() {
-                if bytes[i] == b'\\' {
-                    i = (i + 2).min(bytes.len());
-                    continue;
-                }
-                if bytes[i] == quote {
-                    i += 1;
-                    break;
-                }
-                i += 1;
-            }
+            i = skip_quoted_string(bytes, i + 1, b);
             continue;
         }
         if b == b'(' {
@@ -273,6 +362,7 @@ fn consume_parenthesized_group(s: &str) -> Option<&str> {
 }
 
 /// `@font-feature-values`: `<family-name>#`, where `<family-name> = <string> | <custom-ident>+`.
+#[must_use]
 fn is_valid_font_feature_values_prelude(prelude: &str) -> bool {
     if prelude.is_empty() {
         return false;
@@ -301,27 +391,27 @@ fn is_valid_font_feature_values_prelude(prelude: &str) -> bool {
 
 /// Returns `true` if `s` is a valid `<dashed-ident>` (starts with `--` and is a valid CSS ident).
 #[inline]
+#[must_use]
 fn is_dashed_ident(s: &str) -> bool {
     s.len() > 2 && s.starts_with("--") && is_css_ident(s)
 }
 
 /// Returns `true` if `s` is a valid `<custom-ident>` (valid CSS ident and not a CSS-wide keyword).
 #[inline]
+#[must_use]
 fn is_custom_ident(s: &str) -> bool {
     is_css_ident(s) && !is_css_wide_keyword(s)
 }
 
 /// Returns `true` if `s` is a valid CSS identifier.
+#[must_use]
 fn is_css_ident(s: &str) -> bool {
     let bytes = s.as_bytes();
     if bytes.is_empty() {
         return false;
     }
     if bytes[0] == b'-' {
-        if bytes.len() < 2 {
-            return false;
-        }
-        if bytes[1].is_ascii_digit() {
+        if bytes.len() < 2 || bytes[1].is_ascii_digit() {
             return false;
         }
     } else if !is_ident_start(bytes[0]) {
@@ -331,6 +421,7 @@ fn is_css_ident(s: &str) -> bool {
 }
 
 /// Returns `true` if `s` is a single properly quoted string literal (`"..."` or `'...'`).
+#[must_use]
 fn is_quoted_string(s: &str) -> bool {
     let bytes = s.as_bytes();
     if bytes.len() < 2 {
@@ -354,23 +445,55 @@ fn is_quoted_string(s: &str) -> bool {
     false
 }
 
+/// Strips block comments (`/* ... */`) from `input`, preserving quoted strings.
+#[must_use]
+fn strip_comments(input: &str) -> String {
+    if !input.contains("/*") {
+        return input.to_string();
+    }
+    let bytes = input.as_bytes();
+    let len = bytes.len();
+    let mut out = String::with_capacity(len);
+    let mut pos = 0;
+    let mut chunk_start = 0;
+    while pos < len {
+        let b = bytes[pos];
+        if b == b'"' || b == b'\'' {
+            pos = skip_quoted_string(bytes, pos + 1, b);
+            continue;
+        }
+        if b == b'/' && bytes.get(pos + 1) == Some(&b'*') {
+            out.push_str(&input[chunk_start..pos]);
+            pos = skip_block_comment(bytes, pos + 2);
+            chunk_start = pos;
+            continue;
+        }
+        pos += 1;
+    }
+    out.push_str(&input[chunk_start..len]);
+    out
+}
+
 /// Finds the end of an at-rule header (the position of `{`, `;`, `}`, or EOF).
-fn find_at_rule_header_end(ctx: &LintContext<'_>, mut pos: u32, len: u32) -> u32 {
+#[must_use]
+fn find_at_rule_header_end(bytes: &[u8], mut pos: usize) -> usize {
+    let len = bytes.len();
     let mut paren_depth: u32 = 0;
     while pos < len {
-        let b = byte_at(ctx, pos);
+        let b = bytes[pos];
         // Skip block comments.
-        if b == b'/' && pos + 1 < len && byte_at(ctx, pos + 1) == b'*' {
-            pos += 2;
-            while pos + 1 < len && !(byte_at(ctx, pos) == b'*' && byte_at(ctx, pos + 1) == b'/') {
-                pos += 1;
-            }
-            pos = if pos + 1 < len { pos + 2 } else { len };
+        if b == b'/' && bytes.get(pos + 1) == Some(&b'*') {
+            pos = skip_block_comment(bytes, pos + 2);
+            continue;
+        }
+        // Skip single-line comments.
+        if b == b'/' && bytes.get(pos + 1) == Some(&b'/') && (pos == 0 || bytes[pos - 1] != b':') {
+            pos = skip_line_comment(bytes, pos + 2);
             continue;
         }
         // Skip quoted strings.
         if b == b'"' || b == b'\'' {
-            pos = skip_string(ctx, pos, len);
+            pos = skip_quoted_string(bytes, pos + 1, b);
             continue;
         }
         if b == b'(' {
@@ -385,28 +508,75 @@ fn find_at_rule_header_end(ctx: &LintContext<'_>, mut pos: u32, len: u32) -> u32
     len
 }
 
-/// Trims leading and trailing ASCII whitespace from `start..end`.
-fn trim_prelude_range(ctx: &LintContext<'_>, mut start: u32, mut end: u32) -> (u32, u32) {
-    while start < end && byte_at(ctx, start).is_ascii_whitespace() {
-        start += 1;
+/// Trims leading (`raws.afterName`) and trailing (`raws.between`) ASCII
+/// whitespace and block comments from `start..end`, matching PostCSS `atRule.params`
+/// and `atRuleParamIndex(atRule)`.
+#[must_use]
+fn trim_prelude_range(bytes: &[u8], mut start: usize, mut end: usize) -> (usize, usize) {
+    // Trim leading whitespace and block comments (`raws.afterName`).
+    loop {
+        while start < end && bytes[start].is_ascii_whitespace() {
+            start += 1;
+        }
+        if start + 1 < end && bytes[start] == b'/' && bytes[start + 1] == b'*' {
+            let comment_end = skip_block_comment(bytes, start + 2);
+            if comment_end <= end {
+                start = comment_end;
+                continue;
+            }
+        }
+        break;
     }
-    while end > start && byte_at(ctx, end - 1).is_ascii_whitespace() {
-        end -= 1;
+
+    // Scan through `start..end` to find the end of the last non-whitespace,
+    // non-comment token (excluding `raws.between`).
+    let mut pos = start;
+    let mut last_token_end = start;
+    while pos < end {
+        let b = bytes[pos];
+        if b.is_ascii_whitespace() {
+            pos += 1;
+            continue;
+        }
+        if b == b'/' && pos + 1 < end && bytes[pos + 1] == b'*' {
+            pos = skip_block_comment(bytes, pos + 2).min(end);
+            continue;
+        }
+        if b == b'"' || b == b'\'' {
+            pos = skip_quoted_string(bytes, pos + 1, b).min(end);
+            last_token_end = pos;
+            continue;
+        }
+        pos += 1;
+        last_token_end = pos;
     }
+    end = last_token_end;
     (start, end)
 }
 
-/// Skips a quoted string literal starting at `pos`.
-fn skip_string(ctx: &LintContext<'_>, mut pos: u32, len: u32) -> u32 {
-    let quote = byte_at(ctx, pos);
-    pos += 1;
+/// Skips past the closing `*/` of a block comment.
+#[inline]
+#[must_use]
+fn skip_block_comment(bytes: &[u8], start: usize) -> usize {
+    let len = bytes.len();
+    let mut pos = start;
     while pos < len {
-        let cur = byte_at(ctx, pos);
-        if cur == b'\\' {
-            pos = (pos + 2).min(len);
-            continue;
+        if bytes[pos] == b'*' && bytes.get(pos + 1) == Some(&b'/') {
+            return pos + 2;
         }
-        if cur == quote {
+        pos += 1;
+    }
+    len
+}
+
+/// Skips past the end of a single-line `// ...` comment.
+#[inline]
+#[must_use]
+fn skip_line_comment(bytes: &[u8], start: usize) -> usize {
+    let len = bytes.len();
+    let mut pos = start;
+    while pos < len {
+        if bytes[pos] == b'\n' {
             return pos + 1;
         }
         pos += 1;
@@ -414,31 +584,37 @@ fn skip_string(ctx: &LintContext<'_>, mut pos: u32, len: u32) -> u32 {
     len
 }
 
-/// Returns the byte at `pos` in the source string.
+/// Skips past the closing `quote` character of a string literal, respecting `\` escapes.
 #[inline]
-fn byte_at(ctx: &LintContext<'_>, pos: u32) -> u8 {
-    ctx.slice_range(pos, pos + 1).as_bytes()[0]
+#[must_use]
+fn skip_quoted_string(bytes: &[u8], start: usize, quote: u8) -> usize {
+    let len = bytes.len();
+    let mut pos = start;
+    while pos < len {
+        let b = bytes[pos];
+        if b == b'\\' {
+            pos = (pos + 2).min(len);
+        } else if b == quote {
+            return pos + 1;
+        } else {
+            pos += 1;
+        }
+    }
+    len
 }
 
 /// Returns `true` if `b` can start a CSS identifier (ASCII letter, `_`, `-`, or non-ASCII byte).
 #[inline]
-fn is_ident_start(b: u8) -> bool {
+#[must_use]
+const fn is_ident_start(b: u8) -> bool {
     b.is_ascii_alphabetic() || b == b'_' || b == b'-' || b >= 0x80
 }
 
 /// Returns `true` if `b` can continue a CSS identifier.
 #[inline]
-fn is_ident_char(b: u8) -> bool {
+#[must_use]
+const fn is_ident_char(b: u8) -> bool {
     is_ident_start(b) || b.is_ascii_digit()
-}
-
-/// Advances past horizontal ASCII whitespace (`' '` and `'\t'`).
-#[inline]
-fn skip_spaces_and_tabs(ctx: &LintContext<'_>, mut idx: u32, len: u32) -> u32 {
-    while idx < len && matches!(byte_at(ctx, idx), b' ' | b'\t') {
-        idx += 1;
-    }
-    idx
 }
 
 #[cfg(test)]
@@ -463,31 +639,31 @@ mod tests {
             reject(
                 "@layer \"foo\";",
                 None,
-                rejected_message("@layer", "\"foo\""),
+                rejected("@layer", "\"foo\""),
                 (1, 8, 1, 13),
             ),
             reject(
                 "@property  foo {}",
                 None,
-                rejected_message("@property", "foo"),
+                rejected("@property", "foo"),
                 (1, 12, 1, 15),
             ),
             reject(
                 "@scope .foo {}",
                 None,
-                rejected_message("@scope", ".foo"),
+                rejected("@scope", ".foo"),
                 (1, 8, 1, 12),
             ),
             reject(
                 "@font-palette-values foo {}",
                 None,
-                rejected_message("@font-palette-values", "foo"),
+                rejected("@font-palette-values", "foo"),
                 (1, 22, 1, 25),
             ),
             reject(
                 "@font-feature-values #foo {}",
                 None,
-                rejected_message("@font-feature-values", "#foo"),
+                rejected("@font-feature-values", "#foo"),
                 (1, 22, 1, 26),
             ),
         ];
@@ -510,5 +686,64 @@ mod tests {
             &[],
         )
         .test();
+    }
+
+    #[test]
+    fn scope_color_profile_counter_style_and_comments() {
+        let pass = vec![
+            "@layer foo.bar, baz.qux;",
+            "@layer foo /* comment */, bar;",
+            "@scope (.card) to (.content) {}",
+            "@scope (.card) {}",
+            "@scope to (.content) {}",
+            "@scope {}",
+            "@color-profile --swop5c {}",
+            "@color-profile device-cmyk {}",
+            "@position-try --custom-pos {}",
+            "@font-feature-values \"Font One\", Font Two {}",
+            "/* Привет 🎨 */ @property --моё-свойство {}",
+        ];
+
+        let fail = vec![
+            reject(
+                "@counter-style none {}",
+                None,
+                rejected("@counter-style", "none"),
+                (1, 16, 1, 20),
+            ),
+            reject(
+                "@color-profile swop5c {}",
+                None,
+                rejected("@color-profile", "swop5c"),
+                (1, 16, 1, 22),
+            ),
+            reject(
+                "@position-try custom-pos {}",
+                None,
+                rejected("@position-try", "custom-pos"),
+                (1, 15, 1, 25),
+            ),
+            reject(
+                "/* Привет 🎨 */ @property /* comment */ foo /* comment */ {}",
+                None,
+                rejected("@property", "foo"),
+                (1, 40, 1, 43),
+            ),
+        ];
+
+        Tester::new(AtRulePreludeNoInvalid::NAME, json!(true), &pass, &fail).test();
+    }
+
+    #[test]
+    fn scss_and_less_non_standard_constructs() {
+        let scss_pass = vec!["@property #{$name} {}", "@layer #{$layer-name};"];
+        Tester::new(AtRulePreludeNoInvalid::NAME, json!(true), &scss_pass, &[])
+            .with_custom_syntax("postcss-scss")
+            .test();
+
+        let less_pass = vec!["@property: 10px;\n.box { width: @property; }", "@layer();"];
+        Tester::new(AtRulePreludeNoInvalid::NAME, json!(true), &less_pass, &[])
+            .with_custom_syntax("postcss-less")
+            .test();
     }
 }

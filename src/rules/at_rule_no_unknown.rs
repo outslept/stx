@@ -1,6 +1,16 @@
-//! Rule `at-rule-no-unknown`: disallow unknown at-rules.
+//! Disallows unknown at-rules (`at-rule-no-unknown`).
 //!
-//! Reference: <https://stylelint.io/user-guide/rules/at-rule-no-unknown>
+//! # Checked Constructs
+//!
+//! 1. Standard-syntax CSS at-rules at the root level or nested inside style/at-rule blocks.
+//! 2. Recognized standard at-rules are matched case-insensitively against Stylelint's
+//!    `atKeywords` reference set (plus `@charset`, which PostCSS represents separately).
+//! 3. Vendor-prefixed at-rules (such as `@-webkit-keyframes`) are ignored, matching
+//!    Stylelint's `vendor.prefix(name)` check.
+//! 4. Non-standard preprocessor constructs—such as Less variable definitions (`@var: 10px`),
+//!    Less detached rulesets and mixin calls (`@mixin()`), parameterless blockless directives
+//!    (`@content;`), and at-rules with interpolated names (`@#{$var}`, `@unknown-#{$var}`)—are
+//!    ignored via `isStandardSyntaxAtRule`.
 
 use std::ops::Deref;
 
@@ -12,25 +22,23 @@ use crate::rules::Rule;
 use crate::utils::options::{OptionMatcher, options_matches, parse_option_matchers};
 use crate::utils::reference::{AT_KEYWORDS, in_set_ignore_case};
 
-#[derive(Default)]
+/// Configuration for [`AtRuleNoUnknown`].
+#[derive(Debug, Default)]
 pub struct AtRuleNoUnknownConfig {
     /// Compiled matchers for the `ignoreAtRules` secondary option.
     ignore_at_rules: Vec<OptionMatcher>,
 }
 
 crate::define_stx_lint! {
-    /// Flag at-rule names that are not recognized CSS keywords.
+    /// Disallows unknown at-rules.
     ///
-    /// Enable with `true`. Use the secondary `ignoreAtRules` list for custom names
-    /// or slash-delimited regexes, matched without `@`. Vendor-prefixed names,
-    /// `@charset`, bare blockless at-words, and Less variable or mixin syntax are skipped.
-    ///
-    /// ```css
-    /// @medai print { a { color: black; } } /* reported */
-    /// @media print { a { color: black; } } /* accepted */
-    /// ```
-    "at-rule-no-unknown", correctness, recommended = true;
-    #[derive(Default)]
+    /// Reports any standard-syntax at-rule whose name (without the leading `@`) is not
+    /// part of the standard CSS specification, does not have a vendor prefix, and is not
+    /// exempted by `ignoreAtRules`.
+    "at-rule-no-unknown", correctness, recommended = true,
+    short_description = "Disallow unknown at-rules.";
+
+    #[derive(Debug, Default)]
     pub struct AtRuleNoUnknown(AtRuleNoUnknownConfig);
 }
 
@@ -43,7 +51,8 @@ impl Deref for AtRuleNoUnknown {
 }
 
 impl AtRuleNoUnknown {
-    /// Creates a new `at-rule-no-unknown` rule instance from secondary options.
+    /// Creates a new [`AtRuleNoUnknown`] rule instance from secondary options.
+    #[must_use]
     pub fn new(secondary: Option<&Map<String, Value>>) -> Self {
         Self(AtRuleNoUnknownConfig {
             ignore_at_rules: parse_option_matchers(secondary, "ignoreAtRules"),
@@ -53,6 +62,7 @@ impl AtRuleNoUnknown {
 
 /// Formats the diagnostic message when an unknown at-rule is found.
 #[inline]
+#[must_use]
 fn rejected_message(at_rule: &str) -> String {
     format!("Unknown at-rule \"{at_rule}\"")
 }
@@ -63,139 +73,306 @@ impl Rule for AtRuleNoUnknown {
     }
 
     fn check_stylesheet<'a>(&self, _ast: &'a Stylesheet<'a>, ctx: &mut LintContext<'a>) {
-        let len = u32::try_from(ctx.source.len()).unwrap_or(u32::MAX);
-        let mut i: u32 = 0;
+        let bytes = ctx.source.as_bytes();
+        let len = bytes.len();
+        let mut pos: usize = 0;
+
         // Track whether the scanner is at the beginning of a statement where an
-        // at-rule can appear (file start, or after `{`, `}`, `;`).
+        // at-rule can appear (file start, or after `{`, `}`, `;` at top-level parenthesis depth).
         let mut at_statement_start = true;
-        while i < len {
-            let b = byte_at(ctx, i);
+        let mut paren_depth: u32 = 0;
+
+        while pos < len {
+            let b = bytes[pos];
+
             // Whitespace preserves `at_statement_start`.
             if b.is_ascii_whitespace() {
-                i += 1;
+                pos += 1;
                 continue;
             }
+
             // Skip block comments `/* ... */` (preserving `at_statement_start`).
-            if b == b'/' && i + 1 < len && byte_at(ctx, i + 1) == b'*' {
-                i += 2;
-                while i + 1 < len && !(byte_at(ctx, i) == b'*' && byte_at(ctx, i + 1) == b'/') {
-                    i += 1;
-                }
-                i = if i + 1 < len { i + 2 } else { len };
+            if b == b'/' && bytes.get(pos + 1) == Some(&b'*') {
+                pos = skip_block_comment(bytes, pos + 2);
                 continue;
             }
+
             // Skip single-line comments `// ...` when not part of a URL scheme (`://`).
             if b == b'/'
-                && i + 1 < len
-                && byte_at(ctx, i + 1) == b'/'
-                && (i == 0 || byte_at(ctx, i - 1) != b':')
+                && bytes.get(pos + 1) == Some(&b'/')
+                && (pos == 0 || bytes[pos - 1] != b':')
             {
-                i += 2;
-                while i < len && byte_at(ctx, i) != b'\n' {
-                    i += 1;
-                }
+                pos = skip_line_comment(bytes, pos + 2);
                 continue;
             }
+
             // Skip quoted string literals.
             if b == b'"' || b == b'\'' {
                 at_statement_start = false;
-                let quote = b;
-                i += 1;
-                while i < len {
-                    let cur = byte_at(ctx, i);
-                    if cur == b'\\' {
-                        i = (i + 2).min(len);
-                        continue;
-                    }
-                    if cur == quote {
-                        i += 1;
-                        break;
-                    }
-                    i += 1;
-                }
+                pos = skip_quoted_string(bytes, pos + 1, b);
                 continue;
             }
-            // Statement delimiters allow an at-rule to start next.
-            if matches!(b, b'{' | b'}' | b';') {
-                at_statement_start = true;
-                i += 1;
+
+            // Skip SCSS `#{...}` interpolation blocks so their closing `}` does not
+            // falsely reset `at_statement_start`.
+            if b == b'#' && bytes.get(pos + 1) == Some(&b'{') {
+                at_statement_start = false;
+                pos = skip_interpolation(bytes, pos + 2);
                 continue;
             }
-            // Check for an at-rule at the start of a statement.
-            if b == b'@' && at_statement_start {
-                let at_start = i;
-                let name_start = i + 1;
-                if name_start < len && is_ident_start(byte_at(ctx, name_start)) {
-                    let mut name_end = name_start + 1;
-                    while name_end < len && is_ident_char(byte_at(ctx, name_end)) {
-                        name_end += 1;
-                    }
-                    // Ignore Less variable declarations (`@var: ...`) and Less mixin calls (`@mixin(...)`).
-                    let next_non_ws = skip_spaces_and_tabs(ctx, name_end, len);
-                    let is_less_construct = next_non_ws < len
-                        && (byte_at(ctx, next_non_ws) == b':'
-                            || (next_non_ws == name_end && byte_at(ctx, next_non_ws) == b'('));
-                    let blockless_empty = next_non_ws >= len || byte_at(ctx, next_non_ws) == b';';
-                    if !is_less_construct {
-                        let name = ctx.slice_range(name_start, name_end);
-                        if !options_matches(&self.ignore_at_rules, name)
-                            && !has_vendor_prefix(name)
-                            && !name.eq_ignore_ascii_case("charset")
-                            && !blockless_empty
-                            && !in_set_ignore_case(AT_KEYWORDS, name)
-                        {
-                            let at_name = ctx.slice_range(at_start, name_end);
-                            ctx.report(
-                                Self::NAME,
-                                Span {
-                                    start: at_start,
-                                    end: name_end,
-                                },
-                                rejected_message(at_name),
-                            );
-                        }
-                    }
+
+            match b {
+                b'(' => {
+                    paren_depth += 1;
                     at_statement_start = false;
-                    i = name_end;
-                    continue;
+                    pos += 1;
+                }
+                b')' => {
+                    paren_depth = paren_depth.saturating_sub(1);
+                    at_statement_start = false;
+                    pos += 1;
+                }
+                b'{' | b'}' | b';' if paren_depth == 0 => {
+                    at_statement_start = true;
+                    pos += 1;
+                }
+                b'@' if at_statement_start && paren_depth == 0 => {
+                    let at_start = pos;
+                    let name_start = pos + 1;
+
+                    if name_start < len && is_ident_start(bytes[name_start]) {
+                        let mut name_end = name_start + 1;
+                        while name_end < len && is_ident_char(bytes[name_end]) {
+                            name_end += 1;
+                        }
+
+                        if is_standard_at_rule_after_name(bytes, name_end) {
+                            let at_start_u32 = u32::try_from(at_start).unwrap_or(u32::MAX);
+                            let name_start_u32 = u32::try_from(name_start).unwrap_or(u32::MAX);
+                            let name_end_u32 = u32::try_from(name_end).unwrap_or(u32::MAX);
+
+                            let name = ctx.slice_range(name_start_u32, name_end_u32);
+
+                            if !options_matches(&self.ignore_at_rules, name)
+                                && !has_vendor_prefix(name)
+                                && !name.eq_ignore_ascii_case("charset")
+                                && !in_set_ignore_case(AT_KEYWORDS, name)
+                            {
+                                let at_name = ctx.slice_range(at_start_u32, name_end_u32);
+                                ctx.report(
+                                    Self::NAME,
+                                    Span {
+                                        start: at_start_u32,
+                                        end: name_end_u32,
+                                    },
+                                    rejected_message(at_name),
+                                );
+                            }
+                        }
+
+                        at_statement_start = false;
+                        pos = name_end;
+                    } else {
+                        at_statement_start = false;
+                        pos += 1;
+                    }
+                }
+                _ => {
+                    at_statement_start = false;
+                    pos += 1;
                 }
             }
-            at_statement_start = false;
-            i += 1;
         }
     }
 }
 
-/// Returns the byte at `pos` in the source string.
+/// Checks whether the token starting at `name_end` (immediately after `@<name>`)
+/// belongs to a standard-syntax CSS/SCSS at-rule rather than a Less variable,
+/// detached ruleset call, mixin call, parameterless blockless directive, or an
+/// at-rule with interpolation in its name.
+#[must_use]
+fn is_standard_at_rule_after_name(bytes: &[u8], name_end: usize) -> bool {
+    let len = bytes.len();
+
+    // `@name:` is a Less variable definition (`atRule.variable`), not a standard at-rule.
+    if bytes.get(name_end) == Some(&b':') {
+        return false;
+    }
+
+    // Interpolation attached directly to the at-rule name (`@unknown-#{$var}`, `@unknown@{var}`).
+    if bytes.get(name_end) == Some(&b'$')
+        || (bytes.get(name_end) == Some(&b'#') && bytes.get(name_end + 1) == Some(&b'{'))
+        || (bytes.get(name_end) == Some(&b'@') && bytes.get(name_end + 1) == Some(&b'{'))
+    {
+        return false;
+    }
+
+    let has_immediate_paren = bytes.get(name_end) == Some(&b'(');
+
+    let mut pos = name_end;
+    let mut paren_depth: u32 = 0;
+    let mut has_params = false;
+    let mut first_param_byte: Option<u8> = None;
+
+    while pos < len {
+        let b = bytes[pos];
+
+        if b.is_ascii_whitespace() {
+            pos += 1;
+            continue;
+        }
+
+        if b == b'/' && bytes.get(pos + 1) == Some(&b'*') {
+            pos = skip_block_comment(bytes, pos + 2);
+            continue;
+        }
+
+        if b == b'/' && bytes.get(pos + 1) == Some(&b'/') && (pos == 0 || bytes[pos - 1] != b':') {
+            pos = skip_line_comment(bytes, pos + 2);
+            continue;
+        }
+
+        if (b == b'{' || b == b';' || b == b'}') && paren_depth == 0 {
+            break;
+        }
+
+        if first_param_byte.is_none() {
+            first_param_byte = Some(b);
+        }
+        has_params = true;
+
+        match b {
+            b'"' | b'\'' => {
+                pos = skip_quoted_string(bytes, pos + 1, b);
+            }
+            b'(' => {
+                paren_depth += 1;
+                pos += 1;
+            }
+            b')' => {
+                paren_depth = paren_depth.saturating_sub(1);
+                pos += 1;
+            }
+            _ => {
+                pos += 1;
+            }
+        }
+    }
+
+    // `@name : value;` or `@name : { ... };` is a Less variable / detached ruleset definition.
+    if first_param_byte == Some(b':') {
+        return false;
+    }
+
+    let has_block = bytes.get(pos) == Some(&b'{');
+
+    // In Stylelint's `isStandardSyntaxAtRule`:
+    // 1. `if (!atRule.nodes && atRule.params === '') return false;`
+    // 2. `if (!atRule.nodes && atRule.raws.afterName === '' && atRule.params[0] === '(') return false;`
+    if !has_block && (!has_params || has_immediate_paren) {
+        return false;
+    }
+
+    true
+}
+
+/// Skips past the closing `}` of an SCSS `#{...}` interpolation block.
 #[inline]
-fn byte_at(ctx: &LintContext<'_>, pos: u32) -> u8 {
-    ctx.slice_range(pos, pos + 1).as_bytes()[0]
+#[must_use]
+fn skip_interpolation(bytes: &[u8], start: usize) -> usize {
+    let len = bytes.len();
+    let mut pos = start;
+    let mut depth: u32 = 1;
+    while pos < len {
+        match bytes[pos] {
+            b'"' | b'\'' => {
+                pos = skip_quoted_string(bytes, pos + 1, bytes[pos]);
+            }
+            b'{' => {
+                depth += 1;
+                pos += 1;
+            }
+            b'}' => {
+                depth -= 1;
+                pos += 1;
+                if depth == 0 {
+                    return pos;
+                }
+            }
+            _ => {
+                pos += 1;
+            }
+        }
+    }
+    len
+}
+
+/// Skips past the closing `*/` of a block comment.
+#[inline]
+#[must_use]
+fn skip_block_comment(bytes: &[u8], start: usize) -> usize {
+    let len = bytes.len();
+    let mut pos = start;
+    while pos < len {
+        if bytes[pos] == b'*' && bytes.get(pos + 1) == Some(&b'/') {
+            return pos + 2;
+        }
+        pos += 1;
+    }
+    len
+}
+
+/// Skips past the end of a single-line `// ...` comment.
+#[inline]
+#[must_use]
+fn skip_line_comment(bytes: &[u8], start: usize) -> usize {
+    let len = bytes.len();
+    let mut pos = start;
+    while pos < len {
+        if bytes[pos] == b'\n' {
+            return pos + 1;
+        }
+        pos += 1;
+    }
+    len
+}
+
+/// Skips past the closing `quote` character of a string literal, respecting `\` escapes.
+#[inline]
+#[must_use]
+fn skip_quoted_string(bytes: &[u8], start: usize, quote: u8) -> usize {
+    let len = bytes.len();
+    let mut pos = start;
+    while pos < len {
+        let b = bytes[pos];
+        if b == b'\\' {
+            pos = (pos + 2).min(len);
+        } else if b == quote {
+            return pos + 1;
+        } else {
+            pos += 1;
+        }
+    }
+    len
 }
 
 /// Returns `true` if `b` can start a CSS identifier (ASCII letter, `_`, `-`, or non-ASCII byte).
 #[inline]
-fn is_ident_start(b: u8) -> bool {
+#[must_use]
+const fn is_ident_start(b: u8) -> bool {
     b.is_ascii_alphabetic() || b == b'_' || b == b'-' || b >= 0x80
 }
 
 /// Returns `true` if `b` can continue a CSS identifier.
 #[inline]
-fn is_ident_char(b: u8) -> bool {
+#[must_use]
+const fn is_ident_char(b: u8) -> bool {
     is_ident_start(b) || b.is_ascii_digit()
 }
 
-/// Advances past horizontal ASCII whitespace (`' '` and `'\t'`).
-#[inline]
-fn skip_spaces_and_tabs(ctx: &LintContext<'_>, mut idx: u32, len: u32) -> u32 {
-    while idx < len && matches!(byte_at(ctx, idx), b' ' | b'\t') {
-        idx += 1;
-    }
-    idx
-}
-
 /// Returns `true` if `s` starts with a vendor prefix (`-<alphanumeric_or_underscore>-`),
-/// matching Stylelint's `vendor.prefix(s)` utility.
 #[inline]
+#[must_use]
 fn has_vendor_prefix(s: &str) -> bool {
     let bytes = s.as_bytes();
     if bytes.len() < 3 || bytes[0] != b'-' {
@@ -211,7 +388,7 @@ fn has_vendor_prefix(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tester::{Tester, reject};
+    use crate::tester::{Tester, reject, reject_warnings};
     use serde_json::json;
 
     #[test]
@@ -347,5 +524,34 @@ mod tests {
         Tester::new(AtRuleNoUnknown::NAME, json!(true), &pass, &[])
             .with_custom_syntax("postcss-less")
             .test();
+    }
+
+    #[test]
+    fn utf8_comments_strings_and_preprocessor_edge_cases() {
+        let pass = vec![
+            "/* Привет мир 🎨 @unknown {} */ a { content: \"@unknown\"; }",
+            "@mixin box { @content; }",
+            "@#{$unknown} { color: red; }",
+            "@unknown-#{$suffix} { color: red; }",
+            "#{$selector} { @media print { color: red; } }",
+        ];
+
+        let fail = vec![reject_warnings(
+            "/* Привет 🎨 */ @unknown(foo) { a { content: \"✓\"; @another-unknown bar; } }",
+            None,
+            vec![
+                (rejected_message("@unknown"), (1, 16, 1, 24)),
+                (rejected_message("@another-unknown"), (1, 50, 1, 66)),
+            ],
+        )];
+
+        Tester::new(
+            AtRuleNoUnknown::NAME,
+            json!([true, { "ignoreAtRules": ["mixin"] }]),
+            &pass,
+            &fail,
+        )
+        .with_custom_syntax("postcss-scss")
+        .test();
     }
 }
